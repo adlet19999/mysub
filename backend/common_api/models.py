@@ -1,0 +1,17 @@
+from django.conf import settings
+from django.db import models
+
+
+class PartnerProfile(models.Model):
+	user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="partner_profile")
+	phone = models.CharField(max_length=32)
+	user_type = models.CharField(max_length=20, default="partner")
+	company_name = models.CharField(max_length=200, blank=True, default="")
+	address = models.CharField(max_length=255, blank=True, default="")
+	business_category = models.CharField(max_length=120, blank=True, default="")
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	def __str__(self) -> str:
+		return f"{self.user.username} ({self.user_type})"
+
+# Create your models here.

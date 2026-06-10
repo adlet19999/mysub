@@ -1,0 +1,46 @@
+﻿@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+
+:root {
+  --bg: #f5f7f3;
+  --text: #1d2d24;
+  --font-family-base: "IBM Plex Sans", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  --font-size-base: 16px;
+  --dashboard-title-size: 30px;
+  --dashboard-title-line-height: 1.1;
+  --dashboard-subtitle-size: 14px;
+  --dashboard-subtitle-line-height: 1.4;
+  --dashboard-page-padding: 24px;
+  --dashboard-page-radius: 20px;
+  --dashboard-section-padding: 24px;
+  --dashboard-section-radius: 8px;
+  --dashboard-control-height: 40px;
+  --dashboard-control-font-size: 16px;
+  --dashboard-pill-height: 40px;
+  --dashboard-pill-font-size: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+body {
+  margin: 0;
+  background: linear-gradient(135deg, #f8faf6 0%, var(--bg) 100%);
+  color: var(--text);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  overflow-y: scroll;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+

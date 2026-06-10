@@ -1,0 +1,254 @@
+﻿.content {
+  min-height: calc(100vh - 66px);
+  border: 0;
+  border-radius: var(--dashboard-page-radius);
+  background: #ffffff;
+  padding: var(--dashboard-page-padding);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.contentHeading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pageTitle {
+  margin: 0;
+  color: #1e1e1e;
+  font-family: var(--font-family-base);
+  font-size: var(--dashboard-title-size);
+  line-height: var(--dashboard-title-line-height);
+  font-weight: 500;
+}
+
+.pageSubtitle {
+  margin: 0;
+  color: #6b7280;
+  font-family: var(--font-family-base);
+  font-size: var(--dashboard-subtitle-size);
+  line-height: var(--dashboard-subtitle-line-height);
+  font-weight: 400;
+}
+
+.statsRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.statCard {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 18px 20px;
+}
+
+.statCard p {
+  margin: 0;
+  color: #6b7280;
+  font-family: var(--font-family-base);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.statCard strong {
+  display: block;
+  margin-top: 8px;
+  color: #1f5f4d;
+  font-family: var(--font-family-base);
+  font-size: 36px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.filtersBox {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.filterInputs {
+  display: flex;
+  gap: 16px;
+  flex: 1;
+}
+
+.inputGroup {
+  width: 384px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inputGroup span:first-child {
+  color: #1e1e1e;
+  font-family: var(--font-family-base);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+}
+
+.dateInput {
+  height: 40px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  color: rgba(30, 30, 30, 0.5);
+  font-family: var(--font-family-base);
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.calendarIcon {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  flex: 0 0 30px;
+}
+
+.filterActions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.applyButton,
+.exportButton {
+  height: 40px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-family: var(--font-family-base);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.applyButton {
+  background: #f5f5f5;
+  color: #1e1e1e;
+}
+
+.exportButton {
+  background: #1f5f4d;
+  color: #ffffff;
+}
+
+.tableBox {
+  overflow: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+
+.table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  border-right: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 12px 10px;
+  text-align: left;
+  color: #1e1e1e;
+  font-family: var(--font-family-base);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.table th {
+  background: #f8f9fa;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.table th:last-child,
+.table td:last-child {
+  border-right: 0;
+}
+
+.table th:first-child {
+  border-top-left-radius: 10px;
+}
+
+.table th:last-child {
+  border-top-right-radius: 10px;
+}
+
+.wDate {
+  width: 180px;
+}
+
+.wStatus {
+  width: 140px;
+}
+
+.wSum {
+  width: 130px;
+}
+
+.center {
+  text-align: center !important;
+}
+
+.badgeSuccess,
+.badgeDanger,
+.badgeMuted {
+  font-family: var(--font-family-base);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+}
+
+.badgeSuccess {
+  color: #10b981;
+}
+
+.badgeDanger {
+  color: #dc2626;
+}
+
+.badgeMuted {
+  color: #6b7280;
+}
+
+@media (max-width: 1220px) {
+  .filterInputs {
+    flex-direction: column;
+  }
+
+  .inputGroup {
+    width: 100%;
+  }
+
+  .filtersBox {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filterActions {
+    justify-content: flex-end;
+  }
+
+  .statsRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+

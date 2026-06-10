@@ -1,0 +1,999 @@
+import re
+from datetime import timedelta
+
+from django.db.models import Q
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from common_api.models import PartnerProfile
+
+from .models import Booking, Category, Manager, Service, ServiceKind, Specialist, SpecialistServiceKind
+
+
+def tenant_from_request(request) -> str:
+	return (request.headers.get("X-Tenant") or "public").strip() or "public"
+
+
+def partner_category_from_request(request) -> str:
+	return (request.headers.get("X-Partner-Category") or "").strip()
+
+
+def partner_email_from_request(request) -> str:
+	return (request.headers.get("X-Partner-Email") or "").strip().lower()
+
+
+def get_partner_profile(request):
+	email = partner_email_from_request(request)
+	if not email:
+		return None, Response({"message": "X-Partner-Email обязателен"}, status=401)
+	profile = (
+		PartnerProfile.objects.select_related("user")
+		.filter(Q(user__username__iexact=email) | Q(user__email__iexact=email), user_type="partner")
+		.first()
+	)
+	if not profile:
+		return None, Response({"message": "Партнер не найден"}, status=401)
+	return profile, None
+
+
+def parse_bool(value, default: bool) -> bool:
+	if value is None:
+		return default
+	if isinstance(value, bool):
+		return value
+	raw = str(value).strip().lower()
+	if raw in {"1", "true", "yes", "on"}:
+		return True
+	if raw in {"0", "false", "no", "off"}:
+		return False
+	return default
+
+
+def parse_positive_int(value, field_name: str):
+	if value is None or str(value).strip() == "":
+		return None, None
+	try:
+		parsed = int(value)
+	except (TypeError, ValueError):
+		return None, f"{field_name} должен быть числом"
+	if parsed <= 0:
+		return None, f"{field_name} должен быть больше 0"
+	return parsed, None
+
+
+def normalize_service_details(category_name: str, raw_details):
+	if raw_details is None:
+		return {}, None
+	if not isinstance(raw_details, dict):
+		return {}, "details должен быть объектом"
+
+	cleaned = {}
+
+	if category_name == "Спорт":
+		max_people, max_error = parse_positive_int(raw_details.get("max_people"), "max_people")
+		if max_error:
+			return {}, max_error
+		min_people, min_error = parse_positive_int(raw_details.get("min_people"), "min_people")
+		if min_error:
+			return {}, min_error
+		if min_people is not None and max_people is not None and min_people > max_people:
+			return {}, "min_people не может быть больше max_people"
+		if max_people is not None:
+			cleaned["max_people"] = max_people
+		if min_people is not None:
+			cleaned["min_people"] = min_people
+
+	if category_name == "Кафе и рестораны":
+		table_capacity, table_error = parse_positive_int(raw_details.get("table_capacity"), "table_capacity")
+		if table_error:
+			return {}, table_error
+		hold_minutes, hold_error = parse_positive_int(raw_details.get("hold_minutes"), "hold_minutes")
+		if hold_error:
+			return {}, hold_error
+		if table_capacity is not None:
+			cleaned["table_capacity"] = table_capacity
+		if hold_minutes is not None:
+			cleaned["hold_minutes"] = hold_minutes
+
+	return cleaned, None
+
+
+WEEKDAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+VALID_WEEKDAY_SET = set(WEEKDAY_ORDER)
+TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+
+
+def default_working_schedule():
+	schedule = []
+	for day in WEEKDAY_ORDER:
+		is_weekend = day in {"sat", "sun"}
+		schedule.append(
+			{
+				"day": day,
+				"is_day_off": is_weekend,
+				"start_time": "09:00",
+				"end_time": "18:00",
+				"break_start": "13:00",
+				"break_end": "14:00",
+			}
+		)
+	return schedule
+
+
+def normalize_working_schedule(raw_schedule):
+	if raw_schedule is None:
+		return default_working_schedule(), None
+	if not isinstance(raw_schedule, list):
+		return None, "working_schedule должен быть массивом"
+
+	by_day = {}
+	for raw_item in raw_schedule:
+		if not isinstance(raw_item, dict):
+			return None, "working_schedule содержит некорректный элемент"
+
+		day = str(raw_item.get("day") or "").strip().lower()
+		if day not in VALID_WEEKDAY_SET:
+			return None, "working_schedule.day должен быть одним из mon..sun"
+		if day in by_day:
+			return None, f"working_schedule содержит дубли для дня {day}"
+
+		is_day_off = parse_bool(raw_item.get("is_day_off"), False)
+		start_time = str(raw_item.get("start_time") or "").strip()
+		end_time = str(raw_item.get("end_time") or "").strip()
+		break_start = str(raw_item.get("break_start") or "").strip()
+		break_end = str(raw_item.get("break_end") or "").strip()
+
+		if not is_day_off:
+			if not TIME_RE.match(start_time):
+				return None, f"start_time для {day} должен быть в формате HH:MM"
+			if not TIME_RE.match(end_time):
+				return None, f"end_time для {day} должен быть в формате HH:MM"
+			if start_time >= end_time:
+				return None, f"Для дня {day} start_time должен быть раньше end_time"
+
+			if bool(break_start) != bool(break_end):
+				return None, f"Для дня {day} укажите оба поля break_start и break_end"
+			if break_start and break_end:
+				if not TIME_RE.match(break_start) or not TIME_RE.match(break_end):
+					return None, f"Перерыв для дня {day} должен быть в формате HH:MM"
+				if not (start_time < break_start < break_end < end_time):
+					return None, f"Перерыв для дня {day} должен быть внутри рабочего времени"
+		else:
+			start_time = ""
+			end_time = ""
+			break_start = ""
+			break_end = ""
+
+		by_day[day] = {
+			"day": day,
+			"is_day_off": is_day_off,
+			"start_time": start_time,
+			"end_time": end_time,
+			"break_start": break_start,
+			"break_end": break_end,
+		}
+
+	normalized = []
+	for day in WEEKDAY_ORDER:
+		if day in by_day:
+			normalized.append(by_day[day])
+		else:
+			is_weekend = day in {"sat", "sun"}
+			normalized.append(
+				{
+					"day": day,
+					"is_day_off": is_weekend,
+					"start_time": "09:00",
+					"end_time": "18:00",
+					"break_start": "13:00",
+					"break_end": "14:00",
+				}
+			)
+
+	return normalized, None
+
+
+def parse_service_names(raw: str):
+	return [item.strip() for item in str(raw or "").splitlines() if item.strip()]
+
+
+def to_aware_datetime(value):
+	if value is None:
+		return None
+	if timezone.is_naive(value):
+		return timezone.make_aware(value, timezone.get_current_timezone())
+	return value
+
+
+def build_service_duration_map(tenant: str, partner_profile=None):
+	duration_map = {}
+	items = Service.objects.filter(tenant_slug=tenant)
+	if partner_profile is not None:
+		items = items.filter(partner_profile=partner_profile)
+	for service in items:
+		duration = service.duration_minutes if service.duration_minutes and service.duration_minutes > 0 else 60
+		service_name = (service.name or "").strip().lower()
+		if service_name:
+			if service_name in duration_map:
+				duration_map[service_name] = min(duration_map[service_name], duration)
+			else:
+				duration_map[service_name] = duration
+		kind_name = (service.kind.name if service.kind else "").strip().lower()
+		if kind_name:
+			if kind_name in duration_map:
+				duration_map[kind_name] = min(duration_map[kind_name], duration)
+			else:
+				duration_map[kind_name] = duration
+	return duration_map
+
+
+def resolve_booking_duration_minutes(service_name: str, duration_map) -> int:
+	names = parse_service_names(service_name)
+	if not names:
+		names = [str(service_name or "").strip()]
+	minutes = 0
+	for name in names:
+		minutes += duration_map.get(name.lower(), 60)
+	return minutes if minutes > 0 else 60
+
+
+def has_booking_overlap(
+	tenant: str,
+	manager_name: str,
+	starts_at,
+	duration_minutes: int,
+	partner_profile=None,
+	exclude_booking_id: int = None,
+):
+	manager = str(manager_name or "").strip()
+	if not manager:
+		return False
+
+	start_dt = to_aware_datetime(starts_at)
+	if start_dt is None:
+		return False
+	end_dt = start_dt + timedelta(minutes=max(1, int(duration_minutes or 60)))
+
+	duration_map = build_service_duration_map(tenant, partner_profile=partner_profile)
+	items = Booking.objects.filter(tenant_slug=tenant, manager_name__iexact=manager)
+	if partner_profile is not None:
+		items = items.filter(partner_profile=partner_profile)
+	if exclude_booking_id is not None:
+		items = items.exclude(id=exclude_booking_id)
+
+	for existing in items:
+		existing_start = to_aware_datetime(existing.starts_at)
+		if existing_start is None:
+			continue
+		existing_duration = resolve_booking_duration_minutes(existing.service_name, duration_map)
+		existing_end = existing_start + timedelta(minutes=max(1, existing_duration))
+		if start_dt < existing_end and existing_start < end_dt:
+			return True
+
+	return False
+
+
+class CategoryListCreateView(APIView):
+	def get(self, request):
+		tenant = tenant_from_request(request)
+		partner_category = partner_category_from_request(request)
+		items = Category.objects.filter(tenant_slug=tenant)
+		if partner_category:
+			items = items.filter(name=partner_category)
+		items = items.order_by("-id")
+		return Response([
+			{
+				"id": item.id,
+				"name": item.name,
+				"parent": item.parent_id,
+				"is_active": item.is_active,
+			}
+			for item in items
+		])
+
+	def post(self, request):
+		return Response({"message": "Справочник категорий редактируется только администратором"}, status=403)
+
+
+class ServiceKindListCreateView(APIView):
+	def get(self, request):
+		tenant = tenant_from_request(request)
+		partner_category = partner_category_from_request(request)
+		category_id = request.query_params.get("category")
+		items = ServiceKind.objects.filter(tenant_slug=tenant).select_related("category")
+		if partner_category:
+			items = items.filter(category__name=partner_category)
+		if category_id:
+			items = items.filter(category_id=category_id)
+		items = items.order_by("category__name", "name")
+		return Response([
+			{
+				"id": item.id,
+				"name": item.name,
+				"category": item.category_id,
+				"category_name": item.category.name,
+				"is_active": item.is_active,
+			}
+			for item in items
+		])
+
+	def post(self, request):
+		return Response({"message": "Справочник видов услуг редактируется только администратором"}, status=403)
+
+
+class ServiceListCreateView(APIView):
+	def get(self, request):
+		partner_profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		tenant = tenant_from_request(request)
+		partner_category = partner_category_from_request(request)
+		items = Service.objects.filter(tenant_slug=tenant, partner_profile=partner_profile).select_related("category", "kind")
+		if partner_category:
+			items = items.filter(category__name=partner_category)
+		items = items.order_by("-id")
+		return Response([
+			{
+				"id": item.id,
+				"name": item.name,
+				"partner_profile": item.partner_profile_id,
+				"category": item.category_id,
+				"category_name": item.category.name,
+				"kind": item.kind_id,
+				"kind_name": item.kind.name if item.kind else None,
+				"details": item.details or {},
+				"description": item.description,
+				"duration_minutes": item.duration_minutes,
+				"price": str(item.price) if item.price is not None else None,
+				"discount_percent": item.discount_percent,
+				"is_subscription": item.is_subscription,
+				"image_url": item.image_url,
+				"is_promo": item.is_promo,
+				"is_active": item.is_active,
+			}
+			for item in items
+		])
+
+	def post(self, request):
+		partner_profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		tenant = tenant_from_request(request)
+		partner_category = partner_category_from_request(request)
+		name = (request.data.get("name") or "").strip()
+		category_id = request.data.get("category")
+		if not name or not category_id:
+			return Response({"message": "name и category обязательны"}, status=400)
+
+		category = Category.objects.filter(id=category_id, tenant_slug=tenant).first()
+		if not category:
+			return Response({"message": "Категория не найдена"}, status=400)
+		if partner_category and category.name != partner_category:
+			return Response({"message": "Можно создавать услуги только в выбранной категории бизнеса"}, status=400)
+
+		kind_id = request.data.get("kind")
+		kind = None
+		if kind_id is not None:
+			kind = ServiceKind.objects.filter(id=kind_id, tenant_slug=tenant, category=category).first()
+			if not kind:
+				return Response({"message": "Вид услуги не найден для выбранной категории"}, status=400)
+
+		discount_percent = int(request.data.get("discount_percent") or 0)
+		discount_percent = max(0, min(100, discount_percent))
+		is_subscription = parse_bool(request.data.get("is_subscription"), True)
+		is_promo = parse_bool(request.data.get("is_promo"), discount_percent > 0)
+		normalized_details, details_error = normalize_service_details(category.name, request.data.get("details"))
+		if details_error:
+			return Response({"message": details_error}, status=400)
+
+		item = Service.objects.create(
+			tenant_slug=tenant,
+			partner_profile=partner_profile,
+			name=name,
+			category=category,
+			kind=kind,
+			details=normalized_details,
+			description=(request.data.get("description") or "").strip(),
+			duration_minutes=int(request.data.get("duration_minutes") or 60),
+			price=request.data.get("price") or 0,
+			discount_percent=discount_percent,
+			is_subscription=is_subscription,
+			image_url=(request.data.get("image_url") or "").strip(),
+			is_promo=is_promo,
+			is_active=parse_bool(request.data.get("is_active"), True),
+		)
+
+		return Response(
+			{
+				"id": item.id,
+				"name": item.name,
+				"partner_profile": item.partner_profile_id,
+				"category": item.category_id,
+				"category_name": category.name,
+				"kind": item.kind_id,
+				"kind_name": item.kind.name if item.kind else None,
+				"details": item.details or {},
+				"description": item.description,
+				"duration_minutes": item.duration_minutes,
+				"price": str(item.price) if item.price is not None else None,
+				"discount_percent": item.discount_percent,
+				"is_subscription": item.is_subscription,
+				"image_url": item.image_url,
+				"is_promo": item.is_promo,
+				"is_active": item.is_active,
+			},
+			status=201,
+		)
+
+
+class ServiceDetailView(APIView):
+	def patch(self, request, service_id: int):
+		partner_profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		tenant = tenant_from_request(request)
+		partner_category = partner_category_from_request(request)
+		item = Service.objects.filter(
+			id=service_id,
+			tenant_slug=tenant,
+			partner_profile=partner_profile,
+		).select_related("category", "kind").first()
+		if not item:
+			return Response({"message": "Услуга не найдена"}, status=404)
+		if partner_category and item.category.name != partner_category:
+			return Response({"message": "Услуга недоступна для текущей категории бизнеса"}, status=403)
+
+		name = request.data.get("name")
+		if name is not None:
+			name = str(name).strip()
+			if not name:
+				return Response({"message": "name не может быть пустым"}, status=400)
+			item.name = name
+
+		category_id = request.data.get("category")
+		if category_id is not None:
+			category = Category.objects.filter(id=category_id, tenant_slug=tenant).first()
+			if not category:
+				return Response({"message": "Категория не найдена"}, status=400)
+			if partner_category and category.name != partner_category:
+				return Response({"message": "Нельзя сменить категорию услуги"}, status=400)
+			item.category = category
+		else:
+			category = item.category
+
+		kind_id = request.data.get("kind")
+		if kind_id is not None:
+			if str(kind_id).strip() == "":
+				item.kind = None
+			else:
+				kind = ServiceKind.objects.filter(id=kind_id, tenant_slug=tenant, category=item.category).first()
+				if not kind:
+					return Response({"message": "Вид услуги не найден для выбранной категории"}, status=400)
+				item.kind = kind
+
+		details = request.data.get("details")
+		if details is not None:
+			normalized_details, details_error = normalize_service_details(item.category.name, details)
+			if details_error:
+				return Response({"message": details_error}, status=400)
+			item.details = normalized_details
+
+		description = request.data.get("description")
+		if description is not None:
+			item.description = str(description).strip()
+
+		duration_minutes = request.data.get("duration_minutes")
+		if duration_minutes is not None:
+			item.duration_minutes = int(duration_minutes)
+
+		price = request.data.get("price")
+		if price is not None:
+			item.price = price
+
+		discount_percent = request.data.get("discount_percent")
+		if discount_percent is not None:
+			parsed_discount = int(discount_percent)
+			item.discount_percent = max(0, min(100, parsed_discount))
+
+		is_subscription = request.data.get("is_subscription")
+		if is_subscription is not None:
+			item.is_subscription = parse_bool(is_subscription, item.is_subscription)
+
+		image_url = request.data.get("image_url")
+		if image_url is not None:
+			item.image_url = str(image_url).strip()
+
+		is_promo = request.data.get("is_promo")
+		if is_promo is not None:
+			item.is_promo = parse_bool(is_promo, item.is_promo)
+		elif discount_percent is not None:
+			item.is_promo = item.discount_percent > 0
+
+		is_active = request.data.get("is_active")
+		if is_active is not None:
+			item.is_active = parse_bool(is_active, item.is_active)
+
+		item.save()
+		item.refresh_from_db()
+
+		return Response(
+			{
+				"id": item.id,
+				"name": item.name,
+				"partner_profile": item.partner_profile_id,
+				"category": item.category_id,
+				"category_name": item.category.name,
+				"kind": item.kind_id,
+				"kind_name": item.kind.name if item.kind else None,
+				"details": item.details or {},
+				"description": item.description,
+				"duration_minutes": item.duration_minutes,
+				"price": str(item.price) if item.price is not None else None,
+				"discount_percent": item.discount_percent,
+				"is_subscription": item.is_subscription,
+				"image_url": item.image_url,
+				"is_promo": item.is_promo,
+				"is_active": item.is_active,
+			}
+		)
+
+
+class ManagerListCreateView(APIView):
+	def get(self, request):
+		partner_profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		tenant = tenant_from_request(request)
+		items = (
+			Manager.objects.filter(tenant_slug=tenant, partner_profile=partner_profile)
+			.order_by("-id")
+		)
+		return Response([
+			{
+				"id": item.id,
+				"full_name": item.full_name,
+				"phone": item.phone,
+				"email": item.email,
+				"photo_base64": item.photo_base64,
+				"is_active": item.is_active,
+			}
+			for item in items
+		])
+
+	def post(self, request):
+		partner_profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		tenant = tenant_from_request(request)
+		full_name = (request.data.get("full_name") or "").strip()
+		phone = (request.data.get("phone") or "").strip()
+		email = (request.data.get("email") or "").strip().lower()
+		photo_base64 = (request.data.get("photo_base64") or "").strip()
+		if not full_name or not phone or not email:
+			return Response({"message": "full_name, phone и email обязательны"}, status=400)
+
+		item = Manager.objects.create(
+			tenant_slug=tenant,
+			partner_profile=partner_profile,
+			full_name=full_name,
+			phone=phone,
+			email=email,
+			photo_base64=photo_base64,
+			is_active=parse_bool(request.data.get("is_active"), True),
+		)
+
+		return Response(
+			{
+				"id": item.id,
+				"full_name": item.full_name,
+				"phone": item.phone,
+				"email": item.email,
+				"photo_base64": item.photo_base64,
+				"is_active": item.is_active,
+			},
+			status=201,
+		)
+
+
+class ManagerDetailView(APIView):
+	def patch(self, request, manager_id: int):
+		partner_profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		tenant = tenant_from_request(request)
+		item = Manager.objects.filter(
+			id=manager_id,
+			tenant_slug=tenant,
+			partner_profile=partner_profile,
+		).first()
+		if not item:
+			return Response({"message": "Специалист не найден"}, status=404)
+
+		full_name = request.data.get("full_name")
+		if full_name is not None:
+			value = str(full_name).strip()
+			if not value:
+				return Response({"message": "full_name не может быть пустым"}, status=400)
+			item.full_name = value
+
+		phone = request.data.get("phone")
+		if phone is not None:
+			value = str(phone).strip()
+			if not value:
+				return Response({"message": "phone не может быть пустым"}, status=400)
+			item.phone = value
+
+		email = request.data.get("email")
+		if email is not None:
+			value = str(email).strip().lower()
+			if not value:
+				return Response({"message": "email не может быть пустым"}, status=400)
+			item.email = value
+
+		photo_base64 = request.data.get("photo_base64")
+		if photo_base64 is not None:
+			item.photo_base64 = str(photo_base64).strip()
+
+		is_active = request.data.get("is_active")
+		if is_active is not None:
+			item.is_active = parse_bool(is_active, item.is_active)
+
+		item.save()
+
+		return Response(
+			{
+				"id": item.id,
+				"full_name": item.full_name,
+				"phone": item.phone,
+				"email": item.email,
+				"photo_base64": item.photo_base64,
+				"is_active": item.is_active,
+			}
+		)
+
+
+class SpecialistListCreateView(APIView):
+	def get(self, request):
+		partner_profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		tenant = tenant_from_request(request)
+		items = (
+			Specialist.objects.filter(tenant_slug=tenant, partner_profile=partner_profile)
+			.prefetch_related("capabilities__service_kind")
+			.order_by("-id")
+		)
+		return Response([
+			{
+				"id": item.id,
+				"full_name": item.full_name,
+				"description": item.description,
+				"phone": item.phone,
+				"email": item.email,
+				"photo_base64": item.photo_base64,
+				"working_schedule": item.working_schedule or default_working_schedule(),
+				"service_kind_ids": [cap.service_kind_id for cap in item.capabilities.all()],
+				"service_kind_names": [cap.service_kind.name for cap in item.capabilities.all()],
+				"is_active": item.is_active,
+			}
+			for item in items
+		])
+
+	def post(self, request):
+		partner_profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		tenant = tenant_from_request(request)
+		full_name = (request.data.get("full_name") or "").strip()
+		phone = (request.data.get("phone") or "").strip()
+		email = (request.data.get("email") or "").strip().lower()
+		description = (request.data.get("description") or "").strip()
+		photo_base64 = (request.data.get("photo_base64") or "").strip()
+		service_kind_ids = request.data.get("service_kind_ids") or []
+		working_schedule_raw = request.data.get("working_schedule")
+		if not full_name:
+			return Response({"message": "full_name обязателен"}, status=400)
+		if not isinstance(service_kind_ids, list):
+			return Response({"message": "service_kind_ids должен быть массивом"}, status=400)
+
+		normalized_schedule, schedule_error = normalize_working_schedule(working_schedule_raw)
+		if schedule_error:
+			return Response({"message": schedule_error}, status=400)
+
+		parsed_kind_ids = []
+		for raw_id in service_kind_ids:
+			try:
+				parsed_kind_ids.append(int(raw_id))
+			except (TypeError, ValueError):
+				return Response({"message": "service_kind_ids содержит некорректный id"}, status=400)
+
+		item = Specialist.objects.create(
+			tenant_slug=tenant,
+			partner_profile=partner_profile,
+			full_name=full_name,
+			description=description,
+			phone=phone,
+			email=email,
+			photo_base64=photo_base64,
+			working_schedule=normalized_schedule,
+			is_active=parse_bool(request.data.get("is_active"), True),
+		)
+
+		available_kinds = {
+			kind.id: kind
+			for kind in ServiceKind.objects.filter(tenant_slug=tenant, id__in=parsed_kind_ids)
+		}
+		capabilities = []
+		for kind_id in parsed_kind_ids:
+			kind = available_kinds.get(kind_id)
+			if kind is None:
+				return Response({"message": f"Вид услуги {kind_id} не найден"}, status=400)
+			capabilities.append(SpecialistServiceKind(specialist=item, service_kind=kind))
+		if capabilities:
+			SpecialistServiceKind.objects.bulk_create(capabilities)
+
+		item.refresh_from_db()
+		assigned_capabilities = list(item.capabilities.select_related("service_kind"))
+		return Response(
+			{
+				"id": item.id,
+				"full_name": item.full_name,
+				"description": item.description,
+				"phone": item.phone,
+				"email": item.email,
+				"photo_base64": item.photo_base64,
+				"working_schedule": item.working_schedule or default_working_schedule(),
+				"service_kind_ids": [cap.service_kind_id for cap in assigned_capabilities],
+				"service_kind_names": [cap.service_kind.name for cap in assigned_capabilities],
+				"is_active": item.is_active,
+			},
+			status=201,
+		)
+
+
+class SpecialistDetailView(APIView):
+	def patch(self, request, specialist_id: int):
+		partner_profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		tenant = tenant_from_request(request)
+		item = Specialist.objects.filter(
+			id=specialist_id,
+			tenant_slug=tenant,
+			partner_profile=partner_profile,
+		).first()
+		if not item:
+			return Response({"message": "Специалист не найден"}, status=404)
+
+		full_name = request.data.get("full_name")
+		if full_name is not None:
+			value = str(full_name).strip()
+			if not value:
+				return Response({"message": "full_name не может быть пустым"}, status=400)
+			item.full_name = value
+
+		description = request.data.get("description")
+		if description is not None:
+			item.description = str(description).strip()
+
+		phone = request.data.get("phone")
+		if phone is not None:
+			item.phone = str(phone).strip()
+
+		email = request.data.get("email")
+		if email is not None:
+			item.email = str(email).strip().lower()
+
+		photo_base64 = request.data.get("photo_base64")
+		if photo_base64 is not None:
+			item.photo_base64 = str(photo_base64).strip()
+
+		working_schedule_raw = request.data.get("working_schedule")
+		if working_schedule_raw is not None:
+			normalized_schedule, schedule_error = normalize_working_schedule(working_schedule_raw)
+			if schedule_error:
+				return Response({"message": schedule_error}, status=400)
+			item.working_schedule = normalized_schedule
+
+		is_active = request.data.get("is_active")
+		if is_active is not None:
+			item.is_active = parse_bool(is_active, item.is_active)
+
+		item.save()
+
+		service_kind_ids = request.data.get("service_kind_ids")
+		if service_kind_ids is not None:
+			if not isinstance(service_kind_ids, list):
+				return Response({"message": "service_kind_ids должен быть массивом"}, status=400)
+
+			parsed_kind_ids = []
+			for raw_id in service_kind_ids:
+				try:
+					parsed_kind_ids.append(int(raw_id))
+				except (TypeError, ValueError):
+					return Response({"message": "service_kind_ids содержит некорректный id"}, status=400)
+
+			available_kinds = {
+				kind.id: kind
+				for kind in ServiceKind.objects.filter(tenant_slug=tenant, id__in=parsed_kind_ids)
+			}
+			for kind_id in parsed_kind_ids:
+				if kind_id not in available_kinds:
+					return Response({"message": f"Вид услуги {kind_id} не найден"}, status=400)
+
+			SpecialistServiceKind.objects.filter(specialist=item).exclude(service_kind_id__in=parsed_kind_ids).delete()
+			existing_kind_ids = set(
+				SpecialistServiceKind.objects.filter(specialist=item, service_kind_id__in=parsed_kind_ids)
+				.values_list("service_kind_id", flat=True)
+			)
+			to_create = [
+				SpecialistServiceKind(specialist=item, service_kind=available_kinds[kind_id])
+				for kind_id in parsed_kind_ids
+				if kind_id not in existing_kind_ids
+			]
+			if to_create:
+				SpecialistServiceKind.objects.bulk_create(to_create)
+
+		assigned_capabilities = list(item.capabilities.select_related("service_kind"))
+		return Response(
+			{
+				"id": item.id,
+				"full_name": item.full_name,
+				"description": item.description,
+				"phone": item.phone,
+				"email": item.email,
+				"photo_base64": item.photo_base64,
+				"working_schedule": item.working_schedule or default_working_schedule(),
+				"service_kind_ids": [cap.service_kind_id for cap in assigned_capabilities],
+				"service_kind_names": [cap.service_kind.name for cap in assigned_capabilities],
+				"is_active": item.is_active,
+			}
+		)
+
+
+class BookingListCreateView(APIView):
+	def get(self, request):
+		partner_profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		tenant = tenant_from_request(request)
+		items = Booking.objects.filter(tenant_slug=tenant, partner_profile=partner_profile).order_by("-id")
+		return Response([
+			{
+				"id": item.id,
+				"service_name": item.service_name,
+				"manager_name": item.manager_name,
+				"starts_at": item.starts_at.isoformat(),
+				"client_name": item.client_name,
+				"client_phone": item.client_phone,
+				"status": item.status,
+			}
+			for item in items
+		])
+
+	def post(self, request):
+		partner_profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		tenant = tenant_from_request(request)
+		starts_at_raw = request.data.get("starts_at")
+		starts_at = parse_datetime(str(starts_at_raw)) if starts_at_raw else None
+		if starts_at is None:
+			return Response({"message": "starts_at должен быть в ISO формате"}, status=400)
+
+		required = ["service_name", "client_name", "client_phone"]
+		for field in required:
+			if not str(request.data.get(field) or "").strip():
+				return Response({"message": f"{field} обязателен"}, status=400)
+
+		service_name = str(request.data.get("service_name")).strip()
+		manager_name = str(request.data.get("manager_name") or "").strip() or None
+		duration_minutes = resolve_booking_duration_minutes(
+			service_name,
+			build_service_duration_map(tenant, partner_profile=partner_profile),
+		)
+		if manager_name and has_booking_overlap(
+			tenant,
+			manager_name,
+			starts_at,
+			duration_minutes,
+			partner_profile=partner_profile,
+		):
+			return Response({"message": "У специалиста уже есть запись на это время"}, status=409)
+
+		item = Booking.objects.create(
+			tenant_slug=tenant,
+			partner_profile=partner_profile,
+			service_name=service_name,
+			manager_name=manager_name,
+			starts_at=starts_at,
+			client_name=str(request.data.get("client_name")).strip(),
+			client_phone=str(request.data.get("client_phone")).strip(),
+			status=str(request.data.get("status") or "booked").strip(),
+		)
+		return Response({"id": item.id, "ok": True}, status=201)
+
+
+class BookingDetailView(APIView):
+	def patch(self, request, booking_id: int):
+		partner_profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		tenant = tenant_from_request(request)
+		item = Booking.objects.filter(id=booking_id, tenant_slug=tenant, partner_profile=partner_profile).first()
+		if not item:
+			return Response({"message": "Запись не найдена"}, status=404)
+
+		if "service_name" in request.data:
+			value = str(request.data.get("service_name") or "").strip()
+			if not value:
+				return Response({"message": "service_name обязателен"}, status=400)
+			item.service_name = value
+
+		if "manager_name" in request.data:
+			item.manager_name = str(request.data.get("manager_name") or "").strip() or None
+
+		if "starts_at" in request.data:
+			starts_at_raw = request.data.get("starts_at")
+			starts_at = parse_datetime(str(starts_at_raw)) if starts_at_raw else None
+			if starts_at is None:
+				return Response({"message": "starts_at должен быть в ISO формате"}, status=400)
+			item.starts_at = starts_at
+
+		if "client_name" in request.data:
+			value = str(request.data.get("client_name") or "").strip()
+			if not value:
+				return Response({"message": "client_name обязателен"}, status=400)
+			item.client_name = value
+
+		if "client_phone" in request.data:
+			value = str(request.data.get("client_phone") or "").strip()
+			if not value:
+				return Response({"message": "client_phone обязателен"}, status=400)
+			item.client_phone = value
+
+		if "status" in request.data:
+			item.status = str(request.data.get("status") or "booked").strip() or "booked"
+
+		duration_minutes = resolve_booking_duration_minutes(
+			item.service_name,
+			build_service_duration_map(tenant, partner_profile=partner_profile),
+		)
+		if item.manager_name and has_booking_overlap(
+			tenant,
+			item.manager_name,
+			item.starts_at,
+			duration_minutes,
+			partner_profile=partner_profile,
+			exclude_booking_id=item.id,
+		):
+			return Response({"message": "У специалиста уже есть запись на это время"}, status=409)
+
+		item.save()
+		return Response(
+			{
+				"id": item.id,
+				"service_name": item.service_name,
+				"manager_name": item.manager_name,
+				"starts_at": item.starts_at.isoformat(),
+				"client_name": item.client_name,
+				"client_phone": item.client_phone,
+				"status": item.status,
+			}
+		)
+
+# Create your views here.

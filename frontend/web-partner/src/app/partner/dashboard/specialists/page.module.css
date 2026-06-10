@@ -1,0 +1,910 @@
+.page {
+  min-height: calc(100vh - 66px);
+  background: #ffffff;
+  border-radius: var(--dashboard-page-radius);
+  padding: var(--dashboard-page-padding);
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.block {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  justify-items: stretch;
+}
+
+.headText h1 {
+  margin: 0;
+  font-family: var(--font-family-base);
+  font-size: var(--dashboard-title-size);
+  line-height: var(--dashboard-title-line-height);
+  font-weight: 500;
+  color: #1e1e1e;
+}
+
+.headText p {
+  margin: 0;
+  color: #6b7280;
+  font-family: var(--font-family-base);
+  font-size: var(--dashboard-subtitle-size);
+  line-height: var(--dashboard-subtitle-line-height);
+}
+
+.blockHeadRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.addButton,
+.cancelButton,
+.saveButton,
+.close {
+  border: 0;
+  cursor: pointer;
+}
+
+.addButton {
+  height: 40px;
+  border-radius: 8px;
+  padding: 8px 14px 8px 8px;
+  background: #1f5f4d;
+  color: #ffffff;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toast {
+  position: fixed;
+  top: 78px;
+  right: 16px;
+  z-index: 45;
+  min-width: 340px;
+  max-width: 520px;
+  color: #222222;
+  border-radius: 10px;
+  padding: 12px 16px;
+  box-shadow: 0 1px 8px rgb(0 0 0 / 8%);
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toastSuccess {
+  background: #dbf1e8;
+}
+
+.toastError {
+  background: #fce0e0;
+}
+
+.toastIcon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.toastIconSuccess {
+  background: #07bb4f;
+}
+
+.toastIconError {
+  background: #ec2d30;
+  border-radius: 4px;
+  width: 20px;
+  height: 20px;
+}
+
+.toastContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.toastContent strong {
+  display: block;
+  margin: 0;
+  color: #222222;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 19.6px;
+}
+
+.toastClose {
+  width: 16px;
+  height: 16px;
+  border: 0;
+  background: transparent;
+  color: #9ca5ac;
+  font-size: 16px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
+.addButton:disabled {
+  opacity: 0.6;
+}
+
+.plusIcon {
+  width: 16px;
+  height: 16px;
+  font-size: 20px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.searchWrap {
+  flex: 1;
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: #fff;
+}
+
+.filterRow {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 10px;
+  border: 1px solid rgb(0 0 0 / 10%);
+  width: 100%;
+}
+
+.pill,
+.pillActive {
+  height: var(--dashboard-pill-height);
+  border: 0;
+  border-radius: 8px;
+  padding: 0 14px;
+  font-size: var(--dashboard-pill-font-size);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.pill {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.pillActive {
+  background: #1f5f4d;
+  color: #ffffff;
+}
+
+.searchIconImage {
+  width: 16px;
+  height: 16px;
+  display: block;
+  object-fit: contain;
+}
+
+.search {
+  width: 100%;
+  height: 38px;
+  border: 0;
+  padding: 0;
+  font-size: 16px;
+  color: rgb(30 30 30 / 50%);
+  background: transparent;
+}
+
+.search:focus {
+  outline: 0;
+}
+
+.cardsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 220px));
+  gap: 16px;
+  align-content: start;
+}
+
+.card {
+  width: 220px;
+  border: 1px solid rgb(0 0 0 / 10%);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 16px;
+  background: #ffffff;
+}
+
+.cardTopRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.cardTopRow h3 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 16px;
+  color: #1e1e1e;
+  font-weight: 500;
+}
+
+.statusActive,
+.statusArchived {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+}
+
+.statusActive {
+  color: #0e9f6e;
+}
+
+.statusArchived {
+  color: #9ca3af;
+}
+
+.previewStub {
+  height: 140px;
+  border-radius: 8px;
+  background: #f8f9fa;
+}
+
+.cardPhoto {
+  width: 100%;
+  height: 140px;
+  border-radius: 8px;
+  object-fit: cover;
+  display: block;
+}
+
+.cardMeta,
+.cardDesc {
+  margin: 0;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.cardDesc {
+  min-height: 40px;
+  line-height: 19.6px;
+}
+
+.cardActions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.editButton,
+.archiveButton {
+  height: 40px;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.editButton {
+  flex: 1;
+  background: transparent;
+  color: #1e1e1e;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.archiveButton {
+  width: 40px;
+  background: transparent;
+  color: #1e1e1e;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.actionIcon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.empty {
+  margin: 0;
+  padding: 12px 0;
+  color: #7b8794;
+  grid-column: 1 / -1;
+}
+
+.error {
+  margin: 0;
+  color: #b42318;
+  font-size: 14px;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgb(0 0 0 / 45%);
+  backdrop-filter: blur(7px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.statusModal {
+  width: 560px;
+  max-width: 100%;
+  padding: 30px;
+  border-radius: 10px;
+  background: #ffffff;
+  display: grid;
+  gap: 24px;
+  box-shadow: 0 20px 48px rgb(0 0 0 / 24%);
+}
+
+.statusBody {
+  display: grid;
+  gap: 16px;
+  padding: 16px 0;
+  justify-items: center;
+}
+
+.statusIconWrap {
+  padding: 20px;
+  border-radius: 24px;
+  background: #f1f5f9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.statusIconImage {
+  width: 40px;
+  height: 40px;
+  display: block;
+}
+
+.statusTextBlock {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+}
+
+.statusTextBlock h3 {
+  margin: 0;
+  text-align: center;
+  color: #0f172b;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 25.2px;
+}
+
+.statusTextBlock p {
+  margin: 0;
+  text-align: center;
+  color: #62748e;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.statusTextBlock p strong {
+  color: #1e1e1e;
+  font-weight: 600;
+}
+
+.statusActions {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.statusCancelButton,
+.statusWarningButton {
+  height: 48px;
+  border: 0;
+  border-radius: 14px;
+  padding: 0 8px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.statusCancelButton {
+  background: #f5f5f5;
+  color: #1e1e1e;
+}
+
+.statusWarningButton {
+  background: #ff9900;
+  color: #ffffff;
+}
+
+.modal {
+  width: 760px;
+  max-width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow: 0 20px 48px rgb(0 0 0 / 24%);
+}
+
+.modalHeader {
+  height: 100px;
+  background: linear-gradient(104deg, #1f5f4d 0%, #003c40 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+}
+
+.modalTitleWrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.modalTitleWrap h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.modalIcon {
+  width: 40px;
+  height: 40px;
+  display: block;
+}
+
+.close {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: transparent;
+  color: #ffffff;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.modalBody {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modalBody label {
+  display: grid;
+  gap: 4px;
+  color: #1f2937;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.modalBody input {
+  border: 1px solid #d8dde3;
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 14px;
+  color: #1e1e1e;
+  height: 38px;
+  padding: 0 10px;
+}
+
+.modalBody textarea,
+.modalBody select {
+  border: 1px solid #d8dde3;
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 14px;
+  color: #1e1e1e;
+  padding: 10px;
+}
+
+.modalBody textarea {
+  resize: vertical;
+  min-height: 108px;
+}
+
+.modalBody select {
+  height: 40px;
+  padding: 0 40px 0 10px;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236B7280' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 10px 6px;
+}
+
+.kindPickerRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.kindPickerRow select {
+  flex: 1;
+}
+
+.addKindButton {
+  height: 40px;
+  border: 1px solid #1f5f4d;
+  border-radius: 8px;
+  background: #1f5f4d;
+  color: #ffffff;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.kindChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kindError {
+  margin: 0;
+  color: #dc2626;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.kindChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #f5f5f5;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  padding: 7px 10px;
+  color: #1e1e1e;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.kindChip span {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.photoField {
+  gap: 6px;
+}
+
+.photoDropzone {
+  position: relative;
+  min-height: 110px;
+  border: 1px dashed #b5c0cc;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  background: #f8fafc;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.photoDropzoneIcon {
+  width: 32px;
+  height: 32px;
+  display: block;
+}
+
+.photoDropzone input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+.modalPhotoPreview {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid #d8dde3;
+  display: block;
+}
+
+.photoPreviewBlock {
+  position: relative;
+  width: 220px;
+  max-width: 100%;
+  height: 130px;
+  display: inline-block;
+}
+
+.removePhotoIconButton {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.removePhotoIcon {
+  width: 32px;
+  height: 32px;
+  display: block;
+}
+
+.scheduleHead {
+  margin-top: 6px;
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.scheduleTools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scheduleTools button {
+  height: 32px;
+  border: 1px solid #d8dde3;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.scheduleTools button:hover {
+  border-color: #1f5f4d;
+  color: #1f5f4d;
+}
+
+.scheduleError {
+  margin: 0;
+  color: #b42318;
+  font-size: 13px;
+}
+
+.scheduleGrid {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.scheduleRow {
+  border: 1px solid #eef1f4;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 150px 120px auto 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.scheduleLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.dayOffCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.dayOffCheck input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #1f5f4d;
+}
+
+.copyWeekdayButton {
+  height: 32px;
+  border: 1px solid #d8dde3;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.copyWeekdayButton:hover {
+  border-color: #1f5f4d;
+  color: #1f5f4d;
+}
+
+.timeRange,
+.breakRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.timeRange span,
+.breakRow span {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.timeRange input,
+.breakRow input {
+  width: 110px;
+}
+
+.breakRow {
+  grid-column: 4;
+}
+
+.matrixHead {
+  margin-top: 6px;
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.matrixWrap {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.matrixCategory {
+  border: 1px solid #eef1f4;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.matrixCategory h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.kindGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.kindItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.kindItem input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #1f5f4d;
+}
+
+.modalFooter {
+  border-top: 1px solid #e5e7eb;
+  padding: 12px 18px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.cancelButton,
+.saveButton {
+  height: 40px;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.cancelButton {
+  background: #f3f4f6;
+  color: #1f2937;
+}
+
+.saveButton {
+  background: #1f5f4d;
+  color: #ffffff;
+}
+
+@media (max-width: 960px) {
+  .modal {
+    width: 100%;
+  }
+
+  .statusModal {
+    padding: 18px;
+    gap: 16px;
+  }
+
+  .statusActions {
+    grid-template-columns: 1fr;
+  }
+
+  .cardsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .kindGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .scheduleRow {
+    grid-template-columns: 1fr;
+  }
+
+  .copyWeekdayButton {
+    justify-self: start;
+  }
+
+  .breakRow {
+    grid-column: auto;
+  }
+}

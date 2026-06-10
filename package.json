@@ -1,0 +1,22 @@
+{
+  "name": "mysub-platform",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "dev": "pnpm dev:admin",
+    "dev:admin": "pnpm --filter web-admin dev",
+    "dev:partner": "pnpm --filter web-partner dev",
+    "dev:manager": "pnpm --filter web-manager dev",
+    "dev:user": "pnpm --filter web-user dev",
+    "dev:gateway": "node scripts/dev-gateway.mjs",
+    "dev:all": "concurrently -n admin,partner,manager,user,gateway -c cyan,green,magenta,yellow,blue \"pnpm dev:admin\" \"pnpm dev:partner\" \"pnpm dev:manager\" \"pnpm dev:user\" \"pnpm dev:gateway\"",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "http-proxy": "^1.18.1",
+    "turbo": "^2.0.0"
+  }
+}
