@@ -9,10 +9,10 @@
 }
 
 .panel {
-  height: calc(100vh - 24px);
+  min-height: calc(100vh - 24px);
   background: #fff;
   border-radius: 24px;
-  overflow: hidden;
+  overflow: visible;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.03);
 }
 

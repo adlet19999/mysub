@@ -6,6 +6,7 @@ from .views import (
     CategoryListCreateView,
     ManagerDetailView,
     ManagerListCreateView,
+    PartnerProfileView,
     ServiceDetailView,
     ServiceKindListCreateView,
     ServiceListCreateView,
@@ -14,6 +15,7 @@ from .views import (
 )
 
 urlpatterns = [
+    path("profile/", PartnerProfileView.as_view(), name="partner-profile"),
     path("categories/", CategoryListCreateView.as_view(), name="partner-categories"),
     path("service-kinds/", ServiceKindListCreateView.as_view(), name="partner-service-kinds"),
     path("services/", ServiceListCreateView.as_view(), name="partner-services"),

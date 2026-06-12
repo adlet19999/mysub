@@ -275,6 +275,79 @@ def has_booking_overlap(
 	return False
 
 
+def serialize_partner_profile(profile: PartnerProfile):
+	return {
+		"full_name": profile.user.first_name,
+		"email": profile.user.email,
+		"phone": profile.phone,
+		"company_name": profile.company_name,
+		"business_category": profile.business_category,
+		"address": profile.address,
+	}
+
+
+class PartnerProfileView(APIView):
+	def get(self, request):
+		profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		return Response(serialize_partner_profile(profile))
+
+	def patch(self, request):
+		profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		full_name = request.data.get("full_name")
+		if full_name is not None:
+			value = str(full_name).strip()
+			if not value:
+				return Response({"message": "full_name не может быть пустым"}, status=400)
+			profile.user.first_name = value
+
+		email = request.data.get("email")
+		if email is not None:
+			value = str(email).strip().lower()
+			if not value:
+				return Response({"message": "email не может быть пустым"}, status=400)
+			existing = (
+				PartnerProfile.objects.select_related("user")
+				.filter(Q(user__username__iexact=value) | Q(user__email__iexact=value))
+				.exclude(id=profile.id)
+				.first()
+			)
+			if existing is not None:
+				return Response({"message": "Пользователь с таким email уже существует"}, status=409)
+			profile.user.username = value
+			profile.user.email = value
+
+		phone = request.data.get("phone")
+		if phone is not None:
+			value = str(phone).strip()
+			if not value:
+				return Response({"message": "phone не может быть пустым"}, status=400)
+			profile.phone = value
+
+		company_name = request.data.get("company_name")
+		if company_name is not None:
+			profile.company_name = str(company_name).strip()
+
+		business_category = request.data.get("business_category")
+		if business_category is not None:
+			profile.business_category = str(business_category).strip()
+
+		address = request.data.get("address")
+		if address is not None:
+			profile.address = str(address).strip()
+
+		profile.user.save()
+		profile.save()
+		profile.refresh_from_db()
+
+		return Response(serialize_partner_profile(profile))
+
+
 class CategoryListCreateView(APIView):
 	def get(self, request):
 		tenant = tenant_from_request(request)

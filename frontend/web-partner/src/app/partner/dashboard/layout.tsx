@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import styles from "./layout.module.css";
 
 const iconStatistics = "/statistics.svg";
@@ -19,6 +19,13 @@ const iconQuit = "/quit.svg";
 const iconBell = "/notifications.svg";
 
 type LayoutProps = { children: ReactNode };
+
+type PartnerAuthUser = {
+  company_name?: string;
+  full_name?: string;
+  username?: string;
+  email?: string;
+};
 
 type MenuItem = {
   label: string;
@@ -96,6 +103,32 @@ export default function DashboardLayout({ children }: LayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [loadingLogout, setLoadingLogout] = useState(false);
+  const [headerPartnerName, setHeaderPartnerName] = useState("Партнер");
+  const [avatarLabel, setAvatarLabel] = useState("П");
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const raw = localStorage.getItem("partner_auth_user");
+    if (!raw) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as PartnerAuthUser;
+      const companyName = (parsed.company_name || "").trim();
+      const fallbackName = (parsed.full_name || parsed.username || parsed.email || "").trim();
+      const displayName = companyName || fallbackName || "Партнер";
+      setHeaderPartnerName(displayName);
+
+      const firstWord = displayName.split(/\s+/).find(Boolean) || "П";
+      setAvatarLabel(firstWord.slice(0, 2).toUpperCase());
+    } catch {
+      // ignore invalid local storage payload
+    }
+  }, []);
 
   function handleLogout() {
     if (typeof window === "undefined") return;
@@ -113,7 +146,7 @@ export default function DashboardLayout({ children }: LayoutProps) {
         </div>
 
         <div className={styles.headerMain}>
-          <h1 className={styles.headerTitle}>ИП "Курманова"</h1>
+          <h1 className={styles.headerTitle}>{headerPartnerName}</h1>
           <p className={styles.headerSubtitle}>Партнёр</p>
         </div>
 
@@ -121,7 +154,7 @@ export default function DashboardLayout({ children }: LayoutProps) {
           <button className={styles.notifyButton} type="button" aria-label="Уведомления">
             <img src={iconBell} alt="" />
           </button>
-          <div className={styles.avatarPill}>ИП</div>
+          <div className={styles.avatarPill}>{avatarLabel}</div>
         </div>
       </header>
 

@@ -147,7 +147,7 @@
 }
 
 .timeRailHeader {
-  height: 68px;
+  height: 106px;
   color: #6b7280;
   font-family: var(--font-family-base);
   font-size: 14px;
@@ -205,7 +205,7 @@
 }
 
 .headerCell {
-  height: 68px;
+  height: 106px;
   background: #f8f9fa;
 }
 
@@ -215,7 +215,8 @@
   justify-content: center;
   align-items: center;
   text-align: center;
-  gap: 2px;
+  gap: 4px;
+  padding: 8px 6px;
 }
 
 .headerCell strong {
@@ -226,12 +227,50 @@
   font-weight: 500;
 }
 
-.headerCell span {
+.specialistDescription {
   color: #6b7280;
   font-family: var(--font-family-base);
-  font-size: 13px;
-  line-height: 18px;
+  font-size: 12px;
+  line-height: 16px;
   font-weight: 400;
+}
+
+.scheduleStateBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.scheduleStateWorking {
+  color: #0b6b55;
+  background: #e8f5f0;
+  border-color: #b8dfd3;
+}
+
+.scheduleStateDayoff {
+  color: #9a3412;
+  background: #fff2e8;
+  border-color: #fdc9a6;
+}
+
+.scheduleStateBreak {
+  color: #92400e;
+  background: #fef3c7;
+  border-color: #f4cd70;
+}
+
+.scheduleStateHours {
+  color: #4b5563;
+  font-family: var(--font-family-base);
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
 }
 
 .sticky {
@@ -250,6 +289,38 @@
   position: relative;
   overflow: visible;
   z-index: 1;
+}
+
+.slotCellWorking {
+  background: #f8fcfb;
+}
+
+.slotCellBreak {
+  background: #fffaf0;
+}
+
+.slotCellDayoff {
+  background: #fff4ed;
+}
+
+.slotStateText {
+  margin: 6px 8px 0;
+  font-family: var(--font-family-base);
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+}
+
+.slotStateTextWorking {
+  color: #0b6b55;
+}
+
+.slotStateTextBreak {
+  color: #92400e;
+}
+
+.slotStateTextDayoff {
+  color: #9a3412;
 }
 
 .slotCellWithBooking {

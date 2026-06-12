@@ -629,20 +629,24 @@ export default function PartnerManagePage() {
         <div className={styles.overlay}>
           {dialogMode === "archive" || dialogMode === "unarchive" ? (
             <div className={styles.statusModal}>
-              <div className={styles.statusIcon}>{dialogMode === "archive" ? "🗂" : "🗃"}</div>
-              <h3>{dialogMode === "archive" ? "Архивировать предложение" : "Разархивировать предложение"}</h3>
-              <p>
-                {dialogMode === "archive"
-                  ? "Вы уверены, что хотите архивировать предложение"
-                  : "Вы уверены, что хотите разархивировать предложение"}
-                <br />
-                “{editingOffer?.name ?? "Ужин на террасе"}” ?
-              </p>
+              <div className={styles.statusBody}>
+                <div className={styles.statusIconWrap}>
+                  <img src="/Archieve.svg" alt="" className={styles.statusIconImage} aria-hidden />
+                </div>
+                <div className={styles.statusTextBlock}>
+                  <h3>{dialogMode === "archive" ? "Архивировать предложение" : "Разархивировать предложение"}</h3>
+                  <p>
+                    Вы уверены, что хотите {dialogMode === "archive" ? "архивировать" : "разархивировать"} “
+                    <strong>{editingOffer?.name ?? "Предложение"}</strong>” ?
+                  </p>
+                </div>
+              </div>
+
               <div className={styles.statusActions}>
-                <button type="button" className={styles.cancelButtonMini} onClick={() => setIsModalOpen(false)}>
+                <button type="button" className={styles.statusCancelButton} onClick={() => setIsModalOpen(false)}>
                   Отменить
                 </button>
-                <button type="button" className={styles.warningButton} onClick={() => void submitArchiveDecision()}>
+                <button type="button" className={styles.statusWarningButton} onClick={() => void submitArchiveDecision()}>
                   {dialogMode === "archive" ? "Архивировать" : "Разархивировать"}
                 </button>
               </div>

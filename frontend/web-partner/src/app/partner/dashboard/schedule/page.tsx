@@ -50,6 +50,17 @@ type Booking = {
 };
 
 type BookingStatusTone = "success" | "warning" | "danger" | "muted";
+type SpecialistDayStateTone = "working" | "dayoff" | "break";
+type SpecialistDayState = {
+  tone: SpecialistDayStateTone;
+  label: string;
+  hoursLabel: string;
+};
+
+type SpecialistSlotState = {
+  tone: SpecialistDayStateTone;
+  label: string;
+};
 
 type CalendarBooking = {
   booking: Booking;
@@ -59,6 +70,7 @@ type CalendarBooking = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000/api/v1";
 const TENANT_DEFAULT = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public";
+const WEEK_DAYS: WorkingDayKey[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
 const RUS_WEEKDAY: Record<WorkingDayKey, string> = {
   mon: "понедельник",
@@ -140,6 +152,103 @@ function parseServiceNames(raw: string): string[] {
     .split(/\r?\n/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function normalizeWorkingSchedule(raw: unknown): WorkingDaySchedule[] {
+  const fallback = WEEK_DAYS.map((day) => ({
+    day,
+    is_day_off: day === "sat" || day === "sun",
+    start_time: "09:00",
+    end_time: "18:00",
+    break_start: "13:00",
+    break_end: "14:00",
+  }));
+
+  if (!Array.isArray(raw)) {
+    return fallback;
+  }
+
+  const byDay = new Map<WorkingDayKey, WorkingDaySchedule>();
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+
+    const item = entry as Partial<WorkingDaySchedule> & { day?: string };
+    const day = item.day;
+    if (!day || !WEEK_DAYS.includes(day as WorkingDayKey)) {
+      continue;
+    }
+
+    byDay.set(day as WorkingDayKey, {
+      day: day as WorkingDayKey,
+      is_day_off: Boolean(item.is_day_off),
+      start_time: typeof item.start_time === "string" ? item.start_time : "",
+      end_time: typeof item.end_time === "string" ? item.end_time : "",
+      break_start: typeof item.break_start === "string" ? item.break_start : "",
+      break_end: typeof item.break_end === "string" ? item.break_end : "",
+    });
+  }
+
+  return WEEK_DAYS.map((day) => byDay.get(day) ?? fallback.find((item) => item.day === day)!).filter(Boolean);
+}
+
+function getSpecialistDayState(specialist: Specialist, selectedDay: WorkingDayKey): SpecialistDayState {
+  const schedule = normalizeWorkingSchedule(specialist.working_schedule);
+  const day = schedule.find((item) => item.day === selectedDay);
+
+  if (!day || day.is_day_off) {
+    return {
+      tone: "dayoff",
+      label: "Выходной",
+      hoursLabel: "Нет приема",
+    };
+  }
+
+  const workLabel = day.start_time && day.end_time ? `${day.start_time}-${day.end_time}` : "Время не задано";
+  if (day.break_start && day.break_end) {
+    return {
+      tone: "break",
+      label: `Перерыв ${day.break_start}-${day.break_end}`,
+      hoursLabel: `Рабочее время ${workLabel}`,
+    };
+  }
+
+  return {
+    tone: "working",
+    label: "Рабочий",
+    hoursLabel: workLabel,
+  };
+}
+
+function toMinutes(value: string): number | null {
+  const match = value.match(/^(\d{2}):(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  return hours * 60 + minutes;
+}
+
+function getSpecialistSlotState(day: WorkingDaySchedule | undefined, hour: number): SpecialistSlotState {
+  if (!day || day.is_day_off) {
+    return { tone: "dayoff", label: "Выходной" };
+  }
+
+  const slotStart = hour * 60;
+  const slotEnd = (hour + 1) * 60;
+  const breakStart = toMinutes(day.break_start);
+  const breakEnd = toMinutes(day.break_end);
+
+  if (breakStart != null && breakEnd != null) {
+    const intersectsBreak = breakStart < slotEnd && breakEnd > slotStart;
+    if (intersectsBreak) {
+      return { tone: "break", label: "Перерыв" };
+    }
+  }
+
+  return { tone: "working", label: "Рабочий" };
 }
 
 function getStatusTone(status: string): BookingStatusTone {
@@ -244,6 +353,15 @@ export default function SchedulePage() {
     }
     return bookingLines.some((line) => line.serviceId);
   }, [bookingClientName, bookingPhone, bookingDate, bookingStartTime, bookingSpecialistId, bookingLines]);
+
+  const selectedDayScheduleBySpecialist = useMemo(() => {
+    const map = new Map<number, WorkingDaySchedule | undefined>();
+    for (const specialist of activeSpecialists) {
+      const daySchedule = normalizeWorkingSchedule(specialist.working_schedule).find((item) => item.day === selectedDay);
+      map.set(specialist.id, daySchedule);
+    }
+    return map;
+  }, [activeSpecialists, selectedDay]);
 
   const bookingsBySlot = useMemo(() => {
     const map = new Map<string, CalendarBooking[]>();
@@ -370,7 +488,11 @@ export default function SchedulePage() {
         setSpecialists([]);
       } else {
         const specialistsPayload = (await specialistsResponse.json()) as Specialist[];
-        setSpecialists(Array.isArray(specialistsPayload) ? specialistsPayload : []);
+        setSpecialists(
+          Array.isArray(specialistsPayload)
+            ? specialistsPayload.map((item) => ({ ...item, working_schedule: normalizeWorkingSchedule(item.working_schedule) }))
+            : [],
+        );
       }
 
       if (!servicesResponse.ok) {
@@ -629,8 +751,19 @@ export default function SchedulePage() {
           >
             {activeSpecialists.map((specialist) => (
               <div key={specialist.id} className={`${styles.headerCell} ${styles.sticky}`}>
-                <strong>{specialist.full_name}</strong>
-                {specialist.description?.trim() ? <span>{specialist.description}</span> : null}
+                {(() => {
+                  const dayState = getSpecialistDayState(specialist, selectedDay);
+                  return (
+                    <>
+                      <strong>{specialist.full_name}</strong>
+                      {specialist.description?.trim() ? <span className={styles.specialistDescription}>{specialist.description}</span> : null}
+                      <span className={`${styles.scheduleStateBadge} ${styles[`scheduleState${dayState.tone.charAt(0).toUpperCase()}${dayState.tone.slice(1)}`]}`}>
+                        {dayState.label}
+                      </span>
+                      <span className={styles.scheduleStateHours}>{dayState.hoursLabel}</span>
+                    </>
+                  );
+                })()}
               </div>
             ))}
 
@@ -639,12 +772,17 @@ export default function SchedulePage() {
                 <Fragment key={`row-${hour}`}>
                   {activeSpecialists.map((specialist) => {
                     const slotEntries = bookingsBySlot.get(`${hour}-${specialist.id}`) || [];
+                    const daySchedule = selectedDayScheduleBySpecialist.get(specialist.id);
+                    const slotState = getSpecialistSlotState(daySchedule, hour);
+                    const slotStateClass = styles[`slotCell${slotState.tone.charAt(0).toUpperCase()}${slotState.tone.slice(1)}`];
+                    const slotStateTextClass = styles[`slotStateText${slotState.tone.charAt(0).toUpperCase()}${slotState.tone.slice(1)}`];
 
                     return (
                       <div
                         key={`slot-${hour}-${specialist.id}`}
-                        className={`${styles.slotCell} ${slotEntries.length ? styles.slotCellWithBooking : ""}`}
+                        className={`${styles.slotCell} ${slotStateClass} ${slotEntries.length ? styles.slotCellWithBooking : ""}`}
                       >
+                        {!slotEntries.length ? <p className={`${styles.slotStateText} ${slotStateTextClass}`}>{slotState.label}</p> : null}
                         {slotEntries.map((entry) => (
                           <article
                             key={entry.booking.id}

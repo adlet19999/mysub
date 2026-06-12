@@ -49,6 +49,7 @@ type ServiceGroupOption = {
 type ModalMode = "create" | "edit";
 type ToastTone = "success" | "error";
 type ToastState = { text: string; tone: ToastTone };
+type SchedulePresetKey = "standard" | "weekend-off" | "copy-weekdays";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000/api/v1";
 const TENANT_DEFAULT = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public";
@@ -129,10 +130,18 @@ export default function SpecialistsPage() {
   const [tab, setTab] = useState<"active" | "archived" | "all">("active");
   const [toast, setToast] = useState<ToastState | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isBulkScheduleOpen, setIsBulkScheduleOpen] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<Specialist | null>(null);
+  const [scheduleTarget, setScheduleTarget] = useState<Specialist | null>(null);
+  const [scheduleDraft, setScheduleDraft] = useState<WorkingDaySchedule[]>(defaultWorkingSchedule());
+  const [activeSchedulePreset, setActiveSchedulePreset] = useState<SchedulePresetKey | null>(null);
+  const [bulkScheduleDraft, setBulkScheduleDraft] = useState<WorkingDaySchedule[]>(defaultWorkingSchedule());
+  const [activeBulkSchedulePreset, setActiveBulkSchedulePreset] = useState<SchedulePresetKey | null>(null);
+  const [bulkSelectedSpecialistIds, setBulkSelectedSpecialistIds] = useState<number[]>([]);
   const [modalMode, setModalMode] = useState<ModalMode>("create");
   const [editingSpecialist, setEditingSpecialist] = useState<Specialist | null>(null);
   const [kindError, setKindError] = useState("");
+  const [scheduleError, setScheduleError] = useState("");
   const [form, setForm] = useState<SpecialistFormState>({
     fullName: "",
     description: "",
@@ -206,6 +215,10 @@ export default function SpecialistsPage() {
         );
       });
   }, [searchQuery, specialists, tab]);
+
+  const activeSpecialists = useMemo(() => {
+    return specialists.filter((item) => item.is_active).sort((left, right) => left.full_name.localeCompare(right.full_name));
+  }, [specialists]);
 
   async function api(path: string, init?: RequestInit) {
     return fetch(`${API_BASE}${path}`, {
@@ -296,6 +309,204 @@ export default function SpecialistsPage() {
     setIsModalOpen(true);
   }
 
+  function openScheduleModal(specialist: Specialist) {
+    setScheduleTarget(specialist);
+    setScheduleDraft(normalizeWorkingSchedule(specialist.working_schedule));
+    setActiveSchedulePreset(null);
+    setScheduleError("");
+  }
+
+  function closeScheduleModal() {
+    setScheduleTarget(null);
+    setActiveSchedulePreset(null);
+    setScheduleError("");
+  }
+
+  function openBulkScheduleModal() {
+    const activeIds = activeSpecialists.map((item) => item.id);
+    setIsBulkScheduleOpen(true);
+    setBulkScheduleDraft(defaultWorkingSchedule());
+    setActiveBulkSchedulePreset(null);
+    setBulkSelectedSpecialistIds(activeIds);
+    setScheduleError("");
+  }
+
+  function closeBulkScheduleModal() {
+    setIsBulkScheduleOpen(false);
+    setActiveBulkSchedulePreset(null);
+    setScheduleError("");
+  }
+
+  function toggleBulkSpecialistSelection(specialistId: number) {
+    setBulkSelectedSpecialistIds((prev) =>
+      prev.includes(specialistId) ? prev.filter((id) => id !== specialistId) : [...prev, specialistId],
+    );
+  }
+
+  function toggleBulkSelectAll(checked: boolean) {
+    if (!checked) {
+      setBulkSelectedSpecialistIds([]);
+      return;
+    }
+    setBulkSelectedSpecialistIds(activeSpecialists.map((item) => item.id));
+  }
+
+  function updateDaySchedule(day: WorkingDayKey, patch: Partial<WorkingDaySchedule>) {
+    setScheduleError("");
+    setActiveSchedulePreset(null);
+    setScheduleDraft((prev) => prev.map((row) => (row.day === day ? { ...row, ...patch } : row)));
+  }
+
+  function updateBulkDaySchedule(day: WorkingDayKey, patch: Partial<WorkingDaySchedule>) {
+    setScheduleError("");
+    setActiveBulkSchedulePreset(null);
+    setBulkScheduleDraft((prev) => prev.map((row) => (row.day === day ? { ...row, ...patch } : row)));
+  }
+
+  function copyDayToWeekdays(sourceDay: WorkingDayKey) {
+    const source = scheduleDraft.find((item) => item.day === sourceDay);
+    if (!source) {
+      return;
+    }
+    const weekdays: WorkingDayKey[] = ["mon", "tue", "wed", "thu", "fri"];
+    setScheduleError("");
+    setActiveSchedulePreset("copy-weekdays");
+    setScheduleDraft((prev) =>
+      prev.map((row) => {
+        if (!weekdays.includes(row.day)) {
+          return row;
+        }
+        return {
+          ...row,
+          is_day_off: source.is_day_off,
+          start_time: source.start_time,
+          end_time: source.end_time,
+          break_start: source.break_start,
+          break_end: source.break_end,
+        };
+      }),
+    );
+  }
+
+  function copyBulkDayToWeekdays(sourceDay: WorkingDayKey) {
+    const source = bulkScheduleDraft.find((item) => item.day === sourceDay);
+    if (!source) {
+      return;
+    }
+    const weekdays: WorkingDayKey[] = ["mon", "tue", "wed", "thu", "fri"];
+    setScheduleError("");
+    setActiveBulkSchedulePreset("copy-weekdays");
+    setBulkScheduleDraft((prev) =>
+      prev.map((row) => {
+        if (!weekdays.includes(row.day)) {
+          return row;
+        }
+        return {
+          ...row,
+          is_day_off: source.is_day_off,
+          start_time: source.start_time,
+          end_time: source.end_time,
+          break_start: source.break_start,
+          break_end: source.break_end,
+        };
+      }),
+    );
+  }
+
+  function applyTemplate(mode: "standard" | "weekend-off") {
+    setScheduleError("");
+    setActiveSchedulePreset(mode);
+    setScheduleDraft((prev) =>
+      prev.map((row) => {
+        if (mode === "standard") {
+          const isWeekend = row.day === "sat" || row.day === "sun";
+          return {
+            ...row,
+            is_day_off: isWeekend,
+            start_time: "09:00",
+            end_time: "18:00",
+            break_start: "13:00",
+            break_end: "14:00",
+          };
+        }
+
+        const isWeekend = row.day === "sat" || row.day === "sun";
+        if (isWeekend) {
+          return {
+            ...row,
+            is_day_off: true,
+            start_time: "",
+            end_time: "",
+            break_start: "",
+            break_end: "",
+          };
+        }
+        return row;
+      }),
+    );
+  }
+
+  function applyBulkTemplate(mode: "standard" | "weekend-off") {
+    setScheduleError("");
+    setActiveBulkSchedulePreset(mode);
+    setBulkScheduleDraft((prev) =>
+      prev.map((row) => {
+        if (mode === "standard") {
+          const isWeekend = row.day === "sat" || row.day === "sun";
+          return {
+            ...row,
+            is_day_off: isWeekend,
+            start_time: "09:00",
+            end_time: "18:00",
+            break_start: "13:00",
+            break_end: "14:00",
+          };
+        }
+
+        const isWeekend = row.day === "sat" || row.day === "sun";
+        if (isWeekend) {
+          return {
+            ...row,
+            is_day_off: true,
+            start_time: "",
+            end_time: "",
+            break_start: "",
+            break_end: "",
+          };
+        }
+        return row;
+      }),
+    );
+  }
+
+  function validateSchedule(rows: WorkingDaySchedule[]) {
+    for (const row of rows) {
+      if (row.is_day_off) {
+        continue;
+      }
+      if (!row.start_time || !row.end_time) {
+        return `Укажите время начала и конца для дня ${WEEK_DAYS.find((item) => item.key === row.day)?.label || row.day}`;
+      }
+      if (row.start_time >= row.end_time) {
+        return `Время начала должно быть раньше времени окончания (${WEEK_DAYS.find((item) => item.key === row.day)?.label || row.day})`;
+      }
+
+      const hasBreakStart = Boolean(row.break_start);
+      const hasBreakEnd = Boolean(row.break_end);
+      if (hasBreakStart !== hasBreakEnd) {
+        return `Для перерыва заполните оба поля (${WEEK_DAYS.find((item) => item.key === row.day)?.label || row.day})`;
+      }
+
+      if (hasBreakStart && hasBreakEnd) {
+        if (!(row.start_time < row.break_start && row.break_start < row.break_end && row.break_end < row.end_time)) {
+          return `Перерыв должен быть внутри рабочего времени (${WEEK_DAYS.find((item) => item.key === row.day)?.label || row.day})`;
+        }
+      }
+    }
+
+    return "";
+  }
+
   function addServiceGroup() {
     const selectedKey = form.pendingServiceGroupKey;
     if (!selectedKey || form.selectedServiceGroupKeys.includes(selectedKey)) {
@@ -369,7 +580,6 @@ export default function SpecialistsPage() {
           phone: "",
           email: "",
           photo_base64: form.photoBase64,
-          working_schedule: defaultWorkingSchedule(),
           service_kind_ids: mappedKindIds,
           is_active: true,
         }),
@@ -409,6 +619,68 @@ export default function SpecialistsPage() {
     );
   }
 
+  async function submitSchedule() {
+    if (!scheduleTarget) {
+      return;
+    }
+
+    const scheduleValidationError = validateSchedule(scheduleDraft);
+    if (scheduleValidationError) {
+      setScheduleError(scheduleValidationError);
+      return;
+    }
+
+    const response = await api(`/partner/specialists/${scheduleTarget.id}/`, {
+      method: "PATCH",
+      body: JSON.stringify({ working_schedule: scheduleDraft }),
+    });
+    if (!response.ok) {
+      setScheduleError("Не удалось сохранить график");
+      return;
+    }
+
+    closeScheduleModal();
+    await loadData();
+    showToast("График работы сохранен", "success");
+  }
+
+  async function submitBulkSchedule() {
+    if (!bulkSelectedSpecialistIds.length) {
+      setScheduleError("Выберите хотя бы одного специалиста");
+      return;
+    }
+
+    const scheduleValidationError = validateSchedule(bulkScheduleDraft);
+    if (scheduleValidationError) {
+      setScheduleError(scheduleValidationError);
+      return;
+    }
+
+    const results = await Promise.all(
+      bulkSelectedSpecialistIds.map(async (specialistId) => {
+        const response = await api(`/partner/specialists/${specialistId}/`, {
+          method: "PATCH",
+          body: JSON.stringify({ working_schedule: bulkScheduleDraft }),
+        });
+        return response.ok;
+      }),
+    );
+
+    const successCount = results.filter(Boolean).length;
+    if (!successCount) {
+      setScheduleError("Не удалось сохранить график");
+      return;
+    }
+
+    closeBulkScheduleModal();
+    await loadData();
+    if (successCount === bulkSelectedSpecialistIds.length) {
+      showToast(`График применен к ${successCount} специалистам`, "success");
+    } else {
+      showToast(`График применен к ${successCount} из ${bulkSelectedSpecialistIds.length}`, "error");
+    }
+  }
+
   return (
     <>
       <main className={styles.page}>
@@ -442,10 +714,22 @@ export default function SpecialistsPage() {
               <p>Управление рабочими местами и помещениями</p>
             </div>
 
-            <button type="button" className={styles.addButton} onClick={openCreateModal} disabled={!partnerEmail}>
-              <span className={styles.plusIcon} aria-hidden>+</span>
-              Добавить специалиста
-            </button>
+            <div className={styles.headActions}>
+              <button
+                type="button"
+                className={styles.scheduleTopButton}
+                onClick={openBulkScheduleModal}
+                disabled={!partnerEmail || !activeSpecialists.length}
+              >
+                <img src="/setting.svg" alt="" className={styles.actionIcon} aria-hidden />
+                Составить график работы
+              </button>
+
+              <button type="button" className={styles.addButton} onClick={openCreateModal} disabled={!partnerEmail}>
+                <span className={styles.plusIcon} aria-hidden>+</span>
+                Добавить специалиста
+              </button>
+            </div>
           </div>
 
           <div className={styles.filterRow}>
@@ -643,6 +927,265 @@ export default function SpecialistsPage() {
                 {archiveTarget.is_active ? "Архивировать" : "Разархивировать"}
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {scheduleTarget ? (
+        <div className={styles.overlay}>
+          <div className={styles.modal}>
+            <header className={styles.modalHeader}>
+              <div className={styles.modalTitleWrap}>
+                <img src="/setting.svg" alt="" className={styles.modalIcon} aria-hidden />
+                <h2>График работы специалиста</h2>
+              </div>
+              <button type="button" className={styles.close} onClick={closeScheduleModal}>
+                ×
+              </button>
+            </header>
+
+            <div className={styles.modalBody}>
+              <p className={styles.scheduleTarget}>Специалист: <strong>{scheduleTarget.full_name}</strong></p>
+
+              <div className={styles.scheduleTools}>
+                <button
+                  type="button"
+                  className={activeSchedulePreset === "standard" ? styles.scheduleToolActive : undefined}
+                  onClick={() => applyTemplate("standard")}
+                >
+                  Шаблон 09:00-18:00
+                </button>
+                <button
+                  type="button"
+                  className={activeSchedulePreset === "weekend-off" ? styles.scheduleToolActive : undefined}
+                  onClick={() => applyTemplate("weekend-off")}
+                >
+                  Выходные: Сб/Вс
+                </button>
+                <button
+                  type="button"
+                  className={activeSchedulePreset === "copy-weekdays" ? styles.scheduleToolActive : undefined}
+                  onClick={() => copyDayToWeekdays("mon")}
+                >
+                  Копировать Пн на Пн-Пт
+                </button>
+              </div>
+
+              {scheduleError ? <p className={styles.scheduleError}>{scheduleError}</p> : null}
+
+              <div className={styles.scheduleGrid}>
+                {scheduleDraft.map((day) => (
+                  <div key={day.day} className={styles.scheduleRow}>
+                    <div className={styles.scheduleLabel}>{WEEK_DAYS.find((item) => item.key === day.day)?.label || day.day}</div>
+
+                    <label className={styles.dayOffCheck}>
+                      <input
+                        type="checkbox"
+                        checked={day.is_day_off}
+                        onChange={(event) => {
+                          const isDayOff = event.target.checked;
+                          updateDaySchedule(day.day, {
+                            is_day_off: isDayOff,
+                            start_time: isDayOff ? "" : day.start_time || "09:00",
+                            end_time: isDayOff ? "" : day.end_time || "18:00",
+                            break_start: isDayOff ? "" : day.break_start || "13:00",
+                            break_end: isDayOff ? "" : day.break_end || "14:00",
+                          });
+                        }}
+                      />
+                      Выходной
+                    </label>
+
+                    <div className={styles.timeRange}>
+                      <input
+                        type="time"
+                        value={day.start_time}
+                        disabled={day.is_day_off}
+                        onChange={(event) => updateDaySchedule(day.day, { start_time: event.target.value })}
+                      />
+                      <span>-</span>
+                      <input
+                        type="time"
+                        value={day.end_time}
+                        disabled={day.is_day_off}
+                        onChange={(event) => updateDaySchedule(day.day, { end_time: event.target.value })}
+                      />
+                    </div>
+
+                    <div className={styles.breakRow}>
+                      <span>Перерыв</span>
+                      <input
+                        type="time"
+                        value={day.break_start}
+                        disabled={day.is_day_off}
+                        onChange={(event) => updateDaySchedule(day.day, { break_start: event.target.value })}
+                      />
+                      <span>-</span>
+                      <input
+                        type="time"
+                        value={day.break_end}
+                        disabled={day.is_day_off}
+                        onChange={(event) => updateDaySchedule(day.day, { break_end: event.target.value })}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <footer className={styles.modalFooter}>
+              <button type="button" className={styles.cancelButton} onClick={closeScheduleModal}>
+                Отменить
+              </button>
+              <button type="button" className={styles.saveButton} onClick={() => void submitSchedule()}>
+                Сохранить график
+              </button>
+            </footer>
+          </div>
+        </div>
+      ) : null}
+
+      {isBulkScheduleOpen ? (
+        <div className={styles.overlay}>
+          <div className={`${styles.modal} ${styles.bulkModal}`}>
+            <header className={styles.modalHeader}>
+              <div className={styles.modalTitleWrap}>
+                <img src="/setting.svg" alt="" className={styles.modalIcon} aria-hidden />
+                <h2>Составить график работы</h2>
+              </div>
+              <button type="button" className={styles.close} onClick={closeBulkScheduleModal}>
+                ×
+              </button>
+            </header>
+
+            <div className={`${styles.modalBody} ${styles.bulkBody}`}>
+              <div className={styles.specialistPickerBlock}>
+                <div className={styles.specialistPickerHeader}>
+                  <strong>Выберите специалистов</strong>
+                  <label className={styles.bulkCheckAll}>
+                    <input
+                      type="checkbox"
+                      checked={bulkSelectedSpecialistIds.length > 0 && bulkSelectedSpecialistIds.length === activeSpecialists.length}
+                      onChange={(event) => toggleBulkSelectAll(event.target.checked)}
+                    />
+                    Выбрать всех
+                  </label>
+                </div>
+
+                <p className={styles.bulkSelectedCounter}>
+                  Выбрано: <strong>{bulkSelectedSpecialistIds.length}</strong> из {activeSpecialists.length}
+                </p>
+
+                <div className={styles.specialistPickerGrid}>
+                  {activeSpecialists.map((specialist) => (
+                    <label key={specialist.id} className={styles.specialistCheckItem}>
+                      <input
+                        type="checkbox"
+                        checked={bulkSelectedSpecialistIds.includes(specialist.id)}
+                        onChange={() => toggleBulkSpecialistSelection(specialist.id)}
+                      />
+                      <span>{specialist.full_name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className={styles.bulkSchedulePanel}>
+                <div className={styles.scheduleTools}>
+                  <button
+                    type="button"
+                    className={activeBulkSchedulePreset === "standard" ? styles.scheduleToolActive : undefined}
+                    onClick={() => applyBulkTemplate("standard")}
+                  >
+                    Шаблон 09:00-18:00
+                  </button>
+                  <button
+                    type="button"
+                    className={activeBulkSchedulePreset === "weekend-off" ? styles.scheduleToolActive : undefined}
+                    onClick={() => applyBulkTemplate("weekend-off")}
+                  >
+                    Выходные: Сб/Вс
+                  </button>
+                  <button
+                    type="button"
+                    className={activeBulkSchedulePreset === "copy-weekdays" ? styles.scheduleToolActive : undefined}
+                    onClick={() => copyBulkDayToWeekdays("mon")}
+                  >
+                    Копировать Пн на Пн-Пт
+                  </button>
+                </div>
+
+                {scheduleError ? <p className={styles.scheduleError}>{scheduleError}</p> : null}
+
+                <div className={styles.scheduleGrid}>
+                  {bulkScheduleDraft.map((day) => (
+                    <div key={day.day} className={styles.scheduleRow}>
+                      <div className={styles.scheduleLabel}>{WEEK_DAYS.find((item) => item.key === day.day)?.label || day.day}</div>
+
+                      <label className={styles.dayOffCheck}>
+                        <input
+                          type="checkbox"
+                          checked={day.is_day_off}
+                          onChange={(event) => {
+                            const isDayOff = event.target.checked;
+                            updateBulkDaySchedule(day.day, {
+                              is_day_off: isDayOff,
+                              start_time: isDayOff ? "" : day.start_time || "09:00",
+                              end_time: isDayOff ? "" : day.end_time || "18:00",
+                              break_start: isDayOff ? "" : day.break_start || "13:00",
+                              break_end: isDayOff ? "" : day.break_end || "14:00",
+                            });
+                          }}
+                        />
+                        Выходной
+                      </label>
+
+                      <div className={styles.timeRange}>
+                        <input
+                          type="time"
+                          value={day.start_time}
+                          disabled={day.is_day_off}
+                          onChange={(event) => updateBulkDaySchedule(day.day, { start_time: event.target.value })}
+                        />
+                        <span>-</span>
+                        <input
+                          type="time"
+                          value={day.end_time}
+                          disabled={day.is_day_off}
+                          onChange={(event) => updateBulkDaySchedule(day.day, { end_time: event.target.value })}
+                        />
+                      </div>
+
+                      <div className={styles.breakRow}>
+                        <span>Перерыв</span>
+                        <input
+                          type="time"
+                          value={day.break_start}
+                          disabled={day.is_day_off}
+                          onChange={(event) => updateBulkDaySchedule(day.day, { break_start: event.target.value })}
+                        />
+                        <span>-</span>
+                        <input
+                          type="time"
+                          value={day.break_end}
+                          disabled={day.is_day_off}
+                          onChange={(event) => updateBulkDaySchedule(day.day, { break_end: event.target.value })}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <footer className={styles.modalFooter}>
+              <button type="button" className={styles.cancelButton} onClick={closeBulkScheduleModal}>
+                Отменить
+              </button>
+              <button type="button" className={styles.saveButton} onClick={() => void submitBulkSchedule()}>
+                Применить график
+              </button>
+            </footer>
           </div>
         </div>
       ) : null}
