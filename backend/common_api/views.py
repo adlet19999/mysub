@@ -1,3 +1,4 @@
+import re
 from uuid import uuid4
 
 from django.contrib.auth import authenticate
@@ -9,6 +10,14 @@ from rest_framework.views import APIView
 from .models import PartnerProfile
 
 
+PHONE_RU_RE = re.compile(r"^\+7\d{10}$")
+
+
+def normalize_ru_phone(raw_phone: str) -> str:
+	cleaned = re.sub(r"[\s\-()]", "", raw_phone or "")
+	return cleaned
+
+
 class HealthView(APIView):
 	def get(self, request):
 		return Response({"ok": True, "service": "django-backend"})
@@ -17,7 +26,7 @@ class HealthView(APIView):
 class AuthRegisterView(APIView):
 	def post(self, request):
 		full_name = (request.data.get("full_name") or "").strip()
-		phone = (request.data.get("phone") or "").strip()
+		phone = normalize_ru_phone((request.data.get("phone") or "").strip())
 		email = (request.data.get("email") or "").strip().lower()
 		password = request.data.get("password") or ""
 		user_type = ((request.data.get("user_type") or "partner").strip().lower())
@@ -27,6 +36,9 @@ class AuthRegisterView(APIView):
 
 		if not full_name or not phone or not email or not password:
 			return Response({"message": "full_name, phone, email, password обязательны"}, status=400)
+
+		if not PHONE_RU_RE.match(phone):
+			return Response({"message": "Телефон должен быть в формате +7XXXXXXXXXX"}, status=400)
 
 		if User.objects.filter(username=email).exists():
 			return Response({"message": "Пользователь уже существует"}, status=409)

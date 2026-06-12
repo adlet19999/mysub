@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
 const BACKEND_BASE_URL = process.env.BACKEND_BASE_URL || "http://127.0.0.1:8000";
+const RU_PHONE_RE = /^\+7\d{10}$/;
+
+function normalizeRuPhone(rawPhone: string): string {
+  return rawPhone.replace(/[\s\-()]/g, "");
+}
 
 export async function POST(request: Request) {
   const body = (await request.json()) as {
@@ -18,7 +23,7 @@ export async function POST(request: Request) {
   const password = (body.password || "").trim();
   const acceptedOffer = Boolean(body.acceptedOffer);
   const fullName = (body.full_name || "").trim() || login;
-  const phone = (body.phone || "").trim() || "+7";
+  const phone = normalizeRuPhone((body.phone || "").trim() || "+7");
   const companyName = (body.company_name || "").trim();
   const businessCategory = (body.business_category || "").trim();
   const address = (body.address || "").trim();
@@ -37,6 +42,13 @@ export async function POST(request: Request) {
   if (password.length < 6) {
     return NextResponse.json(
       { message: "Пароль должен содержать минимум 6 символов" },
+      { status: 400 },
+    );
+  }
+
+  if (!RU_PHONE_RE.test(phone)) {
+    return NextResponse.json(
+      { message: "Телефон должен быть в формате +7XXXXXXXXXX" },
       { status: 400 },
     );
   }
