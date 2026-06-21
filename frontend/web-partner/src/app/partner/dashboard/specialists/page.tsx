@@ -51,7 +51,7 @@ type ToastTone = "success" | "error";
 type ToastState = { text: string; tone: ToastTone };
 type SchedulePresetKey = "standard" | "weekend-off" | "copy-weekdays";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000/api/v1";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1";
 const TENANT_DEFAULT = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public";
 const WEEK_DAYS: { key: WorkingDayKey; label: string }[] = [
   { key: "mon", label: "Понедельник" },

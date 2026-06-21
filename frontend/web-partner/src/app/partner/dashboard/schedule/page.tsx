@@ -68,7 +68,7 @@ type CalendarBooking = {
   durationMinutes: number;
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000/api/v1";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1";
 const TENANT_DEFAULT = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public";
 const WEEK_DAYS: WorkingDayKey[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
