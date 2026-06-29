@@ -46,6 +46,7 @@ class Service(models.Model):
 	discount_percent = models.PositiveSmallIntegerField(default=0)
 	is_subscription = models.BooleanField(default=True)
 	image_url = models.URLField(blank=True, default="")
+	image_base64 = models.TextField(blank=True, default="")
 	is_promo = models.BooleanField(default=False)
 	is_active = models.BooleanField(default=True)
 	created_at = models.DateTimeField(auto_now_add=True)

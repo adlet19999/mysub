@@ -256,11 +256,6 @@ export default function PartnerRegisterCredentialsPage() {
                 <label htmlFor="kbe">КБЕ</label>
                 <input id="kbe" type="text" />
               </div>
-
-              <div className={styles.formGroup}>
-                <label htmlFor="knp">КНП</label>
-                <input id="knp" type="text" />
-              </div>
             </div>
 
             <div className={styles.formGroup}>

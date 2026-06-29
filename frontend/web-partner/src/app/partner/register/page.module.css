@@ -90,6 +90,8 @@
   border-radius: 12px;
   padding: 20px;
   margin-bottom: 20px;
+  max-height: 260px;
+  overflow-y: auto;
 }
 
 .offerBox h2 {
@@ -133,6 +135,44 @@
   gap: 12px;
   margin: 10px 0 20px;
   cursor: pointer;
+}
+
+.offerScrollHint {
+  margin: -8px 0 14px;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.passwordRow {
+  position: relative;
+  margin-bottom: 14px;
+}
+
+.passwordRow .input {
+  margin-bottom: 0;
+}
+
+.inputWithIcon {
+  padding-right: 48px;
+}
+
+.eyeButton {
+  position: absolute;
+  right: 12px;
+  top: 0;
+  width: 36px;
+  height: 50px;
+  border: 0;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.eyeButton:hover {
+  color: #1f6b52;
 }
 
 .checkbox input {

@@ -424,6 +424,7 @@ class ServiceListCreateView(APIView):
 				"discount_percent": item.discount_percent,
 				"is_subscription": item.is_subscription,
 				"image_url": item.image_url,
+				"image_base64": item.image_base64,
 				"is_promo": item.is_promo,
 				"is_active": item.is_active,
 			}
@@ -476,6 +477,7 @@ class ServiceListCreateView(APIView):
 			discount_percent=discount_percent,
 			is_subscription=is_subscription,
 			image_url=(request.data.get("image_url") or "").strip(),
+			image_base64=(request.data.get("image_base64") or "").strip(),
 			is_promo=is_promo,
 			is_active=parse_bool(request.data.get("is_active"), True),
 		)
@@ -496,6 +498,7 @@ class ServiceListCreateView(APIView):
 				"discount_percent": item.discount_percent,
 				"is_subscription": item.is_subscription,
 				"image_url": item.image_url,
+				"image_base64": item.image_base64,
 				"is_promo": item.is_promo,
 				"is_active": item.is_active,
 			},
@@ -581,6 +584,10 @@ class ServiceDetailView(APIView):
 		if image_url is not None:
 			item.image_url = str(image_url).strip()
 
+		image_base64 = request.data.get("image_base64")
+		if image_base64 is not None:
+			item.image_base64 = str(image_base64).strip()
+
 		is_promo = request.data.get("is_promo")
 		if is_promo is not None:
 			item.is_promo = parse_bool(is_promo, item.is_promo)
@@ -610,6 +617,7 @@ class ServiceDetailView(APIView):
 				"discount_percent": item.discount_percent,
 				"is_subscription": item.is_subscription,
 				"image_url": item.image_url,
+				"image_base64": item.image_base64,
 				"is_promo": item.is_promo,
 				"is_active": item.is_active,
 			}

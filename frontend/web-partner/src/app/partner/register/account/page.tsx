@@ -5,6 +5,50 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import styles from "../page.module.css";
 
+function EyeOpenIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M2.46 12C3.73 7.94 7.52 5 12 5C16.48 5 20.27 7.94 21.54 12C20.27 16.06 16.48 19 12 19C7.52 19 3.73 16.06 2.46 12Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.7" />
+    </svg>
+  );
+}
+
+function EyeClosedIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3 3L21 21" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M9.88 9.88C9.34 10.42 9 11.17 9 12C9 13.66 10.34 15 12 15C12.83 15 13.58 14.66 14.12 14.12"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6.79 6.79C5.01 8.05 3.65 9.87 2.87 12C4.14 16.06 7.92 19 12.41 19C14.24 19 15.95 18.5 17.42 17.63"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10.74 5.08C11.15 5.03 11.57 5 12 5C16.48 5 20.27 7.94 21.54 12C21.12 13.34 20.42 14.55 19.53 15.56"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 type RegisterDraft = {
   full_name?: string;
   phone?: string;
@@ -19,6 +63,8 @@ export default function PartnerRegisterAccountPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState<RegisterDraft>({});
@@ -120,26 +166,46 @@ export default function PartnerRegisterAccountPage() {
               <label className={styles.label} htmlFor="register-password">
                 Пароль *
               </label>
-              <input
-                id="register-password"
-                className={styles.input}
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder=""
-              />
+              <div className={styles.passwordRow}>
+                <input
+                  id="register-password"
+                  className={`${styles.input} ${styles.inputWithIcon}`}
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder=""
+                />
+                <button
+                  type="button"
+                  className={styles.eyeButton}
+                  onClick={() => setShowPassword((value) => !value)}
+                  aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
+                >
+                  {showPassword ? <EyeClosedIcon /> : <EyeOpenIcon />}
+                </button>
+              </div>
 
               <label className={styles.label} htmlFor="register-confirm-password">
                 Подтверждение пароля *
               </label>
-              <input
-                id="register-confirm-password"
-                className={styles.input}
-                type="password"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                placeholder=""
-              />
+              <div className={styles.passwordRow}>
+                <input
+                  id="register-confirm-password"
+                  className={`${styles.input} ${styles.inputWithIcon}`}
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  placeholder=""
+                />
+                <button
+                  type="button"
+                  className={styles.eyeButton}
+                  onClick={() => setShowConfirmPassword((value) => !value)}
+                  aria-label={showConfirmPassword ? "Скрыть пароль" : "Показать пароль"}
+                >
+                  {showConfirmPassword ? <EyeClosedIcon /> : <EyeOpenIcon />}
+                </button>
+              </div>
 
               {error ? <p className={styles.error}>{error}</p> : null}
 

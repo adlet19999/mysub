@@ -25,6 +25,7 @@ type Service = {
   discount_percent: number;
   is_subscription: boolean;
   image_url: string;
+  image_base64?: string;
   is_promo: boolean;
   is_active: boolean;
 };
@@ -46,6 +47,7 @@ type OfferFormState = {
   kindId: string;
   selectedKindIds: number[];
   description: string;
+  imageUrl: string;
   price: string;
   durationMinutes: string;
   discountPercent: string;
@@ -97,7 +99,8 @@ export default function PartnerManagePage() {
     kindId: "",
     selectedKindIds: [],
     description: "",
-    price: "0",
+    imageUrl: "",
+    price: "",
     durationMinutes: "60",
     discountPercent: "",
     serviceTypeLabel: "",
@@ -249,7 +252,8 @@ export default function PartnerManagePage() {
       kindId: defaultKind ? String(defaultKind.id) : "",
       selectedKindIds: defaultKind ? [defaultKind.id] : [],
       description: "",
-      price: "0",
+      imageUrl: "",
+      price: "",
       durationMinutes: "60",
       discountPercent: "20",
       serviceTypeLabel: defaultKind?.name ?? "",
@@ -276,6 +280,7 @@ export default function PartnerManagePage() {
       kindId: service.kind ? String(service.kind) : "",
       selectedKindIds: service.kind ? [service.kind] : [],
       description: service.description || "",
+      imageUrl: service.image_base64 || service.image_url || "",
       price: service.price ?? "0",
       durationMinutes: String(service.duration_minutes || 60),
       discountPercent: String(service.discount_percent || 0),
@@ -295,6 +300,19 @@ export default function PartnerManagePage() {
     setDialogMode(service.is_active ? "archive" : "unarchive");
     setEditingOffer(service);
     setIsModalOpen(true);
+  }
+
+  function onServiceImageSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = typeof reader.result === "string" ? reader.result : "";
+      setOfferForm((prev) => ({ ...prev, imageUrl: value }));
+    };
+    reader.readAsDataURL(file);
   }
 
   async function submitOffer(event: FormEvent) {
@@ -355,6 +373,7 @@ export default function PartnerManagePage() {
           kind: primaryKindId,
           details: detailsPayload,
           description: offerForm.description,
+          image_base64: offerForm.imageUrl,
           duration_minutes: Number(offerForm.durationMinutes || 60),
           price: Number(offerForm.price || 0),
           discount_percent: Number(offerForm.discountPercent || 0),
@@ -390,6 +409,7 @@ export default function PartnerManagePage() {
             kind: kindId,
             details: detailsPayload,
             description: offerForm.description,
+            image_base64: offerForm.imageUrl,
             duration_minutes: Number(offerForm.durationMinutes || 60),
             price: Number(offerForm.price || 0),
             discount_percent: Number(offerForm.discountPercent || 0),
@@ -437,6 +457,7 @@ export default function PartnerManagePage() {
           kind: kindId,
           details: detailsPayload,
           description: offerForm.description,
+          image_base64: offerForm.imageUrl,
           duration_minutes: Number(offerForm.durationMinutes || 60),
           price: Number(offerForm.price || 0),
           discount_percent: Number(offerForm.discountPercent || 0),
@@ -575,7 +596,11 @@ export default function PartnerManagePage() {
                 {displayedServices.map((service) => (
                   <tr key={service.id}>
                     <td>
-                      <span className={styles.avatarDot} />
+                      {service.image_base64 || service.image_url ? (
+                        <img src={service.image_base64 || service.image_url} alt="Фото услуги" className={styles.servicePhoto} />
+                      ) : (
+                        <span className={styles.avatarDot} />
+                      )}
                     </td>
                     <td>{service.name}</td>
                     <td>{service.category_name}</td>
@@ -890,10 +915,24 @@ export default function PartnerManagePage() {
                   </label>
                 </div>
 
-                <div className={styles.previewBox}>
-                  <span className={styles.previewHint}>🖼 Добавить фото</span>
-                  {dialogMode === "edit" ? <button type="button" className={styles.trash}>🗑</button> : null}
-                </div>
+                <label className={styles.previewBox}>
+                  {offerForm.imageUrl ? (
+                    <img src={offerForm.imageUrl} alt="Фото услуги" className={styles.previewImage} />
+                  ) : (
+                    <span className={styles.previewHint}>🖼 Добавить фото</span>
+                  )}
+                  <input type="file" accept="image/*" className={styles.hiddenFileInput} onChange={onServiceImageSelected} />
+                  {dialogMode === "edit" && offerForm.imageUrl ? (
+                    <button
+                      type="button"
+                      className={styles.trash}
+                      onClick={() => setOfferForm((prev) => ({ ...prev, imageUrl: "" }))}
+                      aria-label="Удалить фото"
+                    >
+                      🗑
+                    </button>
+                  ) : null}
+                </label>
               </div>
 
               <footer className={styles.modalFooter}>
