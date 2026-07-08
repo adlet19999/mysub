@@ -238,7 +238,10 @@ export default function SpecialistsPage() {
     }
 
     try {
-      const [kindsRes, specialistsRes] = await Promise.all([api("/partner/service-kinds/"), api("/partner/specialists/")]);
+      const [kindsRes, specialistsRes] = await Promise.all([
+        api("/partner/service-kinds/"),
+        api("/partner/specialists/?include_photo=0"),
+      ]);
 
       if (!kindsRes.ok || !specialistsRes.ok) {
         return;
@@ -252,6 +255,29 @@ export default function SpecialistsPage() {
         Array.isArray(specialistsPayload)
           ? specialistsPayload.map((item) => ({ ...item, working_schedule: normalizeWorkingSchedule(item.working_schedule) }))
           : [],
+      );
+
+      // Load heavy photo payload in background so the table appears immediately.
+      const specialistsWithPhotoRes = await api("/partner/specialists/?include_photo=1");
+      if (!specialistsWithPhotoRes.ok) {
+        return;
+      }
+
+      const specialistsWithPhotoPayload = (await specialistsWithPhotoRes.json()) as Specialist[];
+      if (!Array.isArray(specialistsWithPhotoPayload)) {
+        return;
+      }
+
+      const photoById = new Map<number, string>();
+      for (const item of specialistsWithPhotoPayload) {
+        photoById.set(item.id, item.photo_base64 || "");
+      }
+
+      setSpecialists((prev) =>
+        prev.map((item) => ({
+          ...item,
+          photo_base64: photoById.get(item.id) || item.photo_base64,
+        })),
       );
     } catch {
       // Keep this dashboard resilient to temporary API connectivity issues.
