@@ -1,7 +1,13 @@
+import base64
+import binascii
 import re
+import uuid
 from datetime import timedelta
+from pathlib import Path
 
 from django.db.models import Q
+from django.conf import settings
+from django.http import FileResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework.response import Response
@@ -61,6 +67,51 @@ def parse_positive_int(value, field_name: str):
 	if parsed <= 0:
 		return None, f"{field_name} должен быть больше 0"
 	return parsed, None
+
+
+def save_service_image_from_base64(image_base64: str, tenant: str, partner_profile_id: int):
+	raw = str(image_base64 or "").strip()
+	if not raw:
+		return "", None
+
+	match = re.match(r"^data:image/(png|jpeg|jpg|webp|gif);base64,(.+)$", raw, flags=re.IGNORECASE | re.DOTALL)
+	if not match:
+		return "", "Некорректный формат изображения"
+
+	ext = match.group(1).lower()
+	if ext == "jpg":
+		ext = "jpeg"
+
+	try:
+		binary = base64.b64decode(match.group(2), validate=True)
+	except (binascii.Error, ValueError):
+		return "", "Некорректные base64-данные изображения"
+
+	if len(binary) > 5 * 1024 * 1024:
+		return "", "Изображение слишком большое (максимум 5MB)"
+
+	service_images_dir = Path(settings.MEDIA_ROOT) / "service_images"
+	service_images_dir.mkdir(parents=True, exist_ok=True)
+	file_name = f"tenant-{tenant}-partner-{partner_profile_id}-{uuid.uuid4().hex}.{ext}"
+	file_path = service_images_dir / file_name
+	file_path.write_bytes(binary)
+	return f"/api/v1/partner/service-images/{file_name}/", None
+
+
+def resolve_service_image_payload(raw_image_url, raw_image_base64, tenant: str, partner_profile_id: int):
+	image_url = str(raw_image_url or "").strip()
+	image_base64 = str(raw_image_base64 or "").strip()
+
+	if image_base64.startswith("data:image/"):
+		uploaded_url, upload_error = save_service_image_from_base64(image_base64, tenant, partner_profile_id)
+		if upload_error:
+			return None, None, upload_error
+		return uploaded_url, "", None
+
+	if image_url:
+		return image_url, "", None
+
+	return "", image_base64, None
 
 
 def normalize_service_details(category_name: str, raw_details):
@@ -465,6 +516,15 @@ class ServiceListCreateView(APIView):
 		if details_error:
 			return Response({"message": details_error}, status=400)
 
+		image_url, image_base64, image_error = resolve_service_image_payload(
+			request.data.get("image_url"),
+			request.data.get("image_base64"),
+			tenant,
+			partner_profile.id,
+		)
+		if image_error:
+			return Response({"message": image_error}, status=400)
+
 		item = Service.objects.create(
 			tenant_slug=tenant,
 			partner_profile=partner_profile,
@@ -477,8 +537,8 @@ class ServiceListCreateView(APIView):
 			price=request.data.get("price") or 0,
 			discount_percent=discount_percent,
 			is_subscription=is_subscription,
-			image_url=(request.data.get("image_url") or "").strip(),
-			image_base64=(request.data.get("image_base64") or "").strip(),
+			image_url=image_url,
+			image_base64=image_base64,
 			is_promo=is_promo,
 			is_active=parse_bool(request.data.get("is_active"), True),
 		)
@@ -582,12 +642,18 @@ class ServiceDetailView(APIView):
 			item.is_subscription = parse_bool(is_subscription, item.is_subscription)
 
 		image_url = request.data.get("image_url")
-		if image_url is not None:
-			item.image_url = str(image_url).strip()
-
 		image_base64 = request.data.get("image_base64")
-		if image_base64 is not None:
-			item.image_base64 = str(image_base64).strip()
+		if image_url is not None or image_base64 is not None:
+			resolved_image_url, resolved_image_base64, image_error = resolve_service_image_payload(
+				image_url if image_url is not None else item.image_url,
+				image_base64 if image_base64 is not None else item.image_base64,
+				tenant,
+				partner_profile.id,
+			)
+			if image_error:
+				return Response({"message": image_error}, status=400)
+			item.image_url = resolved_image_url
+			item.image_base64 = resolved_image_base64
 
 		is_promo = request.data.get("is_promo")
 		if is_promo is not None:
@@ -1078,5 +1144,45 @@ class BookingDetailView(APIView):
 				"status": item.status,
 			}
 		)
+
+
+class ServiceImageUploadView(APIView):
+	def post(self, request):
+		partner_profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		tenant = tenant_from_request(request)
+		image_base64 = request.data.get("image_base64")
+		image_url, image_error = save_service_image_from_base64(image_base64, tenant, partner_profile.id)
+		if image_error:
+			return Response({"message": image_error}, status=400)
+
+		return Response({"image_url": image_url}, status=201)
+
+
+class ServiceImageView(APIView):
+	def get(self, request, file_name: str):
+		if not re.match(r"^[a-zA-Z0-9._-]+$", file_name or ""):
+			return Response({"message": "Некорректное имя файла"}, status=400)
+
+		file_path = Path(settings.MEDIA_ROOT) / "service_images" / file_name
+		if not file_path.exists() or not file_path.is_file():
+			return Response({"message": "Изображение не найдено"}, status=404)
+
+		ext = file_path.suffix.lower()
+		content_type = "application/octet-stream"
+		if ext == ".png":
+			content_type = "image/png"
+		elif ext in {".jpg", ".jpeg"}:
+			content_type = "image/jpeg"
+		elif ext == ".webp":
+			content_type = "image/webp"
+		elif ext == ".gif":
+			content_type = "image/gif"
+
+		response = FileResponse(open(file_path, "rb"), content_type=content_type)
+		response["Cache-Control"] = "public, max-age=31536000, immutable"
+		return response
 
 # Create your views here.
