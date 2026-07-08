@@ -76,6 +76,7 @@ function splitKindName(value: string): { serviceGroup: string; subtype: string }
 
 export default function PartnerManagePage() {
   const tenant = TENANT_DEFAULT;
+  const [authResolved, setAuthResolved] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [kinds, setKinds] = useState<ServiceKind[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -177,25 +178,51 @@ export default function PartnerManagePage() {
 
   async function loadData() {
     try {
-      const [catsRes, kindsRes, srvRes, mgrRes, bookRes] = await Promise.all([
-        api("/partner/categories/"),
-        api("/partner/service-kinds/"),
-        api("/partner/services/"),
+      const [catsRes, kindsRes] = await Promise.all([api("/partner/categories/"), api("/partner/service-kinds/")]);
+
+      const cats = (await catsRes.json()) as Category[];
+      const allKinds = (await kindsRes.json()) as ServiceKind[];
+
+      setCategories(Array.isArray(cats) ? cats : []);
+      setKinds(Array.isArray(allKinds) ? allKinds : []);
+      if (!partnerEmail) {
+        setServices([]);
+        setManagers([]);
+        setBookings([]);
+        return;
+      }
+
+      const [srvRes, mgrRes, bookRes] = await Promise.all([
+        api("/partner/services/?include_image=0"),
         api("/partner/managers/"),
         api("/partner/bookings/"),
       ]);
 
-      const cats = (await catsRes.json()) as Category[];
-      const allKinds = (await kindsRes.json()) as ServiceKind[];
       const srv = (await srvRes.json()) as Service[];
       const mgr = (await mgrRes.json()) as Manager[];
       const book = (await bookRes.json()) as Booking[];
 
-      setCategories(Array.isArray(cats) ? cats : []);
-      setKinds(Array.isArray(allKinds) ? allKinds : []);
       setServices(Array.isArray(srv) ? srv : []);
       setManagers(Array.isArray(mgr) ? mgr : []);
       setBookings(Array.isArray(book) ? book : []);
+
+      // Load heavy service images in background after table is already rendered.
+      const srvWithImagesRes = await api("/partner/services/?include_image=1");
+      if (srvWithImagesRes.ok) {
+        const srvWithImages = (await srvWithImagesRes.json()) as Service[];
+        if (Array.isArray(srvWithImages)) {
+          const imageById = new Map<number, string>();
+          for (const item of srvWithImages) {
+            imageById.set(item.id, item.image_base64 || "");
+          }
+          setServices((prev) =>
+            prev.map((item) => ({
+              ...item,
+              image_base64: imageById.get(item.id) || item.image_base64,
+            })),
+          );
+        }
+      }
 
       if (!offerForm.categoryId && Array.isArray(cats) && cats.length > 0) {
         const defaultCategoryId = String(cats[0].id);
@@ -233,12 +260,17 @@ export default function PartnerManagePage() {
       }
     } catch {
       // ignore invalid local storage value
+    } finally {
+      setAuthResolved(true);
     }
   }, []);
 
   useEffect(() => {
+    if (!authResolved) {
+      return;
+    }
     void loadData();
-  }, [partnerEmail]);
+  }, [authResolved, partnerEmail]);
 
   function openCreateModal() {
     const defaultCategoryId = categories[0] ? String(categories[0].id) : "";

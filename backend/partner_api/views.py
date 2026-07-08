@@ -403,6 +403,7 @@ class ServiceListCreateView(APIView):
 			return error_response
 
 		tenant = tenant_from_request(request)
+		include_image = parse_bool(request.query_params.get("include_image"), True)
 		partner_category = partner_category_from_request(request)
 		items = Service.objects.filter(tenant_slug=tenant, partner_profile=partner_profile).select_related("category", "kind")
 		if partner_category:
@@ -424,7 +425,7 @@ class ServiceListCreateView(APIView):
 				"discount_percent": item.discount_percent,
 				"is_subscription": item.is_subscription,
 				"image_url": item.image_url,
-				"image_base64": item.image_base64,
+				"image_base64": item.image_base64 if include_image else "",
 				"is_promo": item.is_promo,
 				"is_active": item.is_active,
 			}
