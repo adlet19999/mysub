@@ -122,6 +122,7 @@ function splitKindName(value: string): { serviceGroup: string; subtype: string }
 export default function SpecialistsPage() {
   const tenant = TENANT_DEFAULT;
   const [partnerEmail, setPartnerEmail] = useState("");
+  const [authResolved, setAuthResolved] = useState(false);
 
   const [kinds, setKinds] = useState<ServiceKind[]>([]);
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
@@ -277,12 +278,17 @@ export default function SpecialistsPage() {
       }
     } catch {
       // ignore invalid localStorage payload
+    } finally {
+      setAuthResolved(true);
     }
   }, []);
 
   useEffect(() => {
+    if (!authResolved) {
+      return;
+    }
     void loadData();
-  }, [partnerEmail]);
+  }, [authResolved, partnerEmail]);
 
   function openCreateModal() {
     setModalMode("create");
@@ -755,7 +761,7 @@ export default function SpecialistsPage() {
             </button>
           </div>
 
-          {!partnerEmail ? (
+          {authResolved && !partnerEmail ? (
             <p className={styles.error}>Не удалось определить текущего партнера. Выйдите и войдите снова.</p>
           ) : null}
 

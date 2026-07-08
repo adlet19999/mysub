@@ -27,6 +27,7 @@ export default function ManagersPage() {
   const tenant = TENANT_DEFAULT;
 
   const [partnerEmail, setPartnerEmail] = useState("");
+  const [authResolved, setAuthResolved] = useState(false);
   const [managers, setManagers] = useState<Manager[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -101,12 +102,17 @@ export default function ManagersPage() {
       }
     } catch {
       // ignore corrupted payload
+    } finally {
+      setAuthResolved(true);
     }
   }, []);
 
   useEffect(() => {
+    if (!authResolved) {
+      return;
+    }
     void loadData();
-  }, [partnerEmail]);
+  }, [authResolved, partnerEmail]);
 
   function openCreateModal() {
     setIsEditing(false);
@@ -263,7 +269,7 @@ export default function ManagersPage() {
             </div>
           ) : null}
 
-          {!partnerEmail ? (
+          {authResolved && !partnerEmail ? (
             <p className={styles.error}>Не удалось определить текущего партнера. Выйдите и войдите снова.</p>
           ) : null}
         </section>
