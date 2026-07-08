@@ -65,6 +65,7 @@ services:
       - "80:80"
     volumes:
       - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - backend_media:/var/www/media:ro
     depends_on:
       - frontend
       - backend

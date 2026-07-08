@@ -211,14 +211,18 @@ export default function PartnerManagePage() {
       if (srvWithImagesRes.ok) {
         const srvWithImages = (await srvWithImagesRes.json()) as Service[];
         if (Array.isArray(srvWithImages)) {
-          const imageById = new Map<number, string>();
+          const imageById = new Map<number, { image_url: string; image_base64: string }>();
           for (const item of srvWithImages) {
-            imageById.set(item.id, item.image_base64 || "");
+            imageById.set(item.id, {
+              image_url: item.image_url || "",
+              image_base64: item.image_base64 || "",
+            });
           }
           setServices((prev) =>
             prev.map((item) => ({
               ...item,
-              image_base64: imageById.get(item.id) || item.image_base64,
+              image_url: imageById.get(item.id)?.image_url || item.image_url,
+              image_base64: imageById.get(item.id)?.image_base64 || item.image_base64,
             })),
           );
         }
@@ -312,7 +316,7 @@ export default function PartnerManagePage() {
       kindId: service.kind ? String(service.kind) : "",
       selectedKindIds: service.kind ? [service.kind] : [],
       description: service.description || "",
-      imageUrl: service.image_base64 || service.image_url || "",
+      imageUrl: service.image_url || service.image_base64 || "",
       price: service.price ?? "0",
       durationMinutes: String(service.duration_minutes || 60),
       discountPercent: String(service.discount_percent || 0),
@@ -628,8 +632,14 @@ export default function PartnerManagePage() {
                 {displayedServices.map((service) => (
                   <tr key={service.id}>
                     <td>
-                      {service.image_base64 || service.image_url ? (
-                        <img src={service.image_base64 || service.image_url} alt="Фото услуги" className={styles.servicePhoto} />
+                      {service.image_url || service.image_base64 ? (
+                        <img
+                          src={service.image_url || service.image_base64}
+                          alt="Фото услуги"
+                          className={styles.servicePhoto}
+                          loading="lazy"
+                          decoding="async"
+                        />
                       ) : (
                         <span className={styles.avatarDot} />
                       )}
