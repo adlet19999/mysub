@@ -74,16 +74,46 @@ def save_service_image_from_base64(image_base64: str, tenant: str, partner_profi
 	if not raw:
 		return "", None
 
-	match = re.match(r"^data:image/(png|jpeg|jpg|webp|gif);base64,(.+)$", raw, flags=re.IGNORECASE | re.DOTALL)
-	if not match:
+	if not raw.lower().startswith("data:image/"):
 		return "", "Некорректный формат изображения"
 
-	ext = match.group(1).lower()
-	if ext == "jpg":
-		ext = "jpeg"
+	parts = raw.split(",", 1)
+	if len(parts) != 2:
+		return "", "Некорректный формат изображения"
+
+	header = parts[0].strip().lower()
+	if ";base64" not in header:
+		return "", "Некорректный формат изображения"
+
+	subtype_raw = header[len("data:image/") :].split(";", 1)[0].strip()
+	if not subtype_raw:
+		return "", "Некорректный формат изображения"
+
+	ext_by_subtype = {
+		"jpg": "jpeg",
+		"jpeg": "jpeg",
+		"png": "png",
+		"webp": "webp",
+		"gif": "gif",
+		"jfif": "jpeg",
+		"pjpeg": "jpeg",
+		"x-png": "png",
+		"svg+xml": "svg",
+	}
+	ext = ext_by_subtype.get(subtype_raw, re.sub(r"[^a-z0-9]+", "", subtype_raw))
+	if not ext:
+		ext = "bin"
+
+	payload = re.sub(r"\s+", "", parts[1])
+	if not payload:
+		return "", "Некорректные base64-данные изображения"
+
+	padding = (-len(payload)) % 4
+	if padding:
+		payload += "=" * padding
 
 	try:
-		binary = base64.b64decode(match.group(2), validate=True)
+		binary = base64.b64decode(payload, validate=False)
 	except (binascii.Error, ValueError):
 		return "", "Некорректные base64-данные изображения"
 

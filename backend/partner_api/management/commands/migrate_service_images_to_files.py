@@ -25,11 +25,17 @@ class Command(BaseCommand):
             action="store_true",
             help="Also clear image_base64 values that are not data:image payloads.",
         )
+        parser.add_argument(
+            "--clear-errors",
+            action="store_true",
+            help="Clear image_base64 for records that fail conversion.",
+        )
 
     def handle(self, *args, **options):
         apply_changes = bool(options["apply"])
         limit = int(options["limit"] or 0)
         clear_nondata = bool(options["clear_nondata"])
+        clear_errors = bool(options["clear_errors"])
 
         queryset = Service.objects.exclude(image_base64="").order_by("id")
         if limit > 0:
@@ -39,6 +45,7 @@ class Command(BaseCommand):
         migrated = 0
         skipped = 0
         cleared_nondata = 0
+        cleared_errors = 0
         errors = 0
 
         mode = "APPLY" if apply_changes else "DRY-RUN"
@@ -68,6 +75,11 @@ class Command(BaseCommand):
 
             if image_error:
                 errors += 1
+                if apply_changes and clear_errors:
+                    with transaction.atomic():
+                        item.image_base64 = ""
+                        item.save(update_fields=["image_base64"])
+                    cleared_errors += 1
                 self.stdout.write(
                     self.style.ERROR(
                         f"Service id={item.id}: conversion failed: {image_error}"
@@ -89,6 +101,7 @@ class Command(BaseCommand):
         self.stdout.write(f"  migrated: {migrated}")
         self.stdout.write(f"  skipped (not data:image): {skipped}")
         self.stdout.write(f"  cleared non-data payloads: {cleared_nondata}")
+        self.stdout.write(f"  cleared conversion errors: {cleared_errors}")
         self.stdout.write(f"  errors: {errors}")
 
         if not apply_changes:
