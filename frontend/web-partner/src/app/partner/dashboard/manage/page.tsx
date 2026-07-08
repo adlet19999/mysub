@@ -193,7 +193,7 @@ export default function PartnerManagePage() {
       }
 
       const [srvRes, mgrRes, bookRes] = await Promise.all([
-        api("/partner/services/?include_image=0"),
+        api("/partner/services/?include_image=1"),
         api("/partner/managers/"),
         api("/partner/bookings/"),
       ]);
@@ -205,28 +205,6 @@ export default function PartnerManagePage() {
       setServices(Array.isArray(srv) ? srv : []);
       setManagers(Array.isArray(mgr) ? mgr : []);
       setBookings(Array.isArray(book) ? book : []);
-
-      // Load heavy service images in background after table is already rendered.
-      const srvWithImagesRes = await api("/partner/services/?include_image=1");
-      if (srvWithImagesRes.ok) {
-        const srvWithImages = (await srvWithImagesRes.json()) as Service[];
-        if (Array.isArray(srvWithImages)) {
-          const imageById = new Map<number, { image_url: string; image_base64: string }>();
-          for (const item of srvWithImages) {
-            imageById.set(item.id, {
-              image_url: item.image_url || "",
-              image_base64: item.image_base64 || "",
-            });
-          }
-          setServices((prev) =>
-            prev.map((item) => ({
-              ...item,
-              image_url: imageById.get(item.id)?.image_url || item.image_url,
-              image_base64: imageById.get(item.id)?.image_base64 || item.image_base64,
-            })),
-          );
-        }
-      }
 
       if (!offerForm.categoryId && Array.isArray(cats) && cats.length > 0) {
         const defaultCategoryId = String(cats[0].id);
@@ -637,8 +615,6 @@ export default function PartnerManagePage() {
                           src={service.image_url || service.image_base64}
                           alt="Фото услуги"
                           className={styles.servicePhoto}
-                          loading="lazy"
-                          decoding="async"
                         />
                       ) : (
                         <span className={styles.avatarDot} />
