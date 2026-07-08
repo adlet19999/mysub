@@ -380,9 +380,9 @@ export default function SchedulePage() {
         serviceDurationByName.set(byKindName, prev == null ? duration : Math.min(prev, duration));
       }
     }
-    const specialistIdByName = new Map<number, string>();
+    const specialistByName = new Map<string, Specialist>();
     for (const specialist of activeSpecialists) {
-      specialistIdByName.set(specialist.id, specialist.full_name.trim().toLowerCase());
+      specialistByName.set(specialist.full_name.trim().toLowerCase(), specialist);
     }
 
     for (const booking of bookings) {
@@ -395,7 +395,7 @@ export default function SchedulePage() {
       }
 
       const bookingManagerName = (booking.manager_name || "").trim().toLowerCase();
-      const specialist = activeSpecialists.find((item) => specialistIdByName.get(item.id) === bookingManagerName);
+      const specialist = specialistByName.get(bookingManagerName);
       if (!specialist) {
         continue;
       }
@@ -468,7 +468,7 @@ export default function SchedulePage() {
         "X-Partner-Email": partnerEmail,
       };
       const [specialistsResponse, servicesResponse, bookingsResponse] = await Promise.all([
-        fetch(`${API_BASE}/partner/specialists/`, {
+        fetch(`${API_BASE}/partner/specialists/?include_photo=0`, {
           headers,
           cache: "no-store",
         }),

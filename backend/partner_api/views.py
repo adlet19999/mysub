@@ -748,6 +748,7 @@ class SpecialistListCreateView(APIView):
 			return error_response
 
 		tenant = tenant_from_request(request)
+		include_photo = parse_bool(request.query_params.get("include_photo"), True)
 		items = (
 			Specialist.objects.filter(tenant_slug=tenant, partner_profile=partner_profile)
 			.prefetch_related("capabilities__service_kind")
@@ -760,7 +761,7 @@ class SpecialistListCreateView(APIView):
 				"description": item.description,
 				"phone": item.phone,
 				"email": item.email,
-				"photo_base64": item.photo_base64,
+				"photo_base64": item.photo_base64 if include_photo else "",
 				"working_schedule": item.working_schedule or default_working_schedule(),
 				"service_kind_ids": [cap.service_kind_id for cap in item.capabilities.all()],
 				"service_kind_names": [cap.service_kind.name for cap in item.capabilities.all()],
