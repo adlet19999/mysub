@@ -20,10 +20,16 @@ class Command(BaseCommand):
             default=0,
             help="Optional max number of services to process (0 = no limit).",
         )
+        parser.add_argument(
+            "--clear-nondata",
+            action="store_true",
+            help="Also clear image_base64 values that are not data:image payloads.",
+        )
 
     def handle(self, *args, **options):
         apply_changes = bool(options["apply"])
         limit = int(options["limit"] or 0)
+        clear_nondata = bool(options["clear_nondata"])
 
         queryset = Service.objects.exclude(image_base64="").order_by("id")
         if limit > 0:
@@ -32,6 +38,7 @@ class Command(BaseCommand):
         total = 0
         migrated = 0
         skipped = 0
+        cleared_nondata = 0
         errors = 0
 
         mode = "APPLY" if apply_changes else "DRY-RUN"
@@ -45,6 +52,11 @@ class Command(BaseCommand):
                 continue
 
             if not raw.startswith("data:image/"):
+                if apply_changes and clear_nondata:
+                    with transaction.atomic():
+                        item.image_base64 = ""
+                        item.save(update_fields=["image_base64"])
+                    cleared_nondata += 1
                 skipped += 1
                 continue
 
@@ -76,6 +88,7 @@ class Command(BaseCommand):
         self.stdout.write(f"  total candidates: {total}")
         self.stdout.write(f"  migrated: {migrated}")
         self.stdout.write(f"  skipped (not data:image): {skipped}")
+        self.stdout.write(f"  cleared non-data payloads: {cleared_nondata}")
         self.stdout.write(f"  errors: {errors}")
 
         if not apply_changes:
