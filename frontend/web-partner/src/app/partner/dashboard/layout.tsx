@@ -106,7 +106,8 @@ export default function DashboardLayout({ children }: LayoutProps) {
   const [loadingLogout, setLoadingLogout] = useState(false);
   const [headerPartnerName, setHeaderPartnerName] = useState("Партнер");
   const [avatarLabel, setAvatarLabel] = useState("П");
-  const [role, setRole] = useState<"partner" | "manager">("partner");
+  const [role, setRole] = useState<"partner" | "manager">("manager");
+  const [authResolved, setAuthResolved] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -115,6 +116,7 @@ export default function DashboardLayout({ children }: LayoutProps) {
 
     const raw = localStorage.getItem("partner_auth_user");
     if (!raw) {
+      setAuthResolved(true);
       return;
     }
 
@@ -131,6 +133,8 @@ export default function DashboardLayout({ children }: LayoutProps) {
       setAvatarLabel(firstWord.slice(0, 2).toUpperCase());
     } catch {
       // ignore invalid local storage payload
+    } finally {
+      setAuthResolved(true);
     }
   }, []);
 
@@ -151,12 +155,19 @@ export default function DashboardLayout({ children }: LayoutProps) {
   }, [role, pathname, router]);
 
   const visibleTopMenu = useMemo(() => {
+    if (!authResolved) {
+      return topMenu.filter((item) => {
+        const blockedLabels = new Set(["Статистика", "Мой бизнес", "Менеджеры"]);
+        return !blockedLabels.has(item.label);
+      });
+    }
+
     if (role !== "manager") {
       return topMenu;
     }
     const blockedLabels = new Set(["Статистика", "Мой бизнес", "Менеджеры"]);
     return topMenu.filter((item) => !blockedLabels.has(item.label));
-  }, [role]);
+  }, [authResolved, role]);
 
   function handleLogout() {
     if (typeof window === "undefined") return;
@@ -175,7 +186,7 @@ export default function DashboardLayout({ children }: LayoutProps) {
 
         <div className={styles.headerMain}>
           <h1 className={styles.headerTitle}>{headerPartnerName}</h1>
-          <p className={styles.headerSubtitle}>{role === "manager" ? "Менеджер" : "Партнёр"}</p>
+          <p className={styles.headerSubtitle}>{!authResolved || role === "manager" ? "Менеджер" : "Партнёр"}</p>
         </div>
 
         <div className={styles.headerActions}>
