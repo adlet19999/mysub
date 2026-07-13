@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import styles from "./layout.module.css";
 
 const iconStatistics = "/statistics.svg";
@@ -25,6 +25,7 @@ type PartnerAuthUser = {
   full_name?: string;
   username?: string;
   email?: string;
+  user_type?: string;
 };
 
 type MenuItem = {
@@ -105,6 +106,7 @@ export default function DashboardLayout({ children }: LayoutProps) {
   const [loadingLogout, setLoadingLogout] = useState(false);
   const [headerPartnerName, setHeaderPartnerName] = useState("Партнер");
   const [avatarLabel, setAvatarLabel] = useState("П");
+  const [role, setRole] = useState<"partner" | "manager">("partner");
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -118,6 +120,8 @@ export default function DashboardLayout({ children }: LayoutProps) {
 
     try {
       const parsed = JSON.parse(raw) as PartnerAuthUser;
+      const parsedRole = parsed.user_type === "manager" ? "manager" : "partner";
+      setRole(parsedRole);
       const companyName = (parsed.company_name || "").trim();
       const fallbackName = (parsed.full_name || parsed.username || parsed.email || "").trim();
       const displayName = companyName || fallbackName || "Партнер";
@@ -129,6 +133,24 @@ export default function DashboardLayout({ children }: LayoutProps) {
       // ignore invalid local storage payload
     }
   }, []);
+
+  useEffect(() => {
+    if (role !== "manager") {
+      return;
+    }
+    const blockedPaths = ["/partner/dashboard", "/partner/dashboard/business", "/partner/dashboard/managers"];
+    if (blockedPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
+      router.replace("/partner/dashboard/manage");
+    }
+  }, [role, pathname, router]);
+
+  const visibleTopMenu = useMemo(() => {
+    if (role !== "manager") {
+      return topMenu;
+    }
+    const blockedLabels = new Set(["Статистика", "Мой бизнес", "Менеджеры"]);
+    return topMenu.filter((item) => !blockedLabels.has(item.label));
+  }, [role]);
 
   function handleLogout() {
     if (typeof window === "undefined") return;
@@ -147,7 +169,7 @@ export default function DashboardLayout({ children }: LayoutProps) {
 
         <div className={styles.headerMain}>
           <h1 className={styles.headerTitle}>{headerPartnerName}</h1>
-          <p className={styles.headerSubtitle}>Партнёр</p>
+          <p className={styles.headerSubtitle}>{role === "manager" ? "Менеджер" : "Партнёр"}</p>
         </div>
 
         <div className={styles.headerActions}>
@@ -160,7 +182,7 @@ export default function DashboardLayout({ children }: LayoutProps) {
 
       <aside className={styles.sidebar}>
         <div className={styles.menuTop}>
-          {topMenu.map((item) => (
+          {visibleTopMenu.map((item) => (
             <MenuEntry key={item.label} item={item} active={isItemActive(item, pathname)} />
           ))}
         </div>

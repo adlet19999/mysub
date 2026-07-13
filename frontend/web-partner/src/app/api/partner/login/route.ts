@@ -28,8 +28,8 @@ export async function POST(request: Request) {
     }
 
     const userType = payload?.user?.user_type;
-    if (userType !== "partner") {
-      return NextResponse.json({ message: "Доступ только для партнеров" }, { status: 403 });
+    if (userType !== "partner" && userType !== "manager") {
+      return NextResponse.json({ message: "Роль пользователя не поддерживается" }, { status: 403 });
     }
 
     return NextResponse.json({ ok: true, user: payload.user });

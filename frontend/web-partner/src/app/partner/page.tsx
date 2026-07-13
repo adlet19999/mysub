@@ -96,7 +96,11 @@ export default function PartnerPage() {
       if (payload.user && typeof window !== "undefined") {
         localStorage.setItem("partner_auth_user", JSON.stringify(payload.user));
       }
-      router.push("/partner/dashboard");
+      if (payload.user?.user_type === "manager") {
+        router.push("/partner/dashboard/manage");
+      } else {
+        router.push("/partner/dashboard");
+      }
     } catch {
       setError("Не удалось подключиться к серверу");
     } finally {

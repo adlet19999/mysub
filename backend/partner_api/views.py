@@ -5,6 +5,7 @@ import uuid
 from datetime import timedelta
 from pathlib import Path
 
+from django.contrib.auth.models import User
 from django.db.models import Q
 from django.conf import settings
 from django.http import FileResponse
@@ -30,6 +31,35 @@ def partner_email_from_request(request) -> str:
 	return (request.headers.get("X-Partner-Email") or "").strip().lower()
 
 
+def request_actor_role(request) -> str:
+	email = partner_email_from_request(request)
+	if not email:
+		return ""
+	profile = (
+		PartnerProfile.objects.select_related("user")
+		.filter(Q(user__username__iexact=email) | Q(user__email__iexact=email))
+		.first()
+	)
+	if not profile:
+		return ""
+	return (profile.user_type or "").strip().lower()
+
+
+def manager_partner_profile_from_request(request):
+	email = partner_email_from_request(request)
+	if not email:
+		return None
+	tenant = tenant_from_request(request)
+	manager_item = (
+		Manager.objects.select_related("partner_profile")
+		.filter(tenant_slug=tenant, email__iexact=email, is_active=True)
+		.first()
+	)
+	if not manager_item:
+		return None
+	return manager_item.partner_profile
+
+
 def get_partner_profile(request):
 	email = partner_email_from_request(request)
 	if not email:
@@ -39,6 +69,8 @@ def get_partner_profile(request):
 		.filter(Q(user__username__iexact=email) | Q(user__email__iexact=email), user_type="partner")
 		.first()
 	)
+	if not profile:
+		profile = manager_partner_profile_from_request(request)
 	if not profile:
 		return None, Response({"message": "Партнер не найден"}, status=401)
 	return profile, None
@@ -369,6 +401,9 @@ def serialize_partner_profile(profile: PartnerProfile):
 
 class PartnerProfileView(APIView):
 	def get(self, request):
+		if request_actor_role(request) == "manager":
+			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
+
 		profile, error_response = get_partner_profile(request)
 		if error_response is not None:
 			return error_response
@@ -376,6 +411,9 @@ class PartnerProfileView(APIView):
 		return Response(serialize_partner_profile(profile))
 
 	def patch(self, request):
+		if request_actor_role(request) == "manager":
+			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
+
 		profile, error_response = get_partner_profile(request)
 		if error_response is not None:
 			return error_response
@@ -723,6 +761,9 @@ class ServiceDetailView(APIView):
 
 class ManagerListCreateView(APIView):
 	def get(self, request):
+		if request_actor_role(request) == "manager":
+			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
+
 		partner_profile, error_response = get_partner_profile(request)
 		if error_response is not None:
 			return error_response
@@ -745,6 +786,9 @@ class ManagerListCreateView(APIView):
 		])
 
 	def post(self, request):
+		if request_actor_role(request) == "manager":
+			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
+
 		partner_profile, error_response = get_partner_profile(request)
 		if error_response is not None:
 			return error_response
@@ -753,9 +797,41 @@ class ManagerListCreateView(APIView):
 		full_name = (request.data.get("full_name") or "").strip()
 		phone = (request.data.get("phone") or "").strip()
 		email = (request.data.get("email") or "").strip().lower()
+		password = (request.data.get("password") or "").strip()
 		photo_base64 = (request.data.get("photo_base64") or "").strip()
-		if not full_name or not phone or not email:
-			return Response({"message": "full_name, phone и email обязательны"}, status=400)
+		if not full_name or not phone or not email or not password:
+			return Response({"message": "full_name, phone, email и password обязательны"}, status=400)
+		if len(password) < 8:
+			return Response({"message": "Пароль менеджера должен быть не короче 8 символов"}, status=400)
+
+		existing_user = (
+			User.objects.select_related("partner_profile")
+			.filter(Q(username__iexact=email) | Q(email__iexact=email))
+			.first()
+		)
+		if existing_user:
+			existing_profile = getattr(existing_user, "partner_profile", None)
+			existing_role = (existing_profile.user_type if existing_profile else "").strip().lower()
+			if existing_role == "partner":
+				return Response({"message": "Этот логин уже зарегистрирован как партнер"}, status=409)
+			if existing_role == "manager":
+				return Response({"message": "Этот логин уже зарегистрирован как менеджер"}, status=409)
+			return Response({"message": "Пользователь с таким логином уже существует"}, status=409)
+
+		manager_user = User.objects.create_user(
+			username=email,
+			email=email,
+			password=password,
+			first_name=full_name,
+		)
+		PartnerProfile.objects.create(
+			user=manager_user,
+			phone=phone,
+			user_type="manager",
+			company_name=partner_profile.company_name,
+			address=partner_profile.address,
+			business_category=partner_profile.business_category,
+		)
 
 		item = Manager.objects.create(
 			tenant_slug=tenant,
@@ -782,6 +858,9 @@ class ManagerListCreateView(APIView):
 
 class ManagerDetailView(APIView):
 	def patch(self, request, manager_id: int):
+		if request_actor_role(request) == "manager":
+			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
+
 		partner_profile, error_response = get_partner_profile(request)
 		if error_response is not None:
 			return error_response
@@ -801,6 +880,10 @@ class ManagerDetailView(APIView):
 			if not value:
 				return Response({"message": "full_name не может быть пустым"}, status=400)
 			item.full_name = value
+			manager_user = User.objects.filter(Q(username__iexact=item.email) | Q(email__iexact=item.email)).first()
+			if manager_user:
+				manager_user.first_name = value
+				manager_user.save(update_fields=["first_name"])
 
 		phone = request.data.get("phone")
 		if phone is not None:
@@ -808,12 +891,36 @@ class ManagerDetailView(APIView):
 			if not value:
 				return Response({"message": "phone не может быть пустым"}, status=400)
 			item.phone = value
+			manager_user = User.objects.filter(Q(username__iexact=item.email) | Q(email__iexact=item.email)).first()
+			if manager_user and hasattr(manager_user, "partner_profile"):
+				manager_user.partner_profile.phone = value
+				manager_user.partner_profile.save(update_fields=["phone"])
 
 		email = request.data.get("email")
 		if email is not None:
 			value = str(email).strip().lower()
 			if not value:
 				return Response({"message": "email не может быть пустым"}, status=400)
+			existing_user = (
+				User.objects.select_related("partner_profile")
+				.filter(Q(username__iexact=value) | Q(email__iexact=value))
+				.exclude(Q(username__iexact=item.email) | Q(email__iexact=item.email))
+				.first()
+			)
+			if existing_user:
+				existing_profile = getattr(existing_user, "partner_profile", None)
+				existing_role = (existing_profile.user_type if existing_profile else "").strip().lower()
+				if existing_role == "partner":
+					return Response({"message": "Этот логин уже зарегистрирован как партнер"}, status=409)
+				if existing_role == "manager":
+					return Response({"message": "Этот логин уже зарегистрирован как менеджер"}, status=409)
+				return Response({"message": "Пользователь с таким логином уже существует"}, status=409)
+
+			manager_user = User.objects.filter(Q(username__iexact=item.email) | Q(email__iexact=item.email)).first()
+			if manager_user:
+				manager_user.username = value
+				manager_user.email = value
+				manager_user.save(update_fields=["username", "email"])
 			item.email = value
 
 		photo_base64 = request.data.get("photo_base64")

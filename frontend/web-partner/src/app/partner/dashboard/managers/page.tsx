@@ -16,6 +16,7 @@ type FormState = {
   fullName: string;
   phone: string;
   email: string;
+  password: string;
   role: string;
   resetPasswordOnFirstLogin: boolean;
 };
@@ -38,11 +39,13 @@ export default function ManagersPage() {
     fullName: "",
     phone: "",
     email: "",
+    password: "",
     role: "Менеджер",
     resetPasswordOnFirstLogin: true,
   });
 
   const [toastText, setToastText] = useState("");
+  const [formError, setFormError] = useState("");
 
   const visibleManagers = useMemo(() => {
     const text = searchQuery.trim().toLowerCase();
@@ -117,10 +120,12 @@ export default function ManagersPage() {
   function openCreateModal() {
     setIsEditing(false);
     setEditingManagerId(null);
+    setFormError("");
     setForm({
       fullName: "",
       phone: "",
       email: "",
+      password: "",
       role: "Менеджер",
       resetPasswordOnFirstLogin: true,
     });
@@ -130,10 +135,12 @@ export default function ManagersPage() {
   function openEditModal(item: Manager) {
     setIsEditing(true);
     setEditingManagerId(item.id);
+    setFormError("");
     setForm({
       fullName: item.full_name,
       phone: item.phone,
       email: item.email,
+      password: "",
       role: "Менеджер",
       resetPasswordOnFirstLogin: true,
     });
@@ -142,8 +149,15 @@ export default function ManagersPage() {
 
   async function submitManager(event: FormEvent) {
     event.preventDefault();
+    setFormError("");
 
     if (!form.fullName.trim() || !form.phone.trim() || !form.email.trim()) {
+      setFormError("Заполните обязательные поля");
+      return;
+    }
+
+    if (!isEditing && !form.password.trim()) {
+      setFormError("Для менеджера нужно задать пароль");
       return;
     }
 
@@ -155,6 +169,7 @@ export default function ManagersPage() {
           full_name: form.fullName,
           phone: form.phone,
           email: form.email,
+          ...(isEditing ? {} : { password: form.password }),
           service_kind_ids: [],
           is_active: true,
         }),
@@ -162,6 +177,12 @@ export default function ManagersPage() {
     );
 
     if (!response.ok) {
+      try {
+        const payload = (await response.json()) as { message?: string };
+        setFormError(payload.message || "Не удалось сохранить менеджера");
+      } catch {
+        setFormError("Не удалось сохранить менеджера");
+      }
       return;
     }
 
@@ -190,7 +211,7 @@ export default function ManagersPage() {
             <div className={styles.toast}>
               <div>
                 <strong>{toastText}</strong>
-                <div>Пароль отправлен на электронную почту</div>
+                <div>Изменения успешно применены</div>
               </div>
               <button type="button" onClick={() => setToastText("")}>×</button>
             </div>
@@ -320,6 +341,20 @@ export default function ManagersPage() {
                 />
               </label>
 
+              {!isEditing ? (
+                <label>
+                  Пароль *
+                  <input
+                    type="password"
+                    value={form.password}
+                    onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
+                    placeholder="Минимум 8 символов"
+                    required
+                    minLength={8}
+                  />
+                </label>
+              ) : null}
+
               <label>
                 Роль *
                 <input value={form.role} readOnly />
@@ -333,6 +368,8 @@ export default function ManagersPage() {
                 />
                 При первом входе изменить пароль
               </label>
+
+              {formError ? <p className={styles.error}>{formError}</p> : null}
             </div>
 
             <footer className={styles.modalFooter}>
