@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { formatRuPhone } from "../../../../lib/phone";
 import styles from "./page.module.css";
 
 type Manager = {
@@ -35,6 +36,7 @@ export default function ManagersPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editingManagerId, setEditingManagerId] = useState<number | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<Manager | null>(null);
   const [form, setForm] = useState<FormState>({
     fullName: "",
     phone: "",
@@ -203,6 +205,18 @@ export default function ManagersPage() {
     await loadData();
   }
 
+  function openArchiveModal(manager: Manager) {
+    setArchiveTarget(manager);
+  }
+
+  async function submitArchiveDecision() {
+    if (!archiveTarget) {
+      return;
+    }
+    await toggleStatus(archiveTarget);
+    setArchiveTarget(null);
+  }
+
   return (
     <>
       <main className={styles.page}>
@@ -269,7 +283,7 @@ export default function ManagersPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => void toggleStatus(manager)}
+                          onClick={() => openArchiveModal(manager)}
                           title={manager.is_active ? "Архивировать" : "Разархивировать"}
                         >
                           <img src="/Archieve.svg" alt="" className={styles.actionIcon} aria-hidden />
@@ -324,8 +338,9 @@ export default function ManagersPage() {
                 Телефон *
                 <input
                   value={form.phone}
-                  onChange={(event) => setForm((prev) => ({ ...prev, phone: event.target.value }))}
+                  onChange={(event) => setForm((prev) => ({ ...prev, phone: formatRuPhone(event.target.value) }))}
                   placeholder="+7 (747) 123-45-67"
+                  inputMode="tel"
                   required
                 />
               </label>
@@ -379,6 +394,38 @@ export default function ManagersPage() {
               <button type="submit" className={styles.saveButton}>{isEditing ? "Сохранить" : "Создать"}</button>
             </footer>
           </form>
+        </div>
+      ) : null}
+
+      {archiveTarget ? (
+        <div className={styles.overlay}>
+          <div className={styles.modal}>
+            <header className={styles.modalHeader}>
+              <div className={styles.modalTitleWrap}>
+                <img src="/modal_icon.svg" alt="" className={styles.modalIcon} aria-hidden />
+                <h2>{archiveTarget.is_active ? "Архивировать менеджера" : "Разархивировать менеджера"}</h2>
+              </div>
+              <button type="button" className={styles.close} onClick={() => setArchiveTarget(null)}>
+                ×
+              </button>
+            </header>
+
+            <div className={styles.modalBody}>
+              <p>
+                Вы уверены, что хотите {archiveTarget.is_active ? "архивировать" : "разархивировать"} “
+                <strong>{archiveTarget.full_name}</strong>”?
+              </p>
+            </div>
+
+            <footer className={styles.modalFooter}>
+              <button type="button" className={styles.cancelButton} onClick={() => setArchiveTarget(null)}>
+                Отменить
+              </button>
+              <button type="button" className={styles.saveButton} onClick={() => void submitArchiveDecision()}>
+                {archiveTarget.is_active ? "Архивировать" : "Разархивировать"}
+              </button>
+            </footer>
+          </div>
         </div>
       ) : null}
     </>

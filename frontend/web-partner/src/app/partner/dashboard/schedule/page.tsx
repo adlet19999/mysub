@@ -2,6 +2,7 @@
 
 import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
 import styles from "./page.module.css";
+import { formatRuPhone } from "../../../../lib/phone";
 
 type WorkingDayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 
@@ -850,9 +851,10 @@ export default function SchedulePage() {
                 <span>Телефон *</span>
                 <input
                   value={bookingPhone}
-                  onChange={(event) => setBookingPhone(event.target.value)}
+                  onChange={(event) => setBookingPhone(formatRuPhone(event.target.value))}
                   required
                   maxLength={24}
+                  inputMode="tel"
                 />
               </label>
 

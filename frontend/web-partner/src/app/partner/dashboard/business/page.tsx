@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { formatRuPhone } from "../../../../lib/phone";
 import styles from "./page.module.css";
 
 type PartnerProfile = {
@@ -229,7 +230,8 @@ export default function PartnerBusinessPage() {
                 <span>Телефон</span>
                 <input
                   value={profile.phone}
-                  onChange={(event) => setProfile((prev) => ({ ...prev, phone: event.target.value }))}
+                  onChange={(event) => setProfile((prev) => ({ ...prev, phone: formatRuPhone(event.target.value) }))}
+                  inputMode="tel"
                   disabled={loading}
                 />
               </label>

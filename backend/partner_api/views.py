@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from common_api.models import PartnerProfile
+from common_api.views import normalize_ru_phone, PHONE_RU_RE
 
 from .models import Booking, Category, Manager, Service, ServiceKind, Specialist, SpecialistServiceKind
 
@@ -795,12 +796,14 @@ class ManagerListCreateView(APIView):
 
 		tenant = tenant_from_request(request)
 		full_name = (request.data.get("full_name") or "").strip()
-		phone = (request.data.get("phone") or "").strip()
+		phone = normalize_ru_phone((request.data.get("phone") or "").strip())
 		email = (request.data.get("email") or "").strip().lower()
 		password = (request.data.get("password") or "").strip()
 		photo_base64 = (request.data.get("photo_base64") or "").strip()
 		if not full_name or not phone or not email or not password:
 			return Response({"message": "full_name, phone, email и password обязательны"}, status=400)
+		if not PHONE_RU_RE.match(phone):
+			return Response({"message": "Телефон должен быть в формате +7XXXXXXXXXX"}, status=400)
 		if len(password) < 8:
 			return Response({"message": "Пароль менеджера должен быть не короче 8 символов"}, status=400)
 
@@ -887,9 +890,11 @@ class ManagerDetailView(APIView):
 
 		phone = request.data.get("phone")
 		if phone is not None:
-			value = str(phone).strip()
+			value = normalize_ru_phone(str(phone).strip())
 			if not value:
 				return Response({"message": "phone не может быть пустым"}, status=400)
+			if not PHONE_RU_RE.match(value):
+				return Response({"message": "Телефон должен быть в формате +7XXXXXXXXXX"}, status=400)
 			item.phone = value
 			manager_user = User.objects.filter(Q(username__iexact=item.email) | Q(email__iexact=item.email)).first()
 			if manager_user and hasattr(manager_user, "partner_profile"):
