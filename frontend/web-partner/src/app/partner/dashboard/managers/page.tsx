@@ -399,32 +399,28 @@ export default function ManagersPage() {
 
       {archiveTarget ? (
         <div className={styles.overlay}>
-          <div className={styles.modal}>
-            <header className={styles.modalHeader}>
-              <div className={styles.modalTitleWrap}>
-                <img src="/modal_icon.svg" alt="" className={styles.modalIcon} aria-hidden />
-                <h2>{archiveTarget.is_active ? "Архивировать менеджера" : "Разархивировать менеджера"}</h2>
+          <div className={styles.statusModal}>
+            <div className={styles.statusBody}>
+              <div className={styles.statusIconWrap}>
+                <img src="/Archieve.svg" alt="" className={styles.statusIconImage} aria-hidden />
               </div>
-              <button type="button" className={styles.close} onClick={() => setArchiveTarget(null)}>
-                ×
-              </button>
-            </header>
-
-            <div className={styles.modalBody}>
-              <p>
-                Вы уверены, что хотите {archiveTarget.is_active ? "архивировать" : "разархивировать"} “
-                <strong>{archiveTarget.full_name}</strong>”?
-              </p>
+              <div className={styles.statusTextBlock}>
+                <h3>{archiveTarget.is_active ? "Архивировать менеджера" : "Разархивировать менеджера"}</h3>
+                <p>
+                  Вы уверены, что хотите {archiveTarget.is_active ? "архивировать" : "разархивировать"} “
+                  <strong>{archiveTarget.full_name}</strong>” ?
+                </p>
+              </div>
             </div>
 
-            <footer className={styles.modalFooter}>
-              <button type="button" className={styles.cancelButton} onClick={() => setArchiveTarget(null)}>
+            <div className={styles.statusActions}>
+              <button type="button" className={styles.statusCancelButton} onClick={() => setArchiveTarget(null)}>
                 Отменить
               </button>
-              <button type="button" className={styles.saveButton} onClick={() => void submitArchiveDecision()}>
+              <button type="button" className={styles.statusWarningButton} onClick={() => void submitArchiveDecision()}>
                 {archiveTarget.is_active ? "Архивировать" : "Разархивировать"}
               </button>
-            </footer>
+            </div>
           </div>
         </div>
       ) : null}
