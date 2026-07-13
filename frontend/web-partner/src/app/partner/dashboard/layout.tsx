@@ -138,8 +138,14 @@ export default function DashboardLayout({ children }: LayoutProps) {
     if (role !== "manager") {
       return;
     }
-    const blockedPaths = ["/partner/dashboard", "/partner/dashboard/business", "/partner/dashboard/managers"];
-    if (blockedPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
+    const isBlocked =
+      pathname === "/partner/dashboard" ||
+      pathname === "/partner/dashboard/business" ||
+      pathname.startsWith("/partner/dashboard/business/") ||
+      pathname === "/partner/dashboard/managers" ||
+      pathname.startsWith("/partner/dashboard/managers/");
+
+    if (isBlocked) {
       router.replace("/partner/dashboard/manage");
     }
   }, [role, pathname, router]);
