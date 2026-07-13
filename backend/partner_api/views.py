@@ -102,6 +102,18 @@ def parse_positive_int(value, field_name: str):
 	return parsed, None
 
 
+def normalize_service_image_url(value: str) -> str:
+	url = str(value or "").strip()
+	if not url:
+		return ""
+	prefix = "/api/v1/partner/service-images/"
+	if url.startswith(prefix) and url.endswith("/"):
+		file_part = url[len(prefix) : -1]
+		if file_part and "/" not in file_part:
+			return f"{prefix}{file_part}"
+	return url
+
+
 def save_service_image_from_base64(image_base64: str, tenant: str, partner_profile_id: int):
 	raw = str(image_base64 or "").strip()
 	if not raw:
@@ -158,11 +170,11 @@ def save_service_image_from_base64(image_base64: str, tenant: str, partner_profi
 	file_name = f"tenant-{tenant}-partner-{partner_profile_id}-{uuid.uuid4().hex}.{ext}"
 	file_path = service_images_dir / file_name
 	file_path.write_bytes(binary)
-	return f"/api/v1/partner/service-images/{file_name}/", None
+	return f"/api/v1/partner/service-images/{file_name}", None
 
 
 def resolve_service_image_payload(raw_image_url, raw_image_base64, tenant: str, partner_profile_id: int):
-	image_url = str(raw_image_url or "").strip()
+	image_url = normalize_service_image_url(str(raw_image_url or "").strip())
 	image_base64 = str(raw_image_base64 or "").strip()
 
 	if image_base64.startswith("data:image/"):
@@ -173,6 +185,10 @@ def resolve_service_image_payload(raw_image_url, raw_image_base64, tenant: str, 
 
 	if image_url:
 		return image_url, "", None
+
+	legacy_url = normalize_service_image_url(image_base64)
+	if legacy_url.startswith("/api/v1/partner/service-images/"):
+		return legacy_url, "", None
 
 	return "", image_base64, None
 
@@ -544,7 +560,7 @@ class ServiceListCreateView(APIView):
 				"price": str(item.price) if item.price is not None else None,
 				"discount_percent": item.discount_percent,
 				"is_subscription": item.is_subscription,
-				"image_url": item.image_url,
+				"image_url": normalize_service_image_url(item.image_url),
 				"image_base64": item.image_base64 if include_image else "",
 				"is_promo": item.is_promo,
 				"is_active": item.is_active,
@@ -627,7 +643,7 @@ class ServiceListCreateView(APIView):
 				"price": str(item.price) if item.price is not None else None,
 				"discount_percent": item.discount_percent,
 				"is_subscription": item.is_subscription,
-				"image_url": item.image_url,
+				"image_url": normalize_service_image_url(item.image_url),
 				"image_base64": item.image_base64,
 				"is_promo": item.is_promo,
 				"is_active": item.is_active,
@@ -752,7 +768,7 @@ class ServiceDetailView(APIView):
 				"price": str(item.price) if item.price is not None else None,
 				"discount_percent": item.discount_percent,
 				"is_subscription": item.is_subscription,
-				"image_url": item.image_url,
+				"image_url": normalize_service_image_url(item.image_url),
 				"image_base64": item.image_base64,
 				"is_promo": item.is_promo,
 				"is_active": item.is_active,
