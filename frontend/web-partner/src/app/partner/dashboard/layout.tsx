@@ -139,6 +139,9 @@ export default function DashboardLayout({ children }: LayoutProps) {
   }, []);
 
   useEffect(() => {
+    if (!authResolved) {
+      return;
+    }
     if (role !== "manager") {
       return;
     }
@@ -152,14 +155,11 @@ export default function DashboardLayout({ children }: LayoutProps) {
     if (isBlocked) {
       router.replace("/partner/dashboard/manage");
     }
-  }, [role, pathname, router]);
+  }, [authResolved, role, pathname, router]);
 
   const visibleTopMenu = useMemo(() => {
     if (!authResolved) {
-      return topMenu.filter((item) => {
-        const blockedLabels = new Set(["Статистика", "Мой бизнес", "Менеджеры"]);
-        return !blockedLabels.has(item.label);
-      });
+      return [];
     }
 
     if (role !== "manager") {
@@ -186,7 +186,7 @@ export default function DashboardLayout({ children }: LayoutProps) {
 
         <div className={styles.headerMain}>
           <h1 className={styles.headerTitle}>{headerPartnerName}</h1>
-          <p className={styles.headerSubtitle}>{!authResolved || role === "manager" ? "Менеджер" : "Партнёр"}</p>
+          <p className={styles.headerSubtitle}>{authResolved && role === "manager" ? "Менеджер" : "Партнёр"}</p>
         </div>
 
         <div className={styles.headerActions}>
@@ -199,9 +199,11 @@ export default function DashboardLayout({ children }: LayoutProps) {
 
       <aside className={styles.sidebar}>
         <div className={styles.menuTop}>
-          {visibleTopMenu.map((item) => (
-            <MenuEntry key={item.label} item={item} active={isItemActive(item, pathname)} />
-          ))}
+          {authResolved
+            ? visibleTopMenu.map((item) => (
+                <MenuEntry key={item.label} item={item} active={isItemActive(item, pathname)} />
+              ))
+            : null}
         </div>
 
         <div className={styles.menuBottom}>
