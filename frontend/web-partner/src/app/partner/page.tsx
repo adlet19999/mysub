@@ -160,6 +160,14 @@ export default function PartnerPage() {
               {loading ? "Входим..." : "Войти"}
             </button>
 
+            <button
+              className={styles.linkButton}
+              type="button"
+              onClick={() => router.push("/partner/forgot-password")}
+            >
+              Забыли пароль?
+            </button>
+
             <button className={styles.linkButton} type="button" onClick={() => router.push("/partner/register")}>
               Регистрация нового партнера
             </button>

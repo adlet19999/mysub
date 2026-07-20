@@ -2,7 +2,14 @@ import re
 from uuid import uuid4
 
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import User
+from django.contrib.auth.tokens import default_token_generator
+from django.core.exceptions import ValidationError
+from django.core.mail import send_mail
+from django.conf import settings
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from django.utils.encoding import force_bytes, force_str
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -112,5 +119,65 @@ class AuthLoginView(APIView):
 				},
 			}
 		)
+
+
+class AuthForgotPasswordView(APIView):
+	def post(self, request):
+		email = (request.data.get("email") or "").strip().lower()
+		if not email:
+			return Response({"message": "email обязателен"}, status=400)
+
+		user = User.objects.filter(email__iexact=email).first() or User.objects.filter(username__iexact=email).first()
+		if user:
+			uid = urlsafe_base64_encode(force_bytes(user.pk))
+			token = default_token_generator.make_token(user)
+			base_url = (getattr(settings, "FRONTEND_PARTNER_BASE_URL", "") or "http://localhost:3000").rstrip("/")
+			reset_link = f"{base_url}/partner/reset-password?uid={uid}&token={token}"
+
+			subject = "MySub: восстановление пароля"
+			message = (
+				"Вы запросили восстановление пароля для аккаунта MySub.\n\n"
+				f"Перейдите по ссылке, чтобы задать новый пароль:\n{reset_link}\n\n"
+				"Если вы не запрашивали восстановление пароля, просто проигнорируйте это письмо."
+			)
+			from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
+			send_mail(subject, message, from_email, [user.email], fail_silently=True)
+
+		# Возвращаем одинаковый ответ, чтобы не раскрывать наличие email в системе.
+		return Response(
+			{
+				"ok": True,
+				"message": "Если аккаунт с таким email существует, письмо для восстановления уже отправлено",
+			}
+		)
+
+
+class AuthResetPasswordView(APIView):
+	def post(self, request):
+		uid = (request.data.get("uid") or "").strip()
+		token = (request.data.get("token") or "").strip()
+		new_password = request.data.get("new_password") or ""
+
+		if not uid or not token or not new_password:
+			return Response({"message": "uid, token и new_password обязательны"}, status=400)
+
+		try:
+			user_id = force_str(urlsafe_base64_decode(uid))
+			user = User.objects.filter(pk=user_id).first()
+		except Exception:
+			user = None
+
+		if user is None or not default_token_generator.check_token(user, token):
+			return Response({"message": "Ссылка недействительна или устарела"}, status=400)
+
+		try:
+			validate_password(new_password, user=user)
+		except ValidationError as exc:
+			return Response({"message": " ".join(exc.messages)}, status=400)
+
+		user.set_password(new_password)
+		user.save(update_fields=["password"])
+
+		return Response({"ok": True, "message": "Пароль успешно обновлен"})
 
 # Create your views here.
