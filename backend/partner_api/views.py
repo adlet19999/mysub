@@ -1465,17 +1465,17 @@ class ServiceImageView(APIView):
 		return response
 
 
-	class ProfileImageView(APIView):
-		def get(self, request, file_name: str):
-			if not re.match(r"^[a-zA-Z0-9._-]+$", file_name or ""):
-				return Response({"message": "Некорректное имя файла"}, status=400)
+class ProfileImageView(APIView):
+	def get(self, request, file_name: str):
+		if not re.match(r"^[a-zA-Z0-9._-]+$", file_name or ""):
+			return Response({"message": "Некорректное имя файла"}, status=400)
 
-			file_path = Path(settings.MEDIA_ROOT) / "profile_images" / file_name
-			if not file_path.exists() or not file_path.is_file():
-				return Response({"message": "Изображение не найдено"}, status=404)
+		file_path = Path(settings.MEDIA_ROOT) / "profile_images" / file_name
+		if not file_path.exists() or not file_path.is_file():
+			return Response({"message": "Изображение не найдено"}, status=404)
 
-			response = FileResponse(open(file_path, "rb"), content_type="image/webp")
-			response["Cache-Control"] = "public, max-age=31536000, immutable"
-			return response
+		response = FileResponse(open(file_path, "rb"), content_type="image/webp")
+		response["Cache-Control"] = "public, max-age=31536000, immutable"
+		return response
 
 # Create your views here.
