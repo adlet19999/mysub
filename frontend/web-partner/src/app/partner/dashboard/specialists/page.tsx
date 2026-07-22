@@ -248,7 +248,7 @@ export default function SpecialistsPage() {
     try {
       const [kindsRes, specialistsRes] = await Promise.all([
         api("/partner/service-kinds/"),
-        api("/partner/specialists/"),
+        api("/partner/specialists/?include_schedule=0"),
       ]);
 
       if (!kindsRes.ok || !specialistsRes.ok) {
@@ -377,11 +377,22 @@ export default function SpecialistsPage() {
     }
   }
 
-  function openScheduleModal(specialist: Specialist) {
+  async function openScheduleModal(specialist: Specialist) {
     setScheduleTarget(specialist);
     setScheduleDraft(normalizeWorkingSchedule(specialist.working_schedule));
     setActiveSchedulePreset(null);
     setScheduleError("");
+
+    try {
+      const response = await api(`/partner/specialists/${specialist.id}/`);
+      if (!response.ok) {
+        return;
+      }
+      const payload = (await response.json()) as Pick<Specialist, "working_schedule">;
+      setScheduleDraft(normalizeWorkingSchedule(payload.working_schedule));
+    } catch {
+      setScheduleError("Не удалось загрузить текущий график");
+    }
   }
 
   function closeScheduleModal() {
