@@ -248,7 +248,7 @@ export default function SpecialistsPage() {
     try {
       const [kindsRes, specialistsRes] = await Promise.all([
         api("/partner/service-kinds/"),
-        api("/partner/specialists/?include_photo=0"),
+        api("/partner/specialists/"),
       ]);
 
       if (!kindsRes.ok || !specialistsRes.ok) {
@@ -270,7 +270,12 @@ export default function SpecialistsPage() {
   }
 
   async function preloadSpecialistPhotos(specialistIds: number[]) {
-    const idsToLoad = specialistIds.filter((id) => !specialistPhotos[id] && !loadingPhotoIdsRef.current.has(id));
+    const idsToLoad = specialistIds.filter(
+      (id) =>
+        !specialistPhotos[id] &&
+        !specialists.find((specialist) => specialist.id === id)?.photo_url &&
+        !loadingPhotoIdsRef.current.has(id),
+    );
     if (!idsToLoad.length) {
       return;
     }
