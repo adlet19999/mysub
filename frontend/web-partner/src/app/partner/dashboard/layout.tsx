@@ -85,7 +85,7 @@ function MenuEntry({
 
   if (item.href) {
     return (
-      <Link href={item.href} className={className}>
+      <Link href={item.href} prefetch={false} className={className}>
         <img src={item.icon} alt="" className={styles.sideIcon} aria-hidden />
         <span>{item.label}</span>
       </Link>
