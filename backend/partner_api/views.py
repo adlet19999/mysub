@@ -240,6 +240,26 @@ def save_service_image_from_base64(image_base64: str, tenant: str, partner_profi
 	return f"/api/v1/partner/service-images/{file_name}", None
 
 
+def delete_managed_image(image_url: str):
+	url = str(image_url or "").strip().rstrip("/")
+	prefixes = {
+		"/api/v1/partner/service-images/": "service_images",
+		"/api/v1/partner/profile-images/": "profile_images",
+	}
+	for prefix, directory in prefixes.items():
+		if not url.startswith(prefix):
+			continue
+		file_name = url[len(prefix) :]
+		if not re.match(r"^[a-zA-Z0-9._-]+$", file_name):
+			return
+		file_path = Path(settings.MEDIA_ROOT) / directory / file_name
+		try:
+			file_path.unlink(missing_ok=True)
+		except OSError:
+			pass
+		return
+
+
 def resolve_service_image_payload(raw_image_url, raw_image_base64, tenant: str, partner_profile_id: int):
 	image_url = normalize_service_image_url(str(raw_image_url or "").strip())
 	image_base64 = str(raw_image_base64 or "").strip()
@@ -795,6 +815,7 @@ class ServiceDetailView(APIView):
 
 		image_url = request.data.get("image_url")
 		image_base64 = request.data.get("image_base64")
+		previous_image_url = item.image_url
 		if image_url is not None or image_base64 is not None:
 			resolved_image_url, resolved_image_base64, image_error = resolve_service_image_payload(
 				image_url if image_url is not None else item.image_url,
@@ -818,6 +839,8 @@ class ServiceDetailView(APIView):
 			item.is_active = parse_bool(is_active, item.is_active)
 
 		item.save()
+		if item.image_url != previous_image_url:
+			delete_managed_image(previous_image_url)
 		item.refresh_from_db()
 
 		return Response(
@@ -1015,6 +1038,7 @@ class ManagerDetailView(APIView):
 			item.email = value
 
 		photo_base64 = request.data.get("photo_base64")
+		previous_photo_url = item.photo_url
 		if photo_base64 is not None:
 			photo_url, photo_error = save_profile_image_from_base64(
 				str(photo_base64).strip(), tenant, partner_profile.id, "manager"
@@ -1029,6 +1053,8 @@ class ManagerDetailView(APIView):
 			item.is_active = parse_bool(is_active, item.is_active)
 
 		item.save()
+		if item.photo_url != previous_photo_url:
+			delete_managed_image(previous_photo_url)
 
 		return Response(
 			{
@@ -1219,6 +1245,7 @@ class SpecialistDetailView(APIView):
 			item.email = str(email).strip().lower()
 
 		photo_base64 = request.data.get("photo_base64")
+		previous_photo_url = item.photo_url
 		if photo_base64 is not None:
 			photo_url, photo_error = save_profile_image_from_base64(
 				str(photo_base64).strip(), tenant, partner_profile.id, "specialist"
@@ -1240,6 +1267,8 @@ class SpecialistDetailView(APIView):
 			item.is_active = parse_bool(is_active, item.is_active)
 
 		item.save()
+		if item.photo_url != previous_photo_url:
+			delete_managed_image(previous_photo_url)
 
 		service_kind_ids = request.data.get("service_kind_ids")
 		if service_kind_ids is not None:
