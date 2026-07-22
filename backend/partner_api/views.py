@@ -3,6 +3,7 @@ import binascii
 import re
 import uuid
 from datetime import timedelta
+from io import BytesIO
 from pathlib import Path
 
 from django.contrib.auth.models import User
@@ -11,6 +12,7 @@ from django.conf import settings
 from django.http import FileResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from PIL import Image, ImageOps, UnidentifiedImageError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -114,8 +116,56 @@ def normalize_service_image_url(value: str) -> str:
 	return url
 
 
-def save_service_image_from_base64(image_base64: str, tenant: str, partner_profile_id: int):
+def compress_image_base64(image_base64: str):
 	raw = str(image_base64 or "").strip()
+	if not raw:
+		return "", None
+	if not raw.lower().startswith("data:image/"):
+		return "", "Некорректный формат изображения"
+
+	parts = raw.split(",", 1)
+	if len(parts) != 2 or ";base64" not in parts[0].lower():
+		return "", "Некорректный формат изображения"
+
+	payload = re.sub(r"\s+", "", parts[1])
+	if not payload:
+		return "", "Некорректные base64-данные изображения"
+	payload += "=" * ((-len(payload)) % 4)
+
+	try:
+		binary = base64.b64decode(payload, validate=False)
+	except (binascii.Error, ValueError):
+		return "", "Некорректные base64-данные изображения"
+
+	if len(binary) > 5 * 1024 * 1024:
+		return "", "Изображение слишком большое (максимум 5MB)"
+
+	try:
+		with Image.open(BytesIO(binary)) as source:
+			if source.width * source.height > 25_000_000:
+				return "", "Разрешение изображения слишком большое"
+			image = ImageOps.exif_transpose(source)
+			image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
+			if image.mode not in {"RGB", "RGBA"}:
+				image = image.convert("RGBA")
+			if image.mode == "RGBA":
+				background = Image.new("RGB", image.size, "white")
+				background.paste(image, mask=image.getchannel("A"))
+				image = background
+			else:
+				image = image.convert("RGB")
+			output = BytesIO()
+			image.save(output, format="WEBP", quality=78, method=6)
+	except (OSError, UnidentifiedImageError, ValueError):
+		return "", "Не удалось обработать изображение"
+
+	return f"data:image/webp;base64,{base64.b64encode(output.getvalue()).decode('ascii')}", None
+
+
+def save_service_image_from_base64(image_base64: str, tenant: str, partner_profile_id: int):
+	raw, compression_error = compress_image_base64(image_base64)
+	if compression_error:
+		return "", compression_error
 	if not raw:
 		return "", None
 
@@ -134,20 +184,7 @@ def save_service_image_from_base64(image_base64: str, tenant: str, partner_profi
 	if not subtype_raw:
 		return "", "Некорректный формат изображения"
 
-	ext_by_subtype = {
-		"jpg": "jpeg",
-		"jpeg": "jpeg",
-		"png": "png",
-		"webp": "webp",
-		"gif": "gif",
-		"jfif": "jpeg",
-		"pjpeg": "jpeg",
-		"x-png": "png",
-		"svg+xml": "svg",
-	}
-	ext = ext_by_subtype.get(subtype_raw, re.sub(r"[^a-z0-9]+", "", subtype_raw))
-	if not ext:
-		ext = "bin"
+	ext = "webp"
 
 	payload = re.sub(r"\s+", "", parts[1])
 	if not payload:
@@ -1012,6 +1049,9 @@ class SpecialistListCreateView(APIView):
 			return Response({"message": "full_name обязателен"}, status=400)
 		if not isinstance(service_kind_ids, list):
 			return Response({"message": "service_kind_ids должен быть массивом"}, status=400)
+		photo_base64, photo_error = compress_image_base64(photo_base64)
+		if photo_error:
+			return Response({"message": photo_error}, status=400)
 
 		normalized_schedule, schedule_error = normalize_working_schedule(working_schedule_raw)
 		if schedule_error:
@@ -1069,6 +1109,40 @@ class SpecialistListCreateView(APIView):
 
 
 class SpecialistDetailView(APIView):
+	def get(self, request, specialist_id: int):
+		partner_profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		tenant = tenant_from_request(request)
+		item = (
+			Specialist.objects.filter(
+				id=specialist_id,
+				tenant_slug=tenant,
+				partner_profile=partner_profile,
+			)
+			.prefetch_related("capabilities__service_kind")
+			.first()
+		)
+		if not item:
+			return Response({"message": "Специалист не найден"}, status=404)
+
+		capabilities = list(item.capabilities.all())
+		return Response(
+			{
+				"id": item.id,
+				"full_name": item.full_name,
+				"description": item.description,
+				"phone": item.phone,
+				"email": item.email,
+				"photo_base64": item.photo_base64,
+				"working_schedule": item.working_schedule or default_working_schedule(),
+				"service_kind_ids": [cap.service_kind_id for cap in capabilities],
+				"service_kind_names": [cap.service_kind.name for cap in capabilities],
+				"is_active": item.is_active,
+			}
+		)
+
 	def patch(self, request, specialist_id: int):
 		partner_profile, error_response = get_partner_profile(request)
 		if error_response is not None:
@@ -1104,7 +1178,10 @@ class SpecialistDetailView(APIView):
 
 		photo_base64 = request.data.get("photo_base64")
 		if photo_base64 is not None:
-			item.photo_base64 = str(photo_base64).strip()
+			compressed_photo, photo_error = compress_image_base64(str(photo_base64).strip())
+			if photo_error:
+				return Response({"message": photo_error}, status=400)
+			item.photo_base64 = compressed_photo
 
 		working_schedule_raw = request.data.get("working_schedule")
 		if working_schedule_raw is not None:

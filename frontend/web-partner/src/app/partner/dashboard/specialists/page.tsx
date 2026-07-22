@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
+import { compressImageFileToDataUrl } from "../../../../lib/imageCompression";
 
 type ServiceKind = {
   id: number;
@@ -30,6 +31,10 @@ type Specialist = {
   service_kind_ids: number[];
   service_kind_names: string[];
   is_active: boolean;
+};
+
+type SpecialistPhotoPayload = {
+  photo_base64?: string;
 };
 
 type SpecialistFormState = {
@@ -126,6 +131,7 @@ export default function SpecialistsPage() {
 
   const [kinds, setKinds] = useState<ServiceKind[]>([]);
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
+  const [specialistPhotos, setSpecialistPhotos] = useState<Record<number, string>>({});
 
   const [searchQuery, setSearchQuery] = useState("");
   const [tab, setTab] = useState<"active" | "archived" | "all">("active");
@@ -152,6 +158,7 @@ export default function SpecialistsPage() {
   });
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadingPhotoIdsRef = useRef<Set<number>>(new Set());
 
   function showToast(text: string, tone: ToastTone = "success") {
     if (toastTimerRef.current) {
@@ -241,7 +248,7 @@ export default function SpecialistsPage() {
     try {
       const [kindsRes, specialistsRes] = await Promise.all([
         api("/partner/service-kinds/"),
-        api("/partner/specialists/?include_photo=1"),
+        api("/partner/specialists/?include_photo=0"),
       ]);
 
       if (!kindsRes.ok || !specialistsRes.ok) {
@@ -259,6 +266,40 @@ export default function SpecialistsPage() {
       );
     } catch {
       // Keep this dashboard resilient to temporary API connectivity issues.
+    }
+  }
+
+  async function preloadSpecialistPhotos(specialistIds: number[]) {
+    const idsToLoad = specialistIds.filter((id) => !specialistPhotos[id] && !loadingPhotoIdsRef.current.has(id));
+    if (!idsToLoad.length) {
+      return;
+    }
+
+    idsToLoad.forEach((id) => loadingPhotoIdsRef.current.add(id));
+
+    try {
+      const results = await Promise.all(
+        idsToLoad.map(async (id) => {
+          const response = await api(`/partner/specialists/${id}/`);
+          if (!response.ok) {
+            return { id, photo: "" };
+          }
+          const payload = (await response.json()) as SpecialistPhotoPayload;
+          return { id, photo: (payload.photo_base64 || "").trim() };
+        }),
+      );
+
+      setSpecialistPhotos((prev) => {
+        const next = { ...prev };
+        for (const item of results) {
+          if (item.photo) {
+            next[item.id] = item.photo;
+          }
+        }
+        return next;
+      });
+    } finally {
+      idsToLoad.forEach((id) => loadingPhotoIdsRef.current.delete(id));
     }
   }
 
@@ -290,6 +331,14 @@ export default function SpecialistsPage() {
     void loadData();
   }, [authResolved, partnerEmail]);
 
+  useEffect(() => {
+    const visibleIds = visibleSpecialists.slice(0, 8).map((item) => item.id);
+    if (!visibleIds.length) {
+      return;
+    }
+    void preloadSpecialistPhotos(visibleIds);
+  }, [visibleSpecialists]);
+
   function openCreateModal() {
     setModalMode("create");
     setEditingSpecialist(null);
@@ -305,6 +354,7 @@ export default function SpecialistsPage() {
   }
 
   function openEditModal(specialist: Specialist) {
+    const specialistPhoto = specialistPhotos[specialist.id] || specialist.photo_base64 || "";
     setModalMode("edit");
     setEditingSpecialist(specialist);
     setKindError("");
@@ -313,9 +363,13 @@ export default function SpecialistsPage() {
       description: specialist.description || "",
       pendingServiceGroupKey: availableServiceGroups[0]?.key ?? "",
       selectedServiceGroupKeys: getServiceGroupKeysFromKindIds(specialist.service_kind_ids),
-      photoBase64: specialist.photo_base64 || "",
+      photoBase64: specialistPhoto,
     });
     setIsModalOpen(true);
+
+    if (!specialistPhoto) {
+      void preloadSpecialistPhotos([specialist.id]);
+    }
   }
 
   function openScheduleModal(specialist: Specialist) {
@@ -535,16 +589,16 @@ export default function SpecialistsPage() {
     });
   }
 
-  function onSelectPhoto(file: File | null) {
+  async function onSelectPhoto(file: File | null) {
     if (!file) {
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
+    try {
+      const result = await compressImageFileToDataUrl(file);
       setForm((prev) => ({ ...prev, photoBase64: result }));
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      showToast("Не удалось обработать фото", "error");
+    }
   }
 
   function clearPhoto() {
@@ -775,8 +829,14 @@ export default function SpecialistsPage() {
                   </span>
                 </div>
 
-                {specialist.photo_base64 ? (
-                  <img src={specialist.photo_base64} alt="" className={styles.cardPhoto} />
+                {(specialistPhotos[specialist.id] || specialist.photo_base64) ? (
+                  <img
+                    src={specialistPhotos[specialist.id] || specialist.photo_base64}
+                    alt=""
+                    className={styles.cardPhoto}
+                    loading="lazy"
+                    decoding="async"
+                  />
                 ) : (
                   <div className={styles.previewStub} />
                 )}

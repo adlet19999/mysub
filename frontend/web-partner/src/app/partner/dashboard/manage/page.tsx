@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import styles from "./page.module.css";
+import { compressImageFileToDataUrl } from "../../../../lib/imageCompression";
 
 type Category = { id: number; name: string; is_active: boolean };
 type ServiceKind = {
@@ -193,7 +194,7 @@ export default function PartnerManagePage() {
       }
 
       const [srvRes, mgrRes, bookRes] = await Promise.all([
-        api("/partner/services/?include_image=1"),
+        api("/partner/services/?include_image=0"),
         api("/partner/managers/"),
         api("/partner/bookings/"),
       ]);
@@ -316,17 +317,17 @@ export default function PartnerManagePage() {
     setIsModalOpen(true);
   }
 
-  function onServiceImageSelected(event: React.ChangeEvent<HTMLInputElement>) {
+  async function onServiceImageSelected(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) {
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const value = typeof reader.result === "string" ? reader.result : "";
+    try {
+      const value = await compressImageFileToDataUrl(file);
       setOfferForm((prev) => ({ ...prev, imageUrl: value }));
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      setOfferSaveError("Не удалось обработать изображение. Попробуйте другой файл.");
+    }
   }
 
   async function submitOffer(event: FormEvent) {
@@ -615,6 +616,8 @@ export default function PartnerManagePage() {
                           src={service.image_url || service.image_base64}
                           alt="Фото услуги"
                           className={styles.servicePhoto}
+                          loading="lazy"
+                          decoding="async"
                         />
                       ) : (
                         <span className={styles.avatarDot} />
@@ -935,7 +938,7 @@ export default function PartnerManagePage() {
 
                 <label className={styles.previewBox}>
                   {offerForm.imageUrl ? (
-                    <img src={offerForm.imageUrl} alt="Фото услуги" className={styles.previewImage} />
+                    <img src={offerForm.imageUrl} alt="Фото услуги" className={styles.previewImage} loading="lazy" decoding="async" />
                   ) : (
                     <span className={styles.previewHint}>🖼 Добавить фото</span>
                   )}
