@@ -185,10 +185,10 @@ export default function PartnerPage() {
         <section className={styles.right}>
           <div className={styles.heroMedia}>
             <Image
-              src="/partner-login-left.svg"
+              src="/partner-login-left.webp"
               alt="MySub partner preview"
               fill
-              priority
+              sizes="(max-width: 1080px) 100vw, 54vw"
               className={styles.heroImage}
             />
           </div>

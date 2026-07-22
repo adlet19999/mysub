@@ -184,7 +184,7 @@
   }
 
   .right {
-    min-height: 360px;
+    display: none;
   }
 
   .heroMedia {

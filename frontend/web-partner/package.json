@@ -4,9 +4,11 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "next dev -p 3000",
+    "prebuild": "pnpm run images:optimize",
     "build": "next build",
     "start": "next start -p 3000",
-    "lint": "next lint"
+    "lint": "next lint",
+    "images:optimize": "svgo -f public --config=svgo.config.mjs"
   },
   "dependencies": {
     "next": "14.2.5",
@@ -17,6 +19,8 @@
     "@types/node": "20.14.12",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
+    "sharp": "^0.35.3",
+    "svgo": "^4.0.2",
     "typescript": "5.5.4"
   }
 }
