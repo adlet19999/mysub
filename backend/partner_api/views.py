@@ -116,6 +116,16 @@ def normalize_service_image_url(value: str) -> str:
 	return url
 
 
+def normalize_profile_image_url(value: str) -> str:
+	url = str(value or "").strip()
+	prefix = "/api/v1/partner/profile-images/"
+	if url.startswith(prefix) and url.endswith("/"):
+		file_part = url[len(prefix) : -1]
+		if file_part and "/" not in file_part:
+			return f"{prefix}{file_part}"
+	return url
+
+
 def compress_image_base64(image_base64: str):
 	raw = str(image_base64 or "").strip()
 	if not raw:
@@ -160,6 +170,26 @@ def compress_image_base64(image_base64: str):
 		return "", "Не удалось обработать изображение"
 
 	return f"data:image/webp;base64,{base64.b64encode(output.getvalue()).decode('ascii')}", None
+
+
+def save_profile_image_from_base64(image_base64: str, tenant: str, partner_profile_id: int, image_type: str):
+	raw, compression_error = compress_image_base64(image_base64)
+	if compression_error:
+		return "", compression_error
+	if not raw:
+		return "", None
+
+	payload = raw.split(",", 1)[1]
+	try:
+		binary = base64.b64decode(payload, validate=False)
+	except (binascii.Error, ValueError):
+		return "", "Некорректные base64-данные изображения"
+
+	profile_images_dir = Path(settings.MEDIA_ROOT) / "profile_images"
+	profile_images_dir.mkdir(parents=True, exist_ok=True)
+	file_name = f"{image_type}-tenant-{tenant}-partner-{partner_profile_id}-{uuid.uuid4().hex}.webp"
+	(profile_images_dir / file_name).write_bytes(binary)
+	return f"/api/v1/partner/profile-images/{file_name}", None
 
 
 def save_service_image_from_base64(image_base64: str, tenant: str, partner_profile_id: int):
@@ -833,7 +863,7 @@ class ManagerListCreateView(APIView):
 				"full_name": item.full_name,
 				"phone": item.phone,
 				"email": item.email,
-				"photo_base64": item.photo_base64,
+				"photo_url": normalize_profile_image_url(item.photo_url),
 				"is_active": item.is_active,
 			}
 			for item in items
@@ -859,6 +889,9 @@ class ManagerListCreateView(APIView):
 			return Response({"message": "Телефон должен быть в формате +7XXXXXXXXXX"}, status=400)
 		if len(password) < 8:
 			return Response({"message": "Пароль менеджера должен быть не короче 8 символов"}, status=400)
+		photo_url, photo_error = save_profile_image_from_base64(photo_base64, tenant, partner_profile.id, "manager")
+		if photo_error:
+			return Response({"message": photo_error}, status=400)
 
 		existing_user = (
 			User.objects.select_related("partner_profile")
@@ -895,7 +928,7 @@ class ManagerListCreateView(APIView):
 			full_name=full_name,
 			phone=phone,
 			email=email,
-			photo_base64=photo_base64,
+			photo_url=photo_url,
 			is_active=parse_bool(request.data.get("is_active"), True),
 		)
 
@@ -905,7 +938,7 @@ class ManagerListCreateView(APIView):
 				"full_name": item.full_name,
 				"phone": item.phone,
 				"email": item.email,
-				"photo_base64": item.photo_base64,
+				"photo_url": normalize_profile_image_url(item.photo_url),
 				"is_active": item.is_active,
 			},
 			status=201,
@@ -983,7 +1016,13 @@ class ManagerDetailView(APIView):
 
 		photo_base64 = request.data.get("photo_base64")
 		if photo_base64 is not None:
-			item.photo_base64 = str(photo_base64).strip()
+			photo_url, photo_error = save_profile_image_from_base64(
+				str(photo_base64).strip(), tenant, partner_profile.id, "manager"
+			)
+			if photo_error:
+				return Response({"message": photo_error}, status=400)
+			item.photo_url = photo_url
+			item.photo_base64 = ""
 
 		is_active = request.data.get("is_active")
 		if is_active is not None:
@@ -997,7 +1036,7 @@ class ManagerDetailView(APIView):
 				"full_name": item.full_name,
 				"phone": item.phone,
 				"email": item.email,
-				"photo_base64": item.photo_base64,
+				"photo_url": normalize_profile_image_url(item.photo_url),
 				"is_active": item.is_active,
 			}
 		)
@@ -1023,7 +1062,7 @@ class SpecialistListCreateView(APIView):
 				"description": item.description,
 				"phone": item.phone,
 				"email": item.email,
-				"photo_base64": item.photo_base64 if include_photo else "",
+				"photo_url": normalize_profile_image_url(item.photo_url) if include_photo else "",
 				"working_schedule": item.working_schedule or default_working_schedule(),
 				"service_kind_ids": [cap.service_kind_id for cap in item.capabilities.all()],
 				"service_kind_names": [cap.service_kind.name for cap in item.capabilities.all()],
@@ -1049,7 +1088,9 @@ class SpecialistListCreateView(APIView):
 			return Response({"message": "full_name обязателен"}, status=400)
 		if not isinstance(service_kind_ids, list):
 			return Response({"message": "service_kind_ids должен быть массивом"}, status=400)
-		photo_base64, photo_error = compress_image_base64(photo_base64)
+		photo_url, photo_error = save_profile_image_from_base64(
+			photo_base64, tenant, partner_profile.id, "specialist"
+		)
 		if photo_error:
 			return Response({"message": photo_error}, status=400)
 
@@ -1071,7 +1112,7 @@ class SpecialistListCreateView(APIView):
 			description=description,
 			phone=phone,
 			email=email,
-			photo_base64=photo_base64,
+			photo_url=photo_url,
 			working_schedule=normalized_schedule,
 			is_active=parse_bool(request.data.get("is_active"), True),
 		)
@@ -1098,7 +1139,7 @@ class SpecialistListCreateView(APIView):
 				"description": item.description,
 				"phone": item.phone,
 				"email": item.email,
-				"photo_base64": item.photo_base64,
+				"photo_url": normalize_profile_image_url(item.photo_url),
 				"working_schedule": item.working_schedule or default_working_schedule(),
 				"service_kind_ids": [cap.service_kind_id for cap in assigned_capabilities],
 				"service_kind_names": [cap.service_kind.name for cap in assigned_capabilities],
@@ -1135,7 +1176,7 @@ class SpecialistDetailView(APIView):
 				"description": item.description,
 				"phone": item.phone,
 				"email": item.email,
-				"photo_base64": item.photo_base64,
+				"photo_url": normalize_profile_image_url(item.photo_url),
 				"working_schedule": item.working_schedule or default_working_schedule(),
 				"service_kind_ids": [cap.service_kind_id for cap in capabilities],
 				"service_kind_names": [cap.service_kind.name for cap in capabilities],
@@ -1178,10 +1219,13 @@ class SpecialistDetailView(APIView):
 
 		photo_base64 = request.data.get("photo_base64")
 		if photo_base64 is not None:
-			compressed_photo, photo_error = compress_image_base64(str(photo_base64).strip())
+			photo_url, photo_error = save_profile_image_from_base64(
+				str(photo_base64).strip(), tenant, partner_profile.id, "specialist"
+			)
 			if photo_error:
 				return Response({"message": photo_error}, status=400)
-			item.photo_base64 = compressed_photo
+			item.photo_url = photo_url
+			item.photo_base64 = ""
 
 		working_schedule_raw = request.data.get("working_schedule")
 		if working_schedule_raw is not None:
@@ -1237,7 +1281,7 @@ class SpecialistDetailView(APIView):
 				"description": item.description,
 				"phone": item.phone,
 				"email": item.email,
-				"photo_base64": item.photo_base64,
+				"photo_url": normalize_profile_image_url(item.photo_url),
 				"working_schedule": item.working_schedule or default_working_schedule(),
 				"service_kind_ids": [cap.service_kind_id for cap in assigned_capabilities],
 				"service_kind_names": [cap.service_kind.name for cap in assigned_capabilities],
@@ -1419,5 +1463,19 @@ class ServiceImageView(APIView):
 		response = FileResponse(open(file_path, "rb"), content_type=content_type)
 		response["Cache-Control"] = "public, max-age=31536000, immutable"
 		return response
+
+
+	class ProfileImageView(APIView):
+		def get(self, request, file_name: str):
+			if not re.match(r"^[a-zA-Z0-9._-]+$", file_name or ""):
+				return Response({"message": "Некорректное имя файла"}, status=400)
+
+			file_path = Path(settings.MEDIA_ROOT) / "profile_images" / file_name
+			if not file_path.exists() or not file_path.is_file():
+				return Response({"message": "Изображение не найдено"}, status=404)
+
+			response = FileResponse(open(file_path, "rb"), content_type="image/webp")
+			response["Cache-Control"] = "public, max-age=31536000, immutable"
+			return response
 
 # Create your views here.

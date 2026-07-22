@@ -26,7 +26,7 @@ type Specialist = {
   description: string;
   phone: string;
   email: string;
-  photo_base64: string;
+  photo_url: string;
   working_schedule: WorkingDaySchedule[];
   service_kind_ids: number[];
   service_kind_names: string[];
@@ -34,7 +34,7 @@ type Specialist = {
 };
 
 type SpecialistPhotoPayload = {
-  photo_base64?: string;
+  photo_url?: string;
 };
 
 type SpecialistFormState = {
@@ -285,7 +285,7 @@ export default function SpecialistsPage() {
             return { id, photo: "" };
           }
           const payload = (await response.json()) as SpecialistPhotoPayload;
-          return { id, photo: (payload.photo_base64 || "").trim() };
+          return { id, photo: (payload.photo_url || "").trim() };
         }),
       );
 
@@ -354,7 +354,7 @@ export default function SpecialistsPage() {
   }
 
   function openEditModal(specialist: Specialist) {
-    const specialistPhoto = specialistPhotos[specialist.id] || specialist.photo_base64 || "";
+    const specialistPhoto = specialistPhotos[specialist.id] || specialist.photo_url || "";
     setModalMode("edit");
     setEditingSpecialist(specialist);
     setKindError("");
@@ -642,7 +642,7 @@ export default function SpecialistsPage() {
           description: form.description,
           phone: "",
           email: "",
-          photo_base64: form.photoBase64,
+          ...(form.photoBase64.startsWith("data:") ? { photo_base64: form.photoBase64 } : {}),
           service_kind_ids: mappedKindIds,
           is_active: true,
         }),
@@ -829,9 +829,9 @@ export default function SpecialistsPage() {
                   </span>
                 </div>
 
-                {(specialistPhotos[specialist.id] || specialist.photo_base64) ? (
+                {(specialistPhotos[specialist.id] || specialist.photo_url) ? (
                   <img
-                    src={specialistPhotos[specialist.id] || specialist.photo_base64}
+                    src={specialistPhotos[specialist.id] || specialist.photo_url}
                     alt=""
                     className={styles.cardPhoto}
                     loading="lazy"
