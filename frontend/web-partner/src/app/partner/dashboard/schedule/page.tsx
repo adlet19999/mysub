@@ -20,7 +20,7 @@ type Specialist = {
   full_name: string;
   description?: string;
   working_schedule: WorkingDaySchedule[];
-  service_kind_ids?: number[];
+  service_ids?: number[];
   is_active: boolean;
 };
 
@@ -317,7 +317,7 @@ export default function SchedulePage() {
   }, [services]);
 
   const bookableServices = useMemo(() => {
-    return activeServices.filter((service) => service.kind != null);
+    return activeServices;
   }, [activeServices]);
 
   const primarySelectedService = useMemo(() => {
@@ -335,18 +335,27 @@ export default function SchedulePage() {
   }, [bookingLines, bookableServices]);
 
   const availableSpecialistsForService = useMemo(() => {
-    const selectedKinds = Array.from(
-      new Set(selectedServicesInModal.map((service) => service.kind).filter((kind): kind is number => kind != null)),
-    );
-
-    if (!selectedKinds.length) {
+    const selectedServiceIds = selectedServicesInModal.map((service) => service.id);
+    if (!selectedServiceIds.length) {
       return activeSpecialists;
     }
     return activeSpecialists.filter((specialist) => {
-      const capabilities = specialist.service_kind_ids ?? [];
-      return selectedKinds.every((kindId) => capabilities.includes(kindId));
+      const assignedServiceIds = specialist.service_ids ?? [];
+      return selectedServiceIds.every((serviceId) => assignedServiceIds.includes(serviceId));
     });
   }, [activeSpecialists, selectedServicesInModal]);
+
+  const availableServicesForSpecialist = useMemo(() => {
+    if (!bookingSpecialistId) {
+      return bookableServices;
+    }
+    const specialist = activeSpecialists.find((item) => String(item.id) === bookingSpecialistId);
+    if (!specialist) {
+      return bookableServices;
+    }
+    const assignedServiceIds = specialist.service_ids ?? [];
+    return bookableServices.filter((service) => assignedServiceIds.includes(service.id));
+  }, [activeSpecialists, bookableServices, bookingSpecialistId]);
 
   const canSubmitBooking = useMemo(() => {
     if (!bookingClientName.trim() || !bookingPhone.trim() || !bookingDate || !bookingStartTime || !bookingSpecialistId) {
@@ -521,10 +530,9 @@ export default function SchedulePage() {
   }, [partnerEmail, tenant]);
 
   function openBookingModal() {
-    const firstSpecialist = activeSpecialists[0];
     setBookingClientName("");
     setBookingPhone("");
-    setBookingSpecialistId(firstSpecialist ? String(firstSpecialist.id) : "");
+    setBookingSpecialistId("");
     setBookingDate(formatDateInputValue(selectedDate));
     setBookingStartTime("16:40");
     setBookingLines([{ id: Date.now(), serviceId: "", sum: "" }]);
@@ -594,7 +602,7 @@ export default function SchedulePage() {
       }),
     );
 
-    if (!selectedService || selectedService.kind == null) {
+    if (!selectedService) {
       return;
     }
 
@@ -606,9 +614,25 @@ export default function SchedulePage() {
       if (!currentSpecialist) {
         return "";
       }
-      const canProvideService = (currentSpecialist.service_kind_ids ?? []).includes(selectedService.kind as number);
+      const canProvideService = (currentSpecialist.service_ids ?? []).includes(selectedService.id);
       return canProvideService ? prev : "";
     });
+  }
+
+  function onSpecialistChange(specialistId: string) {
+    setBookingSpecialistId(specialistId);
+    const specialist = activeSpecialists.find((item) => String(item.id) === specialistId);
+    if (!specialist) {
+      return;
+    }
+    const assignedServiceIds = specialist.service_ids ?? [];
+    setBookingLines((prev) =>
+      prev.map((line) =>
+        line.serviceId && !assignedServiceIds.includes(Number(line.serviceId))
+          ? { ...line, serviceId: "", sum: "" }
+          : line,
+      ),
+    );
   }
 
   function onSumChange(lineId: number, value: string) {
@@ -634,11 +658,7 @@ export default function SchedulePage() {
       return;
     }
 
-    const requiredKinds = Array.from(
-      new Set(selectedServices.map((service) => service.kind).filter((kind): kind is number => kind != null)),
-    );
-
-    if (requiredKinds.some((kindId) => !(specialist.service_kind_ids ?? []).includes(kindId))) {
+    if (selectedServices.some((service) => !(specialist.service_ids ?? []).includes(service.id))) {
       setModalError("Выбранный специалист не оказывает эту услугу");
       return;
     }
@@ -653,7 +673,7 @@ export default function SchedulePage() {
       const startsAt = `${bookingDate}T${bookingStartTime}:00`;
       const isEditMode = bookingModalMode === "edit" && editingBookingId != null;
       const compositeServiceName = selectedServices
-        .map((service) => (service.kind_name || service.name).trim())
+        .map((service) => service.name.trim())
         .filter(Boolean)
         .join("\n");
       const response = await fetch(isEditMode ? `/api/partner/bookings/${editingBookingId}/` : "/api/partner/bookings/", {
@@ -665,6 +685,7 @@ export default function SchedulePage() {
         body: JSON.stringify({
           specialist: specialist.full_name,
           service: compositeServiceName,
+          serviceIds: selectedServices.map((service) => service.id),
           clientName: bookingClientName.trim(),
           clientPhone: bookingPhone.trim(),
           startTime: startsAt,
@@ -863,14 +884,14 @@ export default function SchedulePage() {
                   <label className={styles.fieldBlock}>
                     <span>Услуга{index === 0 ? "" : ` ${index + 1}`}</span>
                     <select value={line.serviceId} onChange={(event) => onServiceChange(line.id, event.target.value)}>
-                      <option value="">Выберите услугу (3 уровень)</option>
-                      {bookableServices.map((service) => (
+                      <option value="">Выберите созданную услугу</option>
+                      {availableServicesForSpecialist.map((service) => (
                         <option key={service.id} value={String(service.id)}>
-                          {service.kind_name?.trim() || service.name}
+                          {service.name}
                         </option>
                       ))}
                     </select>
-                    {bookableServices.length === 0 ? <span className={styles.helperError}>Нет услуг 3 уровня для записи</span> : null}
+                      {availableServicesForSpecialist.length === 0 ? <span className={styles.helperError}>Нет доступных услуг для записи</span> : null}
                   </label>
 
                   <label className={`${styles.fieldBlock} ${styles.sumField}`}>
@@ -882,7 +903,7 @@ export default function SchedulePage() {
 
               <label className={styles.fieldBlock}>
                 <span>Специалист</span>
-                <select value={bookingSpecialistId} onChange={(event) => setBookingSpecialistId(event.target.value)}>
+                <select value={bookingSpecialistId} onChange={(event) => onSpecialistChange(event.target.value)}>
                   <option value="">Выберите специалиста</option>
                   {availableSpecialistsForService.map((specialist) => (
                     <option key={specialist.id} value={String(specialist.id)}>

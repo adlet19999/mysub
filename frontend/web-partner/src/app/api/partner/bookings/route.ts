@@ -35,6 +35,7 @@ export async function POST(request: Request) {
   const body = (await request.json()) as {
     specialist?: string;
     service?: string;
+    serviceIds?: number[];
     clientName?: string;
     clientPhone?: string;
     startTime?: string;
@@ -51,6 +52,7 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         service_name: (body.service || "").trim(),
+        service_ids: Array.isArray(body.serviceIds) ? body.serviceIds : [],
         manager_name: (body.specialist || "").trim(),
         starts_at: (body.startTime || "").trim(),
         client_name: (body.clientName || "").trim(),

@@ -1384,6 +1384,39 @@ class BookingListCreateView(APIView):
 
 		service_name = str(request.data.get("service_name")).strip()
 		manager_name = str(request.data.get("manager_name") or "").strip() or None
+		service_ids = request.data.get("service_ids") or []
+		if not isinstance(service_ids, list):
+			return Response({"message": "service_ids должен быть массивом"}, status=400)
+		try:
+			parsed_service_ids = [int(service_id) for service_id in service_ids]
+		except (TypeError, ValueError):
+			return Response({"message": "service_ids содержит некорректный id"}, status=400)
+
+		if parsed_service_ids:
+			available_service_ids = set(
+				Service.objects.filter(
+					tenant_slug=tenant,
+					partner_profile=partner_profile,
+					id__in=parsed_service_ids,
+				).values_list("id", flat=True)
+			)
+			if set(parsed_service_ids) != available_service_ids:
+				return Response({"message": "Одна или несколько услуг недоступны"}, status=400)
+
+			if manager_name:
+				specialist = Specialist.objects.filter(
+					tenant_slug=tenant,
+					partner_profile=partner_profile,
+					full_name__iexact=manager_name,
+					is_active=True,
+				).first()
+				if not specialist:
+					return Response({"message": "Специалист не найден"}, status=400)
+				assigned_service_ids = set(
+					SpecialistService.objects.filter(specialist=specialist).values_list("service_id", flat=True)
+				)
+				if not set(parsed_service_ids).issubset(assigned_service_ids):
+					return Response({"message": "Выбранный специалист не оказывает эту услугу"}, status=400)
 		duration_minutes = resolve_booking_duration_minutes(
 			service_name,
 			build_service_duration_map(tenant, partner_profile=partner_profile),
