@@ -303,7 +303,7 @@ export default function PartnerManagePage() {
     }
 
     const detailsPayload: Record<string, number> = {};
-    if (selectedCategoryName === "Спорт") {
+    if (offerForm.serviceType === "group") {
       if (offerForm.maxPeople.trim()) {
         detailsPayload.max_people = Number(offerForm.maxPeople);
       }
@@ -651,18 +651,8 @@ export default function PartnerManagePage() {
                   </select>
                 </label>
 
-                {selectedCategoryName === "Спорт" ? (
+                {offerForm.serviceType === "group" ? (
                   <div className={styles.discountRow}>
-                    <label>
-                      Максимум участников
-                      <input
-                        value={offerForm.maxPeople}
-                        onChange={(event) => setOfferForm((prev) => ({ ...prev, maxPeople: event.target.value }))}
-                        inputMode="numeric"
-                        placeholder="например: 10"
-                      />
-                    </label>
-
                     <label>
                       Минимум участников
                       <input
@@ -670,6 +660,18 @@ export default function PartnerManagePage() {
                         onChange={(event) => setOfferForm((prev) => ({ ...prev, minPeople: event.target.value }))}
                         inputMode="numeric"
                         placeholder="например: 2"
+                        required
+                      />
+                    </label>
+
+                    <label>
+                      Максимум участников
+                      <input
+                        value={offerForm.maxPeople}
+                        onChange={(event) => setOfferForm((prev) => ({ ...prev, maxPeople: event.target.value }))}
+                        inputMode="numeric"
+                        placeholder="например: 10"
+                        required
                       />
                     </label>
                   </div>

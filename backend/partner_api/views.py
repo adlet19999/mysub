@@ -280,7 +280,7 @@ def resolve_service_image_payload(raw_image_url, raw_image_base64, tenant: str, 
 	return "", image_base64, None
 
 
-def normalize_service_details(category_name: str, raw_details):
+def normalize_service_details(category_name: str, service_type: str, raw_details):
 	if raw_details is None:
 		return {}, None
 	if not isinstance(raw_details, dict):
@@ -288,13 +288,15 @@ def normalize_service_details(category_name: str, raw_details):
 
 	cleaned = {}
 
-	if category_name == "Спорт":
+	if service_type == "group":
 		max_people, max_error = parse_positive_int(raw_details.get("max_people"), "max_people")
 		if max_error:
 			return {}, max_error
 		min_people, min_error = parse_positive_int(raw_details.get("min_people"), "min_people")
 		if min_error:
 			return {}, min_error
+		if min_people is None or max_people is None:
+			return {}, "Для групповой услуги укажите минимум и максимум участников"
 		if min_people is not None and max_people is not None and min_people > max_people:
 			return {}, "min_people не может быть больше max_people"
 		if max_people is not None:
@@ -687,7 +689,7 @@ class ServiceListCreateView(APIView):
 			return Response({"message": "service_type должен быть individual или group"}, status=400)
 		is_subscription = parse_bool(request.data.get("is_subscription"), True)
 		is_promo = parse_bool(request.data.get("is_promo"), discount_percent > 0)
-		normalized_details, details_error = normalize_service_details(category.name, request.data.get("details"))
+		normalized_details, details_error = normalize_service_details(category.name, service_type, request.data.get("details"))
 		if details_error:
 			return Response({"message": details_error}, status=400)
 
@@ -791,7 +793,8 @@ class ServiceDetailView(APIView):
 
 		details = request.data.get("details")
 		if details is not None:
-			normalized_details, details_error = normalize_service_details(item.category.name, details)
+			new_service_type = str(request.data.get("service_type") or item.service_type).strip().lower()
+			normalized_details, details_error = normalize_service_details(item.category.name, new_service_type, details)
 			if details_error:
 				return Response({"message": details_error}, status=400)
 			item.details = normalized_details
