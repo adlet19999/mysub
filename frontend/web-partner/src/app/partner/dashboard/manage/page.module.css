@@ -621,14 +621,20 @@
 .checkLabel {
   height: 38px;
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 8px;
 }
 
 .checkLabel input {
+  flex: 0 0 auto;
   width: 18px;
   height: 18px;
   accent-color: #1f5f4d;
+}
+
+.checkLabel span {
+  order: 1;
 }
 
 .previewBox {

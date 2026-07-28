@@ -710,7 +710,7 @@ export default function PartnerManagePage() {
                         setOfferForm((prev) => ({ ...prev, isSubscription: event.target.checked }))
                       }
                     />
-                    Доступно по подписке
+                    <span>Доступно по подписке</span>
                   </label>
 
                   <label>
