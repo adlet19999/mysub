@@ -638,9 +638,9 @@
 }
 
 .discountedPrice {
-  margin: -4px 0 0;
   color: #1f5f4d;
-  font-size: 14px;
+  background: #eef6f2;
+  cursor: default;
   font-weight: 600;
 }
 

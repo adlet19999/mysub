@@ -738,9 +738,14 @@ export default function PartnerManagePage() {
                 </div>
 
                 {discountedPrice !== null ? (
-                  <p className={styles.discountedPrice}>
-                    Стоимость со скидкой: {discountedPrice.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ₸
-                  </p>
+                  <label>
+                    Стоимость со скидкой (₸)
+                    <input
+                      className={styles.discountedPrice}
+                      value={discountedPrice.toLocaleString("ru-RU", { maximumFractionDigits: 2 })}
+                      readOnly
+                    />
+                  </label>
                 ) : null}
 
                 <label className={styles.previewBox}>
