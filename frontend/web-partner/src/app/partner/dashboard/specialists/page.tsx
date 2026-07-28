@@ -131,6 +131,7 @@ export default function SpecialistsPage() {
   const [bulkSelectedSpecialistIds, setBulkSelectedSpecialistIds] = useState<number[]>([]);
   const [modalMode, setModalMode] = useState<ModalMode>("create");
   const [editingSpecialist, setEditingSpecialist] = useState<Specialist | null>(null);
+  const [isSavingSpecialist, setIsSavingSpecialist] = useState(false);
   const [kindError, setKindError] = useState("");
   const [formError, setFormError] = useState("");
   const [scheduleError, setScheduleError] = useState("");
@@ -159,7 +160,8 @@ export default function SpecialistsPage() {
 
   const visibleSpecialists = useMemo(() => {
     const text = searchQuery.trim().toLowerCase();
-    return specialists
+    const uniqueSpecialists = Array.from(new Map(specialists.map((item) => [item.id, item])).values());
+    return uniqueSpecialists
       .filter((item) => {
         if (tab === "all") {
           return true;
@@ -583,6 +585,9 @@ export default function SpecialistsPage() {
 
   async function submitSpecialist(event: FormEvent) {
     event.preventDefault();
+    if (isSavingSpecialist) {
+      return;
+    }
 
     setFormError("");
 
@@ -596,6 +601,7 @@ export default function SpecialistsPage() {
     }
 
     setKindError("");
+  setIsSavingSpecialist(true);
 
     try {
       const response = await api(
@@ -618,14 +624,17 @@ export default function SpecialistsPage() {
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { message?: string } | null;
         setFormError(payload?.message || "Не удалось сохранить специалиста");
+        setIsSavingSpecialist(false);
         return;
       }
 
       setIsModalOpen(false);
+      setIsSavingSpecialist(false);
       await loadData();
       showToast(modalMode === "create" ? "Специалист успешно добавлен" : "Специалист успешно обновлен", "success");
     } catch {
       setFormError("Не удалось связаться с сервером. Повторите попытку.");
+      setIsSavingSpecialist(false);
       return;
     }
   }
@@ -815,7 +824,7 @@ export default function SpecialistsPage() {
                 )}
 
                 <p className={styles.cardDesc}>
-                  {specialist.description.trim() || "Описание не указано"}
+                  {Array.from(new Set(specialist.service_names)).join(", ") || "Услуги не назначены"}
                 </p>
 
                 <div className={styles.cardActions}>
@@ -941,7 +950,9 @@ export default function SpecialistsPage() {
               <button type="button" className={styles.cancelButton} onClick={() => setIsModalOpen(false)}>
                 Отменить
               </button>
-              <button type="submit" className={styles.saveButton}>{modalMode === "create" ? "Создать" : "Сохранить"}</button>
+              <button type="submit" className={styles.saveButton} disabled={isSavingSpecialist}>
+                {isSavingSpecialist ? "Сохранение..." : modalMode === "create" ? "Создать" : "Сохранить"}
+              </button>
             </footer>
           </form>
         </div>

@@ -1078,6 +1078,7 @@ class SpecialistListCreateView(APIView):
 		items = (
 			Specialist.objects.filter(tenant_slug=tenant, partner_profile=partner_profile)
 			.prefetch_related("capabilities__service")
+			.distinct()
 			.order_by("-id")
 		)
 		return Response([
