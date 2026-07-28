@@ -64,6 +64,31 @@ type DialogMode = "add" | "edit" | "archive" | "unarchive";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1";
 const TENANT_DEFAULT = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public";
 
+function parsePrice(value: string | number | null): number | null {
+  const normalized = String(value ?? "").replace(/\s/g, "").replace(",", ".");
+  if (!normalized) {
+    return null;
+  }
+  const price = Number(normalized);
+  return Number.isFinite(price) ? price : null;
+}
+
+function formatPrice(value: string | number | null): string {
+  const price = parsePrice(value);
+  return price === null ? "" : price.toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+}
+
+function formatPriceInput(value: string): string {
+  const normalized = value.replace(/\s/g, "").replace(",", ".").replace(/[^\d.]/g, "");
+  if (!normalized) {
+    return "";
+  }
+  const [integerPart, ...fractionParts] = normalized.split(".");
+  const integer = integerPart.replace(/^0+(?=\d)/, "") || "0";
+  const formattedInteger = integer.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  return fractionParts.length ? `${formattedInteger}.${fractionParts.join("").slice(0, 2)}` : formattedInteger;
+}
+
 export default function PartnerManagePage() {
   const tenant = TENANT_DEFAULT;
   const [authResolved, setAuthResolved] = useState(false);
@@ -121,9 +146,9 @@ export default function PartnerManagePage() {
     if (!offerForm.price.trim() || !offerForm.discountPercent.trim()) {
       return null;
     }
-    const price = Number(offerForm.price);
+    const price = parsePrice(offerForm.price);
     const discount = Number(offerForm.discountPercent);
-    if (!Number.isFinite(price) || price < 0 || !Number.isFinite(discount) || discount <= 0) {
+    if (price === null || price < 0 || !Number.isFinite(discount) || discount <= 0) {
       return null;
     }
     return price * (1 - Math.min(discount, 100) / 100);
@@ -268,7 +293,7 @@ export default function PartnerManagePage() {
       kindId: service.kind ? String(service.kind) : "",
       description: service.description || "",
       imageUrl: service.image_url || service.image_base64 || "",
-      price: service.price ?? "0",
+      price: formatPrice(service.price),
       durationMinutes: String(service.duration_minutes || 60),
       serviceType: service.service_type || "individual",
       discountPercent: String(service.discount_percent || 0),
@@ -345,7 +370,7 @@ export default function PartnerManagePage() {
         image_base64: offerForm.imageUrl,
         duration_minutes: Number(offerForm.durationMinutes || 60),
         service_type: offerForm.serviceType,
-        price: Number(offerForm.price || 0),
+        price: parsePrice(offerForm.price) ?? 0,
         discount_percent: Number(offerForm.discountPercent || 0),
         is_subscription: offerForm.isSubscription,
         is_promo: Number(offerForm.discountPercent || 0) > 0,
@@ -476,7 +501,7 @@ export default function PartnerManagePage() {
                     <td>{service.name}</td>
                     <td>{service.category_name}</td>
                     <td>{service.kind_name || "-"}</td>
-                    <td>{service.price ? `${service.price} ₸` : "-"}</td>
+                    <td>{service.price ? `${formatPrice(service.price)} ₸` : "-"}</td>
                     <td>{service.duration_minutes} мин</td>
                     <td>{service.discount_percent > 0 ? `${service.discount_percent}%` : "-"}</td>
                     <td>
@@ -630,8 +655,8 @@ export default function PartnerManagePage() {
                     Стоимость (₸)
                     <input
                       value={offerForm.price}
-                      onChange={(event) => setOfferForm((prev) => ({ ...prev, price: event.target.value }))}
-                      inputMode="numeric"
+                      onChange={(event) => setOfferForm((prev) => ({ ...prev, price: formatPriceInput(event.target.value) }))}
+                      inputMode="decimal"
                     />
                   </label>
 
