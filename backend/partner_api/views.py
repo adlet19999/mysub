@@ -643,6 +643,7 @@ class ServiceListCreateView(APIView):
 				"details": item.details or {},
 				"description": item.description,
 				"duration_minutes": item.duration_minutes,
+				"service_type": item.service_type,
 				"price": str(item.price) if item.price is not None else None,
 				"discount_percent": item.discount_percent,
 				"is_subscription": item.is_subscription,
@@ -681,6 +682,9 @@ class ServiceListCreateView(APIView):
 
 		discount_percent = int(request.data.get("discount_percent") or 0)
 		discount_percent = max(0, min(100, discount_percent))
+		service_type = str(request.data.get("service_type") or "individual").strip().lower()
+		if service_type not in {"individual", "group"}:
+			return Response({"message": "service_type должен быть individual или group"}, status=400)
 		is_subscription = parse_bool(request.data.get("is_subscription"), True)
 		is_promo = parse_bool(request.data.get("is_promo"), discount_percent > 0)
 		normalized_details, details_error = normalize_service_details(category.name, request.data.get("details"))
@@ -705,6 +709,7 @@ class ServiceListCreateView(APIView):
 			details=normalized_details,
 			description=(request.data.get("description") or "").strip(),
 			duration_minutes=int(request.data.get("duration_minutes") or 60),
+			service_type=service_type,
 			price=request.data.get("price") or 0,
 			discount_percent=discount_percent,
 			is_subscription=is_subscription,
@@ -726,6 +731,7 @@ class ServiceListCreateView(APIView):
 				"details": item.details or {},
 				"description": item.description,
 				"duration_minutes": item.duration_minutes,
+				"service_type": item.service_type,
 				"price": str(item.price) if item.price is not None else None,
 				"discount_percent": item.discount_percent,
 				"is_subscription": item.is_subscription,
@@ -798,6 +804,13 @@ class ServiceDetailView(APIView):
 		if duration_minutes is not None:
 			item.duration_minutes = int(duration_minutes)
 
+		service_type = request.data.get("service_type")
+		if service_type is not None:
+			value = str(service_type).strip().lower()
+			if value not in {"individual", "group"}:
+				return Response({"message": "service_type должен быть individual или group"}, status=400)
+			item.service_type = value
+
 		price = request.data.get("price")
 		if price is not None:
 			item.price = price
@@ -853,6 +866,7 @@ class ServiceDetailView(APIView):
 				"details": item.details or {},
 				"description": item.description,
 				"duration_minutes": item.duration_minutes,
+				"service_type": item.service_type,
 				"price": str(item.price) if item.price is not None else None,
 				"discount_percent": item.discount_percent,
 				"is_subscription": item.is_subscription,

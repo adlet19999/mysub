@@ -22,6 +22,7 @@ type Service = {
   details?: Record<string, number>;
   description: string;
   duration_minutes: number;
+  service_type: "individual" | "group";
   price: string | null;
   discount_percent: number;
   is_subscription: boolean;
@@ -49,6 +50,7 @@ type OfferFormState = {
   imageUrl: string;
   price: string;
   durationMinutes: string;
+  serviceType: "individual" | "group";
   discountPercent: string;
   isSubscription: boolean;
   maxPeople: string;
@@ -89,6 +91,7 @@ export default function PartnerManagePage() {
     imageUrl: "",
     price: "",
     durationMinutes: "60",
+    serviceType: "individual",
     discountPercent: "",
     isSubscription: true,
     maxPeople: "",
@@ -231,6 +234,7 @@ export default function PartnerManagePage() {
       imageUrl: "",
       price: "",
       durationMinutes: "60",
+      serviceType: "individual",
       discountPercent: "20",
       isSubscription: true,
       maxPeople: "",
@@ -254,6 +258,7 @@ export default function PartnerManagePage() {
       imageUrl: service.image_url || service.image_base64 || "",
       price: service.price ?? "0",
       durationMinutes: String(service.duration_minutes || 60),
+      serviceType: service.service_type || "individual",
       discountPercent: String(service.discount_percent || 0),
       isSubscription: service.is_subscription,
       maxPeople: service.details?.max_people ? String(service.details.max_people) : "",
@@ -327,6 +332,7 @@ export default function PartnerManagePage() {
         description: offerForm.description,
         image_base64: offerForm.imageUrl,
         duration_minutes: Number(offerForm.durationMinutes || 60),
+        service_type: offerForm.serviceType,
         price: Number(offerForm.price || 0),
         discount_percent: Number(offerForm.discountPercent || 0),
         is_subscription: offerForm.isSubscription,
@@ -628,6 +634,22 @@ export default function PartnerManagePage() {
                     />
                   </label>
                 </div>
+
+                <label>
+                  Тип услуги
+                  <select
+                    value={offerForm.serviceType}
+                    onChange={(event) =>
+                      setOfferForm((prev) => ({
+                        ...prev,
+                        serviceType: event.target.value as "individual" | "group",
+                      }))
+                    }
+                  >
+                    <option value="individual">Индивидуальный</option>
+                    <option value="group">Групповой</option>
+                  </select>
+                </label>
 
                 {selectedCategoryName === "Спорт" ? (
                   <div className={styles.discountRow}>

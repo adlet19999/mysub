@@ -41,6 +41,7 @@ class Service(models.Model):
 	details = models.JSONField(default=dict, blank=True)
 	description = models.TextField(blank=True, default="")
 	duration_minutes = models.PositiveIntegerField(default=60)
+	service_type = models.CharField(max_length=20, default="individual")
 	price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
 	discount_percent = models.PositiveSmallIntegerField(default=0)
 	is_subscription = models.BooleanField(default=True)
