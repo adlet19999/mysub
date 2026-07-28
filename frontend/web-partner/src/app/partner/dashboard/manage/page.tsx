@@ -336,7 +336,10 @@ export default function PartnerManagePage() {
     });
 
     if (!response.ok) {
-      setOfferSaveError(editingOffer ? "Не удалось сохранить изменения" : "Не удалось создать услугу");
+      const payload = (await response.json().catch(() => null)) as { message?: string; detail?: string } | null;
+      setOfferSaveError(
+        payload?.message || payload?.detail || (editingOffer ? "Не удалось сохранить изменения" : "Не удалось создать услугу"),
+      );
       setIsSavingOffer(false);
       return;
     }
