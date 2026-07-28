@@ -618,7 +618,7 @@
   gap: 10px;
 }
 
-.checkLabel {
+.modalBody .checkLabel {
   height: 38px;
   display: flex;
   flex-direction: row;
@@ -626,15 +626,17 @@
   gap: 8px;
 }
 
-.checkLabel input {
+.modalBody .checkLabel input {
   flex: 0 0 auto;
   width: 18px;
   height: 18px;
+  padding: 0;
   accent-color: #1f5f4d;
 }
 
-.checkLabel span {
+.modalBody .checkLabel span {
   order: 1;
+  white-space: nowrap;
 }
 
 .discountedPrice {
