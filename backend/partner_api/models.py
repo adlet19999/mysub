@@ -4,13 +4,12 @@ from django.db import models
 class Category(models.Model):
 	tenant_slug = models.CharField(max_length=80, db_index=True)
 	name = models.CharField(max_length=120)
-	parent = models.ForeignKey("self", on_delete=models.CASCADE, related_name="children", null=True, blank=True)
 	is_active = models.BooleanField(default=True)
 	created_at = models.DateTimeField(auto_now_add=True)
 
 	class Meta:
 		constraints = [
-			models.UniqueConstraint(fields=["tenant_slug", "name", "parent"], name="uniq_category_name_per_parent")
+			models.UniqueConstraint(fields=["tenant_slug", "name"], name="uniq_category_name_per_tenant")
 		]
 
 
@@ -38,7 +37,7 @@ class Service(models.Model):
 	)
 	name = models.CharField(max_length=120)
 	category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="services")
-	kind = models.ForeignKey(ServiceKind, on_delete=models.SET_NULL, null=True, blank=True, related_name="services")
+	kind = models.ForeignKey(ServiceKind, on_delete=models.PROTECT, related_name="services")
 	details = models.JSONField(default=dict, blank=True)
 	description = models.TextField(blank=True, default="")
 	duration_minutes = models.PositiveIntegerField(default=60)
@@ -90,14 +89,14 @@ class Specialist(models.Model):
 	created_at = models.DateTimeField(auto_now_add=True)
 
 
-class SpecialistServiceKind(models.Model):
+class SpecialistService(models.Model):
 	specialist = models.ForeignKey(Specialist, on_delete=models.CASCADE, related_name="capabilities")
-	service_kind = models.ForeignKey(ServiceKind, on_delete=models.CASCADE, related_name="specialist_capabilities")
+	service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name="specialist_assignments")
 	created_at = models.DateTimeField(auto_now_add=True)
 
 	class Meta:
 		constraints = [
-			models.UniqueConstraint(fields=["specialist", "service_kind"], name="uniq_specialist_service_kind")
+			models.UniqueConstraint(fields=["specialist", "service"], name="uniq_specialist_service")
 		]
 
 

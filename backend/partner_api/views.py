@@ -19,7 +19,7 @@ from rest_framework.views import APIView
 from common_api.models import PartnerProfile
 from common_api.views import normalize_ru_phone, PHONE_RU_RE
 
-from .models import Booking, Category, Manager, Service, ServiceKind, Specialist, SpecialistServiceKind
+from .models import Booking, Category, Manager, Service, ServiceKind, Specialist, SpecialistService
 
 
 def tenant_from_request(request) -> str:
@@ -583,7 +583,6 @@ class CategoryListCreateView(APIView):
 			{
 				"id": item.id,
 				"name": item.name,
-				"parent": item.parent_id,
 				"is_active": item.is_active,
 			}
 			for item in items
@@ -674,11 +673,11 @@ class ServiceListCreateView(APIView):
 			return Response({"message": "Можно создавать услуги только в выбранной категории бизнеса"}, status=400)
 
 		kind_id = request.data.get("kind")
-		kind = None
-		if kind_id is not None:
-			kind = ServiceKind.objects.filter(id=kind_id, tenant_slug=tenant, category=category).first()
-			if not kind:
-				return Response({"message": "Вид услуги не найден для выбранной категории"}, status=400)
+		if not kind_id:
+			return Response({"message": "kind обязателен"}, status=400)
+		kind = ServiceKind.objects.filter(id=kind_id, tenant_slug=tenant, category=category).first()
+		if not kind:
+			return Response({"message": "Направление услуги не найдено для выбранной категории"}, status=400)
 
 		discount_percent = int(request.data.get("discount_percent") or 0)
 		discount_percent = max(0, min(100, discount_percent))
@@ -777,13 +776,12 @@ class ServiceDetailView(APIView):
 
 		kind_id = request.data.get("kind")
 		if kind_id is not None:
-			if str(kind_id).strip() == "":
-				item.kind = None
-			else:
-				kind = ServiceKind.objects.filter(id=kind_id, tenant_slug=tenant, category=item.category).first()
-				if not kind:
-					return Response({"message": "Вид услуги не найден для выбранной категории"}, status=400)
-				item.kind = kind
+			kind = ServiceKind.objects.filter(id=kind_id, tenant_slug=tenant, category=item.category).first()
+			if not kind:
+				return Response({"message": "Направление услуги не найдено для выбранной категории"}, status=400)
+			item.kind = kind
+		elif category_id is not None and item.kind.category_id != item.category_id:
+			return Response({"message": "При смене категории выберите направление услуги"}, status=400)
 
 		details = request.data.get("details")
 		if details is not None:
@@ -1079,7 +1077,7 @@ class SpecialistListCreateView(APIView):
 		include_schedule = parse_bool(request.query_params.get("include_schedule"), True)
 		items = (
 			Specialist.objects.filter(tenant_slug=tenant, partner_profile=partner_profile)
-			.prefetch_related("capabilities__service_kind")
+			.prefetch_related("capabilities__service")
 			.order_by("-id")
 		)
 		return Response([
@@ -1091,8 +1089,8 @@ class SpecialistListCreateView(APIView):
 				"email": item.email,
 				"photo_url": normalize_profile_image_url(item.photo_url) if include_photo else "",
 				"working_schedule": (item.working_schedule or default_working_schedule()) if include_schedule else [],
-				"service_kind_ids": [cap.service_kind_id for cap in item.capabilities.all()],
-				"service_kind_names": [cap.service_kind.name for cap in item.capabilities.all()],
+				"service_ids": [cap.service_id for cap in item.capabilities.all()],
+				"service_names": [cap.service.name for cap in item.capabilities.all()],
 				"is_active": item.is_active,
 			}
 			for item in items
@@ -1109,12 +1107,12 @@ class SpecialistListCreateView(APIView):
 		email = (request.data.get("email") or "").strip().lower()
 		description = (request.data.get("description") or "").strip()
 		photo_base64 = (request.data.get("photo_base64") or "").strip()
-		service_kind_ids = request.data.get("service_kind_ids") or []
+		service_ids = request.data.get("service_ids") or []
 		working_schedule_raw = request.data.get("working_schedule")
 		if not full_name:
 			return Response({"message": "full_name обязателен"}, status=400)
-		if not isinstance(service_kind_ids, list):
-			return Response({"message": "service_kind_ids должен быть массивом"}, status=400)
+		if not isinstance(service_ids, list):
+			return Response({"message": "service_ids должен быть массивом"}, status=400)
 		photo_url, photo_error = save_profile_image_from_base64(
 			photo_base64, tenant, partner_profile.id, "specialist"
 		)
@@ -1125,12 +1123,24 @@ class SpecialistListCreateView(APIView):
 		if schedule_error:
 			return Response({"message": schedule_error}, status=400)
 
-		parsed_kind_ids = []
-		for raw_id in service_kind_ids:
+		parsed_service_ids = []
+		for raw_id in service_ids:
 			try:
-				parsed_kind_ids.append(int(raw_id))
+				parsed_service_ids.append(int(raw_id))
 			except (TypeError, ValueError):
-				return Response({"message": "service_kind_ids содержит некорректный id"}, status=400)
+				return Response({"message": "service_ids содержит некорректный id"}, status=400)
+
+		available_services = {
+			service.id: service
+			for service in Service.objects.filter(
+				tenant_slug=tenant,
+				partner_profile=partner_profile,
+				id__in=parsed_service_ids,
+			)
+		}
+		for service_id in parsed_service_ids:
+			if service_id not in available_services:
+				return Response({"message": f"Услуга {service_id} не найдена"}, status=400)
 
 		item = Specialist.objects.create(
 			tenant_slug=tenant,
@@ -1144,21 +1154,14 @@ class SpecialistListCreateView(APIView):
 			is_active=parse_bool(request.data.get("is_active"), True),
 		)
 
-		available_kinds = {
-			kind.id: kind
-			for kind in ServiceKind.objects.filter(tenant_slug=tenant, id__in=parsed_kind_ids)
-		}
 		capabilities = []
-		for kind_id in parsed_kind_ids:
-			kind = available_kinds.get(kind_id)
-			if kind is None:
-				return Response({"message": f"Вид услуги {kind_id} не найден"}, status=400)
-			capabilities.append(SpecialistServiceKind(specialist=item, service_kind=kind))
+		for service_id in parsed_service_ids:
+			capabilities.append(SpecialistService(specialist=item, service=available_services[service_id]))
 		if capabilities:
-			SpecialistServiceKind.objects.bulk_create(capabilities)
+			SpecialistService.objects.bulk_create(capabilities)
 
 		item.refresh_from_db()
-		assigned_capabilities = list(item.capabilities.select_related("service_kind"))
+		assigned_capabilities = list(item.capabilities.select_related("service"))
 		return Response(
 			{
 				"id": item.id,
@@ -1168,8 +1171,8 @@ class SpecialistListCreateView(APIView):
 				"email": item.email,
 				"photo_url": normalize_profile_image_url(item.photo_url),
 				"working_schedule": item.working_schedule or default_working_schedule(),
-				"service_kind_ids": [cap.service_kind_id for cap in assigned_capabilities],
-				"service_kind_names": [cap.service_kind.name for cap in assigned_capabilities],
+				"service_ids": [cap.service_id for cap in assigned_capabilities],
+				"service_names": [cap.service.name for cap in assigned_capabilities],
 				"is_active": item.is_active,
 			},
 			status=201,
@@ -1189,7 +1192,7 @@ class SpecialistDetailView(APIView):
 				tenant_slug=tenant,
 				partner_profile=partner_profile,
 			)
-			.prefetch_related("capabilities__service_kind")
+			.prefetch_related("capabilities__service")
 			.first()
 		)
 		if not item:
@@ -1205,8 +1208,8 @@ class SpecialistDetailView(APIView):
 				"email": item.email,
 				"photo_url": normalize_profile_image_url(item.photo_url),
 				"working_schedule": item.working_schedule or default_working_schedule(),
-				"service_kind_ids": [cap.service_kind_id for cap in capabilities],
-				"service_kind_names": [cap.service_kind.name for cap in capabilities],
+				"service_ids": [cap.service_id for cap in capabilities],
+				"service_names": [cap.service.name for cap in capabilities],
 				"is_active": item.is_active,
 			}
 		)
@@ -1270,40 +1273,44 @@ class SpecialistDetailView(APIView):
 		if item.photo_url != previous_photo_url:
 			delete_managed_image(previous_photo_url)
 
-		service_kind_ids = request.data.get("service_kind_ids")
-		if service_kind_ids is not None:
-			if not isinstance(service_kind_ids, list):
-				return Response({"message": "service_kind_ids должен быть массивом"}, status=400)
+		service_ids = request.data.get("service_ids")
+		if service_ids is not None:
+			if not isinstance(service_ids, list):
+				return Response({"message": "service_ids должен быть массивом"}, status=400)
 
-			parsed_kind_ids = []
-			for raw_id in service_kind_ids:
+			parsed_service_ids = []
+			for raw_id in service_ids:
 				try:
-					parsed_kind_ids.append(int(raw_id))
+					parsed_service_ids.append(int(raw_id))
 				except (TypeError, ValueError):
-					return Response({"message": "service_kind_ids содержит некорректный id"}, status=400)
+					return Response({"message": "service_ids содержит некорректный id"}, status=400)
 
-			available_kinds = {
-				kind.id: kind
-				for kind in ServiceKind.objects.filter(tenant_slug=tenant, id__in=parsed_kind_ids)
+			available_services = {
+				service.id: service
+				for service in Service.objects.filter(
+					tenant_slug=tenant,
+					partner_profile=partner_profile,
+					id__in=parsed_service_ids,
+				)
 			}
-			for kind_id in parsed_kind_ids:
-				if kind_id not in available_kinds:
-					return Response({"message": f"Вид услуги {kind_id} не найден"}, status=400)
+			for service_id in parsed_service_ids:
+				if service_id not in available_services:
+					return Response({"message": f"Услуга {service_id} не найдена"}, status=400)
 
-			SpecialistServiceKind.objects.filter(specialist=item).exclude(service_kind_id__in=parsed_kind_ids).delete()
-			existing_kind_ids = set(
-				SpecialistServiceKind.objects.filter(specialist=item, service_kind_id__in=parsed_kind_ids)
-				.values_list("service_kind_id", flat=True)
+			SpecialistService.objects.filter(specialist=item).exclude(service_id__in=parsed_service_ids).delete()
+			existing_service_ids = set(
+				SpecialistService.objects.filter(specialist=item, service_id__in=parsed_service_ids)
+				.values_list("service_id", flat=True)
 			)
 			to_create = [
-				SpecialistServiceKind(specialist=item, service_kind=available_kinds[kind_id])
-				for kind_id in parsed_kind_ids
-				if kind_id not in existing_kind_ids
+				SpecialistService(specialist=item, service=available_services[service_id])
+				for service_id in parsed_service_ids
+				if service_id not in existing_service_ids
 			]
 			if to_create:
-				SpecialistServiceKind.objects.bulk_create(to_create)
+				SpecialistService.objects.bulk_create(to_create)
 
-		assigned_capabilities = list(item.capabilities.select_related("service_kind"))
+		assigned_capabilities = list(item.capabilities.select_related("service"))
 		return Response(
 			{
 				"id": item.id,
@@ -1313,8 +1320,8 @@ class SpecialistDetailView(APIView):
 				"email": item.email,
 				"photo_url": normalize_profile_image_url(item.photo_url),
 				"working_schedule": item.working_schedule or default_working_schedule(),
-				"service_kind_ids": [cap.service_kind_id for cap in assigned_capabilities],
-				"service_kind_names": [cap.service_kind.name for cap in assigned_capabilities],
+				"service_ids": [cap.service_id for cap in assigned_capabilities],
+				"service_names": [cap.service.name for cap in assigned_capabilities],
 				"is_active": item.is_active,
 			}
 		)

@@ -1,11 +1,11 @@
 from django.contrib import admin
 
-from .models import Booking, Category, Manager, Service, ServiceKind, Specialist, SpecialistServiceKind
+from .models import Booking, Category, Manager, Service, ServiceKind, Specialist, SpecialistService
 
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-	list_display = ("name", "tenant_slug", "parent", "is_active", "created_at")
+	list_display = ("name", "tenant_slug", "is_active", "created_at")
 	list_filter = ("tenant_slug", "is_active")
 	search_fields = ("name",)
 
@@ -48,11 +48,11 @@ class SpecialistAdmin(admin.ModelAdmin):
 	search_fields = ("full_name", "description", "phone", "email")
 
 
-@admin.register(SpecialistServiceKind)
-class SpecialistServiceKindAdmin(admin.ModelAdmin):
-	list_display = ("specialist", "service_kind", "created_at")
-	list_filter = ("service_kind__category",)
-	search_fields = ("specialist__full_name", "service_kind__name")
+@admin.register(SpecialistService)
+class SpecialistServiceAdmin(admin.ModelAdmin):
+	list_display = ("specialist", "service", "created_at")
+	list_filter = ("service__category",)
+	search_fields = ("specialist__full_name", "service__name")
 
 
 @admin.register(Booking)

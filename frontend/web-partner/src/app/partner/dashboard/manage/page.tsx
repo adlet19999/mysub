@@ -44,15 +44,12 @@ type Booking = {
 type OfferFormState = {
   name: string;
   categoryId: string;
-  serviceGroup: string;
   kindId: string;
-  selectedKindIds: number[];
   description: string;
   imageUrl: string;
   price: string;
   durationMinutes: string;
   discountPercent: string;
-  serviceTypeLabel: string;
   isSubscription: boolean;
   maxPeople: string;
   minPeople: string;
@@ -64,16 +61,6 @@ type DialogMode = "add" | "edit" | "archive" | "unarchive";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1";
 const TENANT_DEFAULT = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public";
-
-function splitKindName(value: string): { serviceGroup: string; subtype: string } {
-  const [left, ...rightParts] = value.split(":");
-  const serviceGroup = (left || "").trim();
-  const subtypeRaw = rightParts.join(":").trim();
-  return {
-    serviceGroup,
-    subtype: subtypeRaw || serviceGroup,
-  };
-}
 
 export default function PartnerManagePage() {
   const tenant = TENANT_DEFAULT;
@@ -97,15 +84,12 @@ export default function PartnerManagePage() {
   const [offerForm, setOfferForm] = useState<OfferFormState>({
     name: "",
     categoryId: "",
-    serviceGroup: "",
     kindId: "",
-    selectedKindIds: [],
     description: "",
     imageUrl: "",
     price: "",
     durationMinutes: "60",
     discountPercent: "",
-    serviceTypeLabel: "",
     isSubscription: true,
     maxPeople: "",
     minPeople: "",
@@ -122,24 +106,6 @@ export default function PartnerManagePage() {
     const selectedCategoryId = Number(offerForm.categoryId);
     return kinds.filter((item) => item.is_active && item.category === selectedCategoryId);
   }, [kinds, offerForm.categoryId]);
-
-  const serviceGroupsForSelectedCategory = useMemo(() => {
-    const map = new Map<string, ServiceKind[]>();
-    for (const item of kindsForSelectedCategory) {
-      const parsed = splitKindName(item.name);
-      const list = map.get(parsed.serviceGroup) || [];
-      list.push(item);
-      map.set(parsed.serviceGroup, list);
-    }
-    return Array.from(map.entries()).map(([groupName, groupKinds]) => ({ groupName, groupKinds }));
-  }, [kindsForSelectedCategory]);
-
-  const kindsForSelectedServiceGroup = useMemo(() => {
-    if (!offerForm.serviceGroup) {
-      return [];
-    }
-    return kindsForSelectedCategory.filter((item) => splitKindName(item.name).serviceGroup === offerForm.serviceGroup);
-  }, [kindsForSelectedCategory, offerForm.serviceGroup]);
 
   const selectedCategoryName = useMemo(() => {
     if (!offerForm.categoryId) {
@@ -215,10 +181,7 @@ export default function PartnerManagePage() {
         setOfferForm((prev) => ({
           ...prev,
           categoryId: defaultCategoryId,
-          serviceGroup: defaultKind ? splitKindName(defaultKind.name).serviceGroup : "",
           kindId: defaultKind ? String(defaultKind.id) : "",
-          selectedKindIds: defaultKind ? [defaultKind.id] : [],
-          serviceTypeLabel: defaultKind?.name ?? "",
         }));
       }
 
@@ -263,15 +226,12 @@ export default function PartnerManagePage() {
     setOfferForm({
       name: "",
       categoryId: defaultCategoryId,
-      serviceGroup: defaultKind ? splitKindName(defaultKind.name).serviceGroup : "",
       kindId: defaultKind ? String(defaultKind.id) : "",
-      selectedKindIds: defaultKind ? [defaultKind.id] : [],
       description: "",
       imageUrl: "",
       price: "",
       durationMinutes: "60",
       discountPercent: "20",
-      serviceTypeLabel: defaultKind?.name ?? "",
       isSubscription: true,
       maxPeople: "",
       minPeople: "",
@@ -284,22 +244,17 @@ export default function PartnerManagePage() {
   }
 
   function openEditModal(service: Service) {
-    const selectedKind = kinds.find((item) => service.kind && item.id === service.kind);
-    const parsedKind = splitKindName(selectedKind?.name || service.kind_name || service.name);
     setDialogMode("edit");
     setEditingOffer(service);
     setOfferForm({
       name: service.name,
       categoryId: String(service.category),
-      serviceGroup: parsedKind.serviceGroup,
       kindId: service.kind ? String(service.kind) : "",
-      selectedKindIds: service.kind ? [service.kind] : [],
       description: service.description || "",
       imageUrl: service.image_url || service.image_base64 || "",
       price: service.price ?? "0",
       durationMinutes: String(service.duration_minutes || 60),
       discountPercent: String(service.discount_percent || 0),
-      serviceTypeLabel: service.kind_name || "",
       isSubscription: service.is_subscription,
       maxPeople: service.details?.max_people ? String(service.details.max_people) : "",
       minPeople: service.details?.min_people ? String(service.details.min_people) : "",
@@ -337,8 +292,8 @@ export default function PartnerManagePage() {
     }
     setOfferSaveError("");
 
-    if (!offerForm.name.trim() || !offerForm.categoryId) {
-      setOfferSaveError("Заполните название и категорию");
+    if (!offerForm.name.trim() || !offerForm.categoryId || !offerForm.kindId) {
+      setOfferSaveError("Заполните название, категорию и направление услуги");
       return;
     }
 
@@ -362,137 +317,26 @@ export default function PartnerManagePage() {
 
     setIsSavingOffer(true);
 
-    if (editingOffer && dialogMode === "edit") {
-      const kindIdsForEdit = Array.from(
-        new Set(
-          offerForm.selectedKindIds.length
-            ? offerForm.selectedKindIds
-            : offerForm.kindId
-              ? [Number(offerForm.kindId)]
-              : [],
-        ),
-      );
+    const response = await api(editingOffer && dialogMode === "edit" ? `/partner/services/${editingOffer.id}/` : "/partner/services/", {
+      method: editingOffer && dialogMode === "edit" ? "PATCH" : "POST",
+      body: JSON.stringify({
+        name: offerForm.name,
+        category: Number(offerForm.categoryId),
+        kind: Number(offerForm.kindId),
+        details: detailsPayload,
+        description: offerForm.description,
+        image_base64: offerForm.imageUrl,
+        duration_minutes: Number(offerForm.durationMinutes || 60),
+        price: Number(offerForm.price || 0),
+        discount_percent: Number(offerForm.discountPercent || 0),
+        is_subscription: offerForm.isSubscription,
+        is_promo: Number(offerForm.discountPercent || 0) > 0,
+        is_active: true,
+      }),
+    });
 
-      if (!kindIdsForEdit.length) {
-        setOfferSaveError("Выберите хотя бы один вид услуги");
-        setIsSavingOffer(false);
-        return;
-      }
-
-      const [primaryKindId, ...extraKindIds] = kindIdsForEdit;
-      const response = await api(`/partner/services/${editingOffer.id}/`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          name: offerForm.name,
-          category: Number(offerForm.categoryId),
-          kind: primaryKindId,
-          details: detailsPayload,
-          description: offerForm.description,
-          image_base64: offerForm.imageUrl,
-          duration_minutes: Number(offerForm.durationMinutes || 60),
-          price: Number(offerForm.price || 0),
-          discount_percent: Number(offerForm.discountPercent || 0),
-          is_subscription: offerForm.isSubscription,
-          is_promo: Number(offerForm.discountPercent || 0) > 0,
-        }),
-      });
-      if (!response.ok) {
-        setOfferSaveError("Не удалось сохранить изменения");
-        setIsSavingOffer(false);
-        return;
-      }
-
-      let createdExtraCount = 0;
-      for (const kindId of extraKindIds) {
-        const existsAlready = services.some(
-          (item) =>
-            item.id !== editingOffer.id &&
-            item.category === Number(offerForm.categoryId) &&
-            item.kind === kindId &&
-            item.name.trim().toLowerCase() === offerForm.name.trim().toLowerCase(),
-        );
-
-        if (existsAlready) {
-          continue;
-        }
-
-        const createResponse = await api("/partner/services/", {
-          method: "POST",
-          body: JSON.stringify({
-            name: offerForm.name,
-            category: Number(offerForm.categoryId),
-            kind: kindId,
-            details: detailsPayload,
-            description: offerForm.description,
-            image_base64: offerForm.imageUrl,
-            duration_minutes: Number(offerForm.durationMinutes || 60),
-            price: Number(offerForm.price || 0),
-            discount_percent: Number(offerForm.discountPercent || 0),
-            is_subscription: offerForm.isSubscription,
-            is_promo: Number(offerForm.discountPercent || 0) > 0,
-            is_active: true,
-          }),
-        });
-
-        if (!createResponse.ok) {
-          setOfferSaveError(createdExtraCount > 0 ? "Часть видов услуг не сохранилась" : "Не удалось сохранить добавленные виды услуг");
-          setIsSavingOffer(false);
-          await loadData();
-          return;
-        }
-
-        createdExtraCount += 1;
-      }
-
-      setIsModalOpen(false);
-      setIsSavingOffer(false);
-      await loadData();
-      return;
-    }
-
-    const kindIdsForCreate = offerForm.selectedKindIds.length
-      ? offerForm.selectedKindIds
-      : offerForm.kindId
-        ? [Number(offerForm.kindId)]
-        : [];
-
-    if (!kindIdsForCreate.length) {
-      setOfferSaveError("Выберите хотя бы один вид услуги");
-      setIsSavingOffer(false);
-      return;
-    }
-
-    let createdCount = 0;
-    for (const kindId of kindIdsForCreate) {
-      const response = await api("/partner/services/", {
-        method: "POST",
-        body: JSON.stringify({
-          name: offerForm.name,
-          category: Number(offerForm.categoryId),
-          kind: kindId,
-          details: detailsPayload,
-          description: offerForm.description,
-          image_base64: offerForm.imageUrl,
-          duration_minutes: Number(offerForm.durationMinutes || 60),
-          price: Number(offerForm.price || 0),
-          discount_percent: Number(offerForm.discountPercent || 0),
-          is_subscription: offerForm.isSubscription,
-          is_promo: Number(offerForm.discountPercent || 0) > 0,
-          is_active: true,
-        }),
-      });
-
-      if (!response.ok) {
-        setOfferSaveError(createdCount > 0 ? "Часть видов услуг не сохранилась" : "Не удалось сохранить виды услуг");
-        setIsSavingOffer(false);
-        await loadData();
-        return;
-      }
-      createdCount += 1;
-    }
-
-    if (createdCount === 0) {
-      setOfferSaveError("Не удалось сохранить виды услуг");
+    if (!response.ok) {
+      setOfferSaveError(editingOffer ? "Не удалось сохранить изменения" : "Не удалось создать услугу");
       setIsSavingOffer(false);
       return;
     }
@@ -518,21 +362,6 @@ export default function PartnerManagePage() {
 
     setIsModalOpen(false);
     await loadData();
-  }
-
-  function addServiceKindToSelection() {
-    const selectedId = Number(offerForm.kindId);
-    if (!selectedId || offerForm.selectedKindIds.includes(selectedId)) {
-      return;
-    }
-    setOfferForm((prev) => ({ ...prev, selectedKindIds: [...prev.selectedKindIds, selectedId] }));
-  }
-
-  function removeServiceKindFromSelection(kindId: number) {
-    setOfferForm((prev) => ({
-      ...prev,
-      selectedKindIds: prev.selectedKindIds.filter((item) => item !== kindId),
-    }));
   }
 
   return (
@@ -732,10 +561,7 @@ export default function PartnerManagePage() {
                       setOfferForm((prev) => ({
                         ...prev,
                         categoryId: selectedCategoryId,
-                        serviceGroup: firstKind ? splitKindName(firstKind.name).serviceGroup : "",
                         kindId: firstKind ? String(firstKind.id) : "",
-                        selectedKindIds: firstKind ? [firstKind.id] : [],
-                        serviceTypeLabel: firstKind?.name ?? "",
                         maxPeople: "",
                         minPeople: "",
                         tableCapacity: "",
@@ -753,83 +579,19 @@ export default function PartnerManagePage() {
                 </label>
 
                 <label>
-                  Услуга
+                  Направление услуги
                   <select
-                    value={offerForm.serviceGroup}
-                    onChange={(event) => {
-                      const selectedServiceGroup = event.target.value;
-                      const firstKindInGroup = kindsForSelectedCategory.find(
-                        (item) => splitKindName(item.name).serviceGroup === selectedServiceGroup,
-                      );
-                      setOfferForm((prev) => ({
-                        ...prev,
-                        serviceGroup: selectedServiceGroup,
-                        kindId: firstKindInGroup ? String(firstKindInGroup.id) : "",
-                        selectedKindIds: firstKindInGroup ? [firstKindInGroup.id] : [],
-                        serviceTypeLabel: firstKindInGroup?.name || "",
-                      }));
-                    }}
+                    value={offerForm.kindId}
+                    onChange={(event) => setOfferForm((prev) => ({ ...prev, kindId: event.target.value }))}
                     required
                   >
                     <option value="">Не выбрано</option>
-                    {serviceGroupsForSelectedCategory.map((group) => (
-                      <option key={group.groupName} value={group.groupName}>
-                        {group.groupName}
+                    {kindsForSelectedCategory.map((kind) => (
+                      <option key={kind.id} value={kind.id}>
+                        {kind.name}
                       </option>
                     ))}
                   </select>
-                </label>
-
-                <label>
-                  Вид услуги
-                  <div className={styles.kindPickerRow}>
-                    <select
-                      value={offerForm.kindId}
-                      onChange={(event) => {
-                        const selectedKindId = event.target.value;
-                        const selectedKind = kinds.find((item) => String(item.id) === selectedKindId);
-                        setOfferForm((prev) => ({
-                          ...prev,
-                          kindId: selectedKindId,
-                          serviceTypeLabel: selectedKind?.name || "",
-                        }));
-                      }}
-                    >
-                      <option value="">Не выбрано</option>
-                      {kindsForSelectedServiceGroup.map((kind) => {
-                        const parsed = splitKindName(kind.name);
-                        return (
-                          <option key={kind.id} value={kind.id}>
-                            {parsed.subtype}
-                          </option>
-                        );
-                      })}
-                    </select>
-                    <button type="button" className={styles.addKindButton} onClick={addServiceKindToSelection}>
-                      Добавить
-                    </button>
-                  </div>
-                  <div className={styles.kindChips}>
-                    {offerForm.selectedKindIds.map((kindId) => {
-                      const kind = kinds.find((item) => item.id === kindId);
-                      if (!kind) {
-                        return null;
-                      }
-                      const parsed = splitKindName(kind.name);
-                      return (
-                        <button
-                          key={kind.id}
-                          type="button"
-                          className={styles.kindChip}
-                          onClick={() => removeServiceKindFromSelection(kind.id)}
-                          title="Удалить"
-                        >
-                          {parsed.subtype}
-                          <span aria-hidden>×</span>
-                        </button>
-                      );
-                    })}
-                  </div>
                   {offerSaveError ? <p className={styles.formError}>{offerSaveError}</p> : null}
                 </label>
 

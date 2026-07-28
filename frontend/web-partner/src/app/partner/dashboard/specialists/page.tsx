@@ -4,11 +4,11 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
 import { compressImageFileToDataUrl } from "../../../../lib/imageCompression";
 
-type ServiceKind = {
+type Service = {
   id: number;
   name: string;
-  category: number;
   category_name: string;
+  kind_name: string | null;
   is_active: boolean;
 };
 type WorkingDayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
@@ -28,8 +28,8 @@ type Specialist = {
   email: string;
   photo_url: string;
   working_schedule: WorkingDaySchedule[];
-  service_kind_ids: number[];
-  service_kind_names: string[];
+  service_ids: number[];
+  service_names: string[];
   is_active: boolean;
 };
 
@@ -40,15 +40,9 @@ type SpecialistPhotoPayload = {
 type SpecialistFormState = {
   fullName: string;
   description: string;
-  pendingServiceGroupKey: string;
-  selectedServiceGroupKeys: string[];
+  pendingServiceId: string;
+  selectedServiceIds: number[];
   photoBase64: string;
-};
-
-type ServiceGroupOption = {
-  key: string;
-  label: string;
-  kindIds: number[];
 };
 
 type ModalMode = "create" | "edit";
@@ -114,22 +108,12 @@ function normalizeWorkingSchedule(raw: unknown): WorkingDaySchedule[] {
   return WEEK_DAYS.map((item) => map.get(item.key) ?? fallback.find((day) => day.day === item.key)!).filter(Boolean);
 }
 
-function splitKindName(value: string): { serviceGroup: string; subtype: string } {
-  const [left, ...rightParts] = value.split(":");
-  const serviceGroup = (left || "").trim();
-  const subtypeRaw = rightParts.join(":").trim();
-  return {
-    serviceGroup,
-    subtype: subtypeRaw || serviceGroup,
-  };
-}
-
 export default function SpecialistsPage() {
   const tenant = TENANT_DEFAULT;
   const [partnerEmail, setPartnerEmail] = useState("");
   const [authResolved, setAuthResolved] = useState(false);
 
-  const [kinds, setKinds] = useState<ServiceKind[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
   const [specialistPhotos, setSpecialistPhotos] = useState<Record<number, string>>({});
 
@@ -148,12 +132,13 @@ export default function SpecialistsPage() {
   const [modalMode, setModalMode] = useState<ModalMode>("create");
   const [editingSpecialist, setEditingSpecialist] = useState<Specialist | null>(null);
   const [kindError, setKindError] = useState("");
+  const [formError, setFormError] = useState("");
   const [scheduleError, setScheduleError] = useState("");
   const [form, setForm] = useState<SpecialistFormState>({
     fullName: "",
     description: "",
-    pendingServiceGroupKey: "",
-    selectedServiceGroupKeys: [],
+    pendingServiceId: "",
+    selectedServiceIds: [],
     photoBase64: "",
   });
   const photoInputRef = useRef<HTMLInputElement | null>(null);
@@ -168,39 +153,9 @@ export default function SpecialistsPage() {
     toastTimerRef.current = setTimeout(() => setToast(null), 2200);
   }
 
-  const availableKinds = useMemo(() => {
-    return kinds.filter((item) => item.is_active).sort((left, right) => left.name.localeCompare(right.name));
-  }, [kinds]);
-
-  const availableServiceGroups = useMemo<ServiceGroupOption[]>(() => {
-    const byKey = new Map<string, ServiceGroupOption>();
-    for (const kind of availableKinds) {
-      const parsed = splitKindName(kind.name);
-      const groupLabel = parsed.serviceGroup || kind.name;
-      const key = `${kind.category}:${groupLabel.toLowerCase()}`;
-      const existing = byKey.get(key);
-      if (existing) {
-        existing.kindIds.push(kind.id);
-      } else {
-        byKey.set(key, { key, label: groupLabel, kindIds: [kind.id] });
-      }
-    }
-    return Array.from(byKey.values()).sort((left, right) => left.label.localeCompare(right.label));
-  }, [availableKinds]);
-
-  function getServiceGroupKeysFromKindIds(kindIds: number[]) {
-    const keySet = new Set<string>();
-    for (const kindId of kindIds) {
-      const kind = availableKinds.find((item) => item.id === kindId);
-      if (!kind) {
-        continue;
-      }
-      const parsed = splitKindName(kind.name);
-      const groupLabel = parsed.serviceGroup || kind.name;
-      keySet.add(`${kind.category}:${groupLabel.toLowerCase()}`);
-    }
-    return Array.from(keySet);
-  }
+  const availableServices = useMemo(() => {
+    return services.filter((item) => item.is_active).sort((left, right) => left.name.localeCompare(right.name));
+  }, [services]);
 
   const visibleSpecialists = useMemo(() => {
     const text = searchQuery.trim().toLowerCase();
@@ -246,19 +201,19 @@ export default function SpecialistsPage() {
     }
 
     try {
-      const [kindsRes, specialistsRes] = await Promise.all([
-        api("/partner/service-kinds/"),
+      const [servicesRes, specialistsRes] = await Promise.all([
+        api("/partner/services/?include_image=0"),
         api("/partner/specialists/?include_schedule=0"),
       ]);
 
-      if (!kindsRes.ok || !specialistsRes.ok) {
+      if (!servicesRes.ok || !specialistsRes.ok) {
         return;
       }
 
-      const kindsPayload = (await kindsRes.json()) as ServiceKind[];
+      const servicesPayload = (await servicesRes.json()) as Service[];
       const specialistsPayload = (await specialistsRes.json()) as Specialist[];
 
-      setKinds(Array.isArray(kindsPayload) ? kindsPayload : []);
+      setServices(Array.isArray(servicesPayload) ? servicesPayload : []);
       setSpecialists(
         Array.isArray(specialistsPayload)
           ? specialistsPayload.map((item) => ({ ...item, working_schedule: normalizeWorkingSchedule(item.working_schedule) }))
@@ -348,11 +303,12 @@ export default function SpecialistsPage() {
     setModalMode("create");
     setEditingSpecialist(null);
     setKindError("");
+    setFormError("");
     setForm({
       fullName: "",
       description: "",
-      pendingServiceGroupKey: availableServiceGroups[0]?.key ?? "",
-      selectedServiceGroupKeys: [],
+      pendingServiceId: availableServices[0] ? String(availableServices[0].id) : "",
+      selectedServiceIds: [],
       photoBase64: "",
     });
     setIsModalOpen(true);
@@ -363,11 +319,12 @@ export default function SpecialistsPage() {
     setModalMode("edit");
     setEditingSpecialist(specialist);
     setKindError("");
+    setFormError("");
     setForm({
       fullName: specialist.full_name,
       description: specialist.description || "",
-      pendingServiceGroupKey: availableServiceGroups[0]?.key ?? "",
-      selectedServiceGroupKeys: getServiceGroupKeysFromKindIds(specialist.service_kind_ids),
+      pendingServiceId: availableServices[0] ? String(availableServices[0].id) : "",
+      selectedServiceIds: specialist.service_ids,
       photoBase64: specialistPhoto,
     });
     setIsModalOpen(true);
@@ -586,22 +543,22 @@ export default function SpecialistsPage() {
     return "";
   }
 
-  function addServiceGroup() {
-    const selectedKey = form.pendingServiceGroupKey;
-    if (!selectedKey || form.selectedServiceGroupKeys.includes(selectedKey)) {
+  function addService() {
+    const selectedId = Number(form.pendingServiceId);
+    if (!selectedId || form.selectedServiceIds.includes(selectedId)) {
       return;
     }
     setKindError("");
-    setForm((prev) => ({ ...prev, selectedServiceGroupKeys: [...prev.selectedServiceGroupKeys, selectedKey] }));
+    setForm((prev) => ({ ...prev, selectedServiceIds: [...prev.selectedServiceIds, selectedId] }));
   }
 
-  function removeServiceGroup(groupKey: string) {
+  function removeService(serviceId: number) {
     setForm((prev) => {
-      const nextSelected = prev.selectedServiceGroupKeys.filter((item) => item !== groupKey);
+      const nextSelected = prev.selectedServiceIds.filter((item) => item !== serviceId);
       if (nextSelected.length) {
         setKindError("");
       }
-      return { ...prev, selectedServiceGroupKeys: nextSelected };
+      return { ...prev, selectedServiceIds: nextSelected };
     });
   }
 
@@ -627,50 +584,50 @@ export default function SpecialistsPage() {
   async function submitSpecialist(event: FormEvent) {
     event.preventDefault();
 
+    setFormError("");
+
     if (!form.fullName.trim()) {
       return;
     }
 
-    if (!form.selectedServiceGroupKeys.length) {
-      setKindError("Выберите хотя бы одну услугу (2 уровень)");
-      return;
-    }
-
-    const mappedKindIds = availableServiceGroups
-      .filter((group) => form.selectedServiceGroupKeys.includes(group.key))
-      .flatMap((group) => group.kindIds);
-
-    if (!mappedKindIds.length) {
-      setKindError("Для выбранной услуги не найдены подвиды");
+    if (!form.selectedServiceIds.length) {
+      setKindError("Выберите хотя бы одну созданную услугу");
       return;
     }
 
     setKindError("");
 
-    const response = await api(
-      modalMode === "create" || !editingSpecialist
-        ? "/partner/specialists/"
-        : `/partner/specialists/${editingSpecialist.id}/`,
-      {
-        method: modalMode === "create" || !editingSpecialist ? "POST" : "PATCH",
-        body: JSON.stringify({
-          full_name: form.fullName,
-          description: form.description,
-          phone: "",
-          email: "",
-          ...(form.photoBase64.startsWith("data:") ? { photo_base64: form.photoBase64 } : {}),
-          service_kind_ids: mappedKindIds,
-          is_active: true,
-        }),
-      },
-    );
-    if (!response.ok) {
+    try {
+      const response = await api(
+        modalMode === "create" || !editingSpecialist
+          ? "/partner/specialists/"
+          : `/partner/specialists/${editingSpecialist.id}/`,
+        {
+          method: modalMode === "create" || !editingSpecialist ? "POST" : "PATCH",
+          body: JSON.stringify({
+            full_name: form.fullName,
+            description: form.description,
+            phone: "",
+            email: "",
+            ...(form.photoBase64.startsWith("data:") ? { photo_base64: form.photoBase64 } : {}),
+            service_ids: form.selectedServiceIds,
+            is_active: true,
+          }),
+        },
+      );
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        setFormError(payload?.message || "Не удалось сохранить специалиста");
+        return;
+      }
+
+      setIsModalOpen(false);
+      await loadData();
+      showToast(modalMode === "create" ? "Специалист успешно добавлен" : "Специалист успешно обновлен", "success");
+    } catch {
+      setFormError("Не удалось связаться с сервером. Повторите попытку.");
       return;
     }
-
-    setIsModalOpen(false);
-    await loadData();
-    showToast(modalMode === "create" ? "Специалист успешно добавлен" : "Специалист успешно обновлен", "success");
   }
 
   function openArchiveModal(specialist: Specialist) {
@@ -916,36 +873,36 @@ export default function SpecialistsPage() {
                 Услуга
                 <div className={styles.kindPickerRow}>
                   <select
-                    value={form.pendingServiceGroupKey}
-                    onChange={(event) => setForm((prev) => ({ ...prev, pendingServiceGroupKey: event.target.value }))}
-                    required={!form.selectedServiceGroupKeys.length}
+                    value={form.pendingServiceId}
+                    onChange={(event) => setForm((prev) => ({ ...prev, pendingServiceId: event.target.value }))}
+                    required={!form.selectedServiceIds.length}
                   >
-                    <option value="" disabled>Выберите услугу (2 уровень)</option>
-                    {availableServiceGroups.map((group) => (
-                      <option key={group.key} value={group.key}>
-                        {group.label}
+                    <option value="" disabled>Выберите созданную услугу</option>
+                    {availableServices.map((service) => (
+                      <option key={service.id} value={service.id}>
+                        {service.name}
                       </option>
                     ))}
                   </select>
-                  <button type="button" className={styles.addKindButton} onClick={addServiceGroup}>
+                  <button type="button" className={styles.addKindButton} onClick={addService}>
                     Добавить
                   </button>
                 </div>
                 <div className={styles.kindChips}>
-                  {form.selectedServiceGroupKeys.map((groupKey) => {
-                    const group = availableServiceGroups.find((item) => item.key === groupKey);
-                    if (!group) {
+                  {form.selectedServiceIds.map((serviceId) => {
+                    const service = availableServices.find((item) => item.id === serviceId);
+                    if (!service) {
                       return null;
                     }
                     return (
                       <button
-                        key={group.key}
+                        key={service.id}
                         type="button"
                         className={styles.kindChip}
-                        onClick={() => removeServiceGroup(group.key)}
+                        onClick={() => removeService(service.id)}
                         title="Удалить"
                       >
-                        {group.label}
+                        {service.name}
                         <span aria-hidden>×</span>
                       </button>
                     );
@@ -953,6 +910,8 @@ export default function SpecialistsPage() {
                 </div>
                 {kindError ? <p className={styles.kindError}>{kindError}</p> : null}
               </label>
+
+              {formError ? <p className={styles.error}>{formError}</p> : null}
 
               <label className={styles.photoField}>
                 Фото специалиста
