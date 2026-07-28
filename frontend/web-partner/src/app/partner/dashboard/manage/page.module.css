@@ -637,6 +637,13 @@
   order: 1;
 }
 
+.discountedPrice {
+  margin: -4px 0 0;
+  color: #1f5f4d;
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .previewBox {
   height: 104px;
   border-radius: 8px;

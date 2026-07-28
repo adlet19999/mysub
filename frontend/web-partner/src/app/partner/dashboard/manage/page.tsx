@@ -117,6 +117,18 @@ export default function PartnerManagePage() {
     return categories.find((item) => String(item.id) === offerForm.categoryId)?.name ?? "";
   }, [categories, offerForm.categoryId]);
 
+  const discountedPrice = useMemo(() => {
+    if (!offerForm.price.trim() || !offerForm.discountPercent.trim()) {
+      return null;
+    }
+    const price = Number(offerForm.price);
+    const discount = Number(offerForm.discountPercent);
+    if (!Number.isFinite(price) || price < 0 || !Number.isFinite(discount) || discount <= 0) {
+      return null;
+    }
+    return price * (1 - Math.min(discount, 100) / 100);
+  }, [offerForm.discountPercent, offerForm.price]);
+
   const visibleServices = useMemo(() => {
     const text = offerQuery.toLowerCase();
     return services
@@ -235,7 +247,7 @@ export default function PartnerManagePage() {
       price: "",
       durationMinutes: "60",
       serviceType: "individual",
-      discountPercent: "20",
+      discountPercent: "",
       isSubscription: true,
       maxPeople: "",
       minPeople: "",
@@ -724,6 +736,12 @@ export default function PartnerManagePage() {
                     />
                   </label>
                 </div>
+
+                {discountedPrice !== null ? (
+                  <p className={styles.discountedPrice}>
+                    Стоимость со скидкой: {discountedPrice.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ₸
+                  </p>
+                ) : null}
 
                 <label className={styles.previewBox}>
                   {offerForm.imageUrl ? (
