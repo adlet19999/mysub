@@ -477,8 +477,9 @@ export default function PartnerManagePage() {
                   <th>Категория</th>
                   <th>Вид услуги</th>
                   <th>Стоимость</th>
-                  <th>Длительность</th>
                   <th>Скидка</th>
+                  <th>Стоимость со скидкой</th>
+                  <th>Длительность</th>
                   <th>Действия</th>
                 </tr>
               </thead>
@@ -502,8 +503,13 @@ export default function PartnerManagePage() {
                     <td>{service.category_name}</td>
                     <td>{service.kind_name || "-"}</td>
                     <td>{service.price ? `${formatPrice(service.price)} ₸` : "-"}</td>
-                    <td>{service.duration_minutes} мин</td>
                     <td>{service.discount_percent > 0 ? `${service.discount_percent}%` : "-"}</td>
+                    <td>
+                      {service.price && service.discount_percent > 0
+                        ? `${formatPrice((parsePrice(service.price) ?? 0) * (1 - service.discount_percent / 100))} ₸`
+                        : "-"}
+                    </td>
+                    <td>{service.duration_minutes} мин</td>
                     <td>
                       <span className={styles.rowActions}>
                         <button type="button" className={styles.iconButton} onClick={() => openEditModal(service)}>
@@ -518,7 +524,7 @@ export default function PartnerManagePage() {
                 ))}
                 {!displayedServices.length ? (
                   <tr>
-                    <td colSpan={8} className={styles.empty}>
+                    <td colSpan={9} className={styles.empty}>
                       Нет предложений
                     </td>
                   </tr>
