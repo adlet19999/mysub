@@ -2,6 +2,18 @@ import { NextResponse } from "next/server";
 const BACKEND_BASE_URL = process.env.BACKEND_BASE_URL || "http://127.0.0.1:8000";
 const TENANT = process.env.NEXT_PUBLIC_TENANT_SLUG || "public";
 
+async function readPayload(response: Response) {
+  const text = await response.text();
+  if (!text) {
+    return {};
+  }
+  try {
+    return JSON.parse(text) as { detail?: string; message?: string };
+  } catch {
+    return { message: `Backend вернул ошибку ${response.status}` };
+  }
+}
+
 export async function GET(request: Request) {
   const partnerEmail = (request.headers.get("x-partner-email") || "").trim().toLowerCase();
 
@@ -16,7 +28,7 @@ export async function GET(request: Request) {
       cache: "no-store",
     });
 
-    const payload = await response.json();
+    const payload = await readPayload(response);
     if (!response.ok) {
       return NextResponse.json(
         { message: payload?.detail || "Ошибка получения записей" },
@@ -62,7 +74,7 @@ export async function POST(request: Request) {
       cache: "no-store",
     });
 
-    const payload = await response.json();
+    const payload = await readPayload(response);
     if (!response.ok) {
       return NextResponse.json(
         { message: payload?.detail || payload?.message || "Ошибка создания записи" },

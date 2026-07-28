@@ -5,6 +5,18 @@ const TENANT = process.env.NEXT_PUBLIC_TENANT_SLUG || "public";
 
 type Params = { params: Promise<{ id: string }> };
 
+async function readPayload(response: Response) {
+  const text = await response.text();
+  if (!text) {
+    return {};
+  }
+  try {
+    return JSON.parse(text) as { detail?: string; message?: string };
+  } catch {
+    return { message: `Backend вернул ошибку ${response.status}` };
+  }
+}
+
 export async function PATCH(request: Request, { params }: Params) {
   const { id } = await params;
   const partnerEmail = (request.headers.get("x-partner-email") || "").trim().toLowerCase();
@@ -36,7 +48,7 @@ export async function PATCH(request: Request, { params }: Params) {
       cache: "no-store",
     });
 
-    const payload = await response.json();
+    const payload = await readPayload(response);
     if (!response.ok) {
       return NextResponse.json(
         { message: payload?.detail || payload?.message || "Ошибка обновления записи" },
