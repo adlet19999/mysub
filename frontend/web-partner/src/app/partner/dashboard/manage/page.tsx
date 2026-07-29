@@ -779,23 +779,27 @@ export default function PartnerManagePage() {
                   </label>
                 ) : null}
 
-                <label className={styles.previewBox}>
+                <label className={styles.photoField}>
+                  Фото предложения
                   {offerForm.imageUrl ? (
-                    <img src={offerForm.imageUrl} alt="Фото услуги" className={styles.previewImage} loading="lazy" decoding="async" />
+                    <div className={styles.photoPreviewBlock}>
+                      <img src={offerForm.imageUrl} alt="Фото предложения" className={styles.modalPhotoPreview} loading="lazy" decoding="async" />
+                      <button
+                        type="button"
+                        className={styles.removePhotoIconButton}
+                        onClick={() => setOfferForm((prev) => ({ ...prev, imageUrl: "" }))}
+                        aria-label="Удалить фото"
+                      >
+                        <img src="/delete.svg" alt="" className={styles.removePhotoIcon} aria-hidden />
+                      </button>
+                    </div>
                   ) : (
-                    <span className={styles.previewHint}>🖼 Добавить фото</span>
+                    <div className={styles.photoDropzone}>
+                      <input type="file" accept="image/*" onChange={onServiceImageSelected} />
+                      <img src="/photo.svg" alt="" className={styles.photoDropzoneIcon} aria-hidden />
+                      <span>Добавить фото</span>
+                    </div>
                   )}
-                  <input type="file" accept="image/*" className={styles.hiddenFileInput} onChange={onServiceImageSelected} />
-                  {dialogMode === "edit" && offerForm.imageUrl ? (
-                    <button
-                      type="button"
-                      className={styles.trash}
-                      onClick={() => setOfferForm((prev) => ({ ...prev, imageUrl: "" }))}
-                      aria-label="Удалить фото"
-                    >
-                      🗑
-                    </button>
-                  ) : null}
                 </label>
               </div>
 

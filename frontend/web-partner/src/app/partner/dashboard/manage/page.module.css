@@ -656,45 +656,77 @@
   font-weight: 600;
 }
 
-.previewBox {
-  height: 104px;
-  border-radius: 8px;
-  background: #f3f4f6;
+.photoField {
+  gap: 6px;
+}
+
+.photoDropzone {
   position: relative;
+  min-height: 110px;
+  border: 1px dashed #b5c0cc;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 8px;
+  border-radius: 8px;
+  background: #f8fafc;
   color: #6b7280;
-  font-size: 16px;
-  overflow: hidden;
-  cursor: pointer;
+  font-size: 13px;
 }
 
-.previewImage {
+.photoDropzoneIcon {
+  width: 32px;
+  height: 32px;
+  display: block;
+}
+
+.photoDropzone input {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  opacity: 0;
+  cursor: pointer;
 }
 
-.previewHint {
+.photoPreviewBlock {
+  position: relative;
+  width: 220px;
+  max-width: 100%;
+  height: 130px;
+  display: inline-block;
+}
+
+.modalPhotoPreview {
+  width: 100%;
+  height: 100%;
+  border: 1px solid #d8dde3;
+  border-radius: 8px;
+  background: #f8fafc;
+  object-fit: contain;
+  display: block;
+}
+
+.removePhotoIconButton {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
+  justify-content: center;
 }
 
-.trash {
-  position: absolute;
-  right: 12px;
-  top: 10px;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  z-index: 2;
-}
-
-.hiddenFileInput {
-  display: none;
+.removePhotoIcon {
+  width: 32px;
+  height: 32px;
+  display: block;
 }
 
 .modalFooter {
