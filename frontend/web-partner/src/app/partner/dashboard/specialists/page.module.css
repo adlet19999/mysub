@@ -411,17 +411,20 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
+  overflow-y: auto;
 }
 
 .statusModal {
   width: 560px;
   max-width: 100%;
+  max-height: calc(100dvh - 40px);
   padding: 30px;
   border-radius: 10px;
   background: #ffffff;
   display: grid;
   gap: 24px;
   box-shadow: 0 20px 48px rgb(0 0 0 / 24%);
+  overflow-y: auto;
 }
 
 .statusBody {
@@ -505,10 +508,13 @@
 .modal {
   width: 760px;
   max-width: 100%;
+  max-height: calc(100dvh - 40px);
   border-radius: 10px;
   overflow: hidden;
   background: #ffffff;
   box-shadow: 0 20px 48px rgb(0 0 0 / 24%);
+  display: flex;
+  flex-direction: column;
 }
 
 .bulkModal {
@@ -560,8 +566,11 @@
 .modalBody {
   padding: 18px;
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .bulkBody {
