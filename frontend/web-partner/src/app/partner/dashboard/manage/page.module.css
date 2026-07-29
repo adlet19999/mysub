@@ -490,6 +490,7 @@
 
 .modalHeader {
   height: 100px;
+  flex: 0 0 auto;
   background: linear-gradient(104deg, #1f5f4d 0%, #003c40 100%);
   color: #ffffff;
   display: flex;
@@ -701,6 +702,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+  flex: 0 0 auto;
 }
 
 .cancelButton,
@@ -727,8 +729,7 @@
 
 @media (max-width: 980px) {
   .modal {
-    min-height: 0;
-    grid-template-rows: auto auto auto;
+    width: 100%;
   }
 
   .blockHeaderLeft h1 {
