@@ -44,3 +44,9 @@ textarea {
   font: inherit;
 }
 
+@media (max-width: 700px) {
+  html {
+    scrollbar-gutter: auto;
+  }
+}
+

@@ -13,7 +13,9 @@
   border: 0;
   border-radius: 0;
   padding: 0;
+  min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-content: start;
   justify-items: stretch;
@@ -41,6 +43,7 @@
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 
 .headActions {
@@ -1088,6 +1091,11 @@
 
   .cardsGrid {
     grid-template-columns: 1fr;
+  }
+
+  .blockHeadRow {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .headActions {
