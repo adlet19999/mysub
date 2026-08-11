@@ -98,6 +98,7 @@ const RUS_MONTH: string[] = [
 ];
 
 const HOURS = Array.from({ length: 12 }, (_, index) => 9 + index);
+const SLOT_HEIGHT = 56;
 
 function toWorkingDayKey(date: Date): WorkingDayKey {
   const day = date.getDay();
@@ -734,7 +735,7 @@ export default function SchedulePage() {
         <div className={styles.actions}>
           <button type="button" className={styles.settingsButton}>
             <img src="/setting.svg" alt="" aria-hidden />
-            <span>График работы специалиста</span>
+            <span>График работы столов</span>
           </button>
           <button type="button" className={styles.addButton} onClick={openBookingModal}>
             <span className={styles.plus}>+</span>
@@ -773,19 +774,7 @@ export default function SchedulePage() {
           >
             {activeSpecialists.map((specialist) => (
               <div key={specialist.id} className={`${styles.headerCell} ${styles.sticky}`}>
-                {(() => {
-                  const dayState = getSpecialistDayState(specialist, selectedDay);
-                  return (
-                    <>
-                      <strong>{specialist.full_name}</strong>
-                      {specialist.description?.trim() ? <span className={styles.specialistDescription}>{specialist.description}</span> : null}
-                      <span className={`${styles.scheduleStateBadge} ${styles[`scheduleState${dayState.tone.charAt(0).toUpperCase()}${dayState.tone.slice(1)}`]}`}>
-                        {dayState.label}
-                      </span>
-                      <span className={styles.scheduleStateHours}>{dayState.hoursLabel}</span>
-                    </>
-                  );
-                })()}
+                <strong>{specialist.full_name}</strong>
               </div>
             ))}
 
@@ -804,14 +793,16 @@ export default function SchedulePage() {
                         key={`slot-${hour}-${specialist.id}`}
                         className={`${styles.slotCell} ${slotStateClass} ${slotEntries.length ? styles.slotCellWithBooking : ""}`}
                       >
-                        {!slotEntries.length ? <p className={`${styles.slotStateText} ${slotStateTextClass}`}>{slotState.label}</p> : null}
+                        {!slotEntries.length && slotState.tone === "break" ? (
+                          <p className={`${styles.slotStateText} ${slotStateTextClass}`}>Тех. перерыв</p>
+                        ) : null}
                         {slotEntries.map((entry) => (
                           <article
                             key={entry.booking.id}
                             className={`${styles.bookingCard} ${styles[`bookingCard${getStatusTone(entry.booking.status).charAt(0).toUpperCase()}${getStatusTone(entry.booking.status).slice(1)}`]}`}
                             style={{
-                              marginTop: `${Math.min(75, Math.max(0, Math.round((entry.minutes / 60) * 76)))}px`,
-                              minHeight: `${Math.max(22, Math.round((entry.durationMinutes / 60) * 76))}px`,
+                              marginTop: `${Math.min(SLOT_HEIGHT - 1, Math.max(0, Math.round((entry.minutes / 60) * SLOT_HEIGHT)))}px`,
+                              minHeight: `${Math.max(28, Math.round((entry.durationMinutes / 60) * SLOT_HEIGHT))}px`,
                             }}
                           >
                             <button

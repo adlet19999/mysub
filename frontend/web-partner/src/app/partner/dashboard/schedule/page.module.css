@@ -1,8 +1,7 @@
 .content {
   min-height: calc(100vh - 84px);
-  border-radius: var(--dashboard-page-radius);
   background: #ffffff;
-  padding: var(--dashboard-page-padding);
+  padding: 20px 18px 16px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -12,7 +11,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
 }
 
 .pageTitle {
@@ -41,15 +40,15 @@
 
 .settingsButton,
 .addButton {
-  height: 40px;
-  border-radius: 8px;
-  padding: 0 14px;
+  height: 36px;
+  border-radius: 6px;
+  padding: 0 12px;
   border: 1px solid #e5e7eb;
   background: #ffffff;
   color: #1e1e1e;
   font-family: var(--font-family-base);
-  font-size: 16px;
-  line-height: 24px;
+  font-size: 13px;
+  line-height: 18px;
   font-weight: 500;
   display: inline-flex;
   align-items: center;
@@ -58,8 +57,8 @@
 }
 
 .settingsButton img {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   object-fit: contain;
 }
 
@@ -79,28 +78,28 @@
 }
 
 .dateCard {
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  height: 86px;
+  border: 1px solid #edf0f2;
+  border-radius: 6px;
+  height: 50px;
   display: grid;
-  grid-template-columns: 56px 1fr 56px;
+  grid-template-columns: 32px 1fr 32px;
   align-items: center;
 }
 
 .dateArrow {
   height: 100%;
   border: 0;
-  border-right: 1px solid #e5e7eb;
+  border-right: 0;
   background: #ffffff;
   color: #6b7280;
   font-family: var(--font-family-base);
-  font-size: 22px;
+  font-size: 18px;
   cursor: pointer;
 }
 
 .dateArrow:last-child {
   border-right: 0;
-  border-left: 1px solid #e5e7eb;
+  border-left: 0;
 }
 
 .dateBody {
@@ -115,8 +114,8 @@
   margin: 0;
   color: #1e1e1e;
   font-family: var(--font-family-base);
-  font-size: 20px;
-  line-height: 28px;
+  font-size: 13px;
+  line-height: 18px;
   font-weight: 500;
 }
 
@@ -124,8 +123,8 @@
   margin: 0;
   color: #6b7280;
   font-family: var(--font-family-base);
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 10px;
+  line-height: 14px;
   font-weight: 400;
   text-transform: capitalize;
 }
@@ -133,7 +132,7 @@
 .tableWrap {
   position: relative;
   overflow: auto;
-  min-width: 900px;
+  min-width: 0;
   display: flex;
   align-items: flex-start;
   gap: 0;
@@ -141,17 +140,17 @@
 }
 
 .timeRail {
-  width: 94px;
-  flex: 0 0 94px;
+  width: 82px;
+  flex: 0 0 82px;
   background: transparent;
 }
 
 .timeRailHeader {
-  height: 106px;
+  height: 42px;
   color: #6b7280;
   font-family: var(--font-family-base);
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 11px;
+  line-height: 16px;
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -161,11 +160,11 @@
 
 .timeMark {
   position: relative;
-  height: 76px;
+  height: 56px;
   color: #6b7280;
   font-family: var(--font-family-base);
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 10px;
+  line-height: 14px;
   font-weight: 500;
   display: block;
   box-sizing: border-box;
@@ -183,30 +182,30 @@
 
 .gridSurface {
   flex: 1;
-  min-width: 806px;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
+  min-width: 760px;
+  border: 1px solid #edf0f2;
+  border-radius: 6px;
   overflow: hidden;
 }
 
 .grid {
   min-width: 100%;
   display: grid;
-  grid-template-columns: repeat(5, minmax(180px, 1fr));
+  grid-template-columns: repeat(5, minmax(132px, 1fr));
 }
 
 .headerCell,
 .slotCell {
-  border-right: 1px solid #e5e7eb;
-  border-bottom: 1px solid #e5e7eb;
-  height: 76px;
+  border-right: 1px solid #edf0f2;
+  border-bottom: 1px solid #edf0f2;
+  height: 56px;
   padding: 0;
   box-sizing: border-box;
 }
 
 .headerCell {
-  height: 106px;
-  background: #f8f9fa;
+  height: 42px;
+  background: #ffffff;
 }
 
 .headerCell {
@@ -215,15 +214,14 @@
   justify-content: center;
   align-items: center;
   text-align: center;
-  gap: 4px;
-  padding: 8px 6px;
+  padding: 6px 8px;
 }
 
 .headerCell strong {
   color: #1e1e1e;
   font-family: var(--font-family-base);
-  font-size: 15px;
-  line-height: 22px;
+  font-size: 11px;
+  line-height: 16px;
   font-weight: 500;
 }
 
@@ -292,22 +290,24 @@
 }
 
 .slotCellWorking {
-  background: #f8fcfb;
+  background: #ffffff;
 }
 
 .slotCellBreak {
-  background: #fffaf0;
+  background: #f2f6fa;
 }
 
 .slotCellDayoff {
-  background: #fff4ed;
+  background: #f2f6fa;
 }
 
 .slotStateText {
-  margin: 6px 8px 0;
+  align-self: center;
+  margin: 0;
   font-family: var(--font-family-base);
-  font-size: 11px;
-  line-height: 14px;
+  font-size: 9px;
+  line-height: 12px;
+  text-transform: uppercase;
   font-weight: 600;
 }
 
@@ -316,7 +316,7 @@
 }
 
 .slotStateTextBreak {
-  color: #92400e;
+  color: #9aacbf;
 }
 
 .slotStateTextDayoff {
@@ -336,7 +336,7 @@
   border-left: 3px solid #0b6b55;
   border-radius: 0;
   background: #eef8f5;
-  padding: 6px 8px;
+  padding: 7px 9px;
   box-sizing: border-box;
   position: relative;
   z-index: 4;
@@ -372,31 +372,31 @@
 .bookingStatus {
   margin: 0;
   font-family: var(--font-family-base);
-  font-size: 10px;
-  line-height: 14px;
+  font-size: 9px;
+  line-height: 12px;
   font-weight: 600;
   color: #6b7280;
 }
 
 .bookingService {
   color: #1e1e1e;
-  font-size: 12px;
-  line-height: 16px;
+  font-size: 10px;
+  line-height: 14px;
   font-weight: 600;
   white-space: pre-line;
 }
 
 .bookingClient {
   color: #4b5563;
-  font-size: 11px;
-  line-height: 14px;
+  font-size: 9px;
+  line-height: 12px;
   font-weight: 400;
 }
 
 .bookingTime {
   color: #1f5f4d;
-  font-size: 11px;
-  line-height: 14px;
+  font-size: 9px;
+  line-height: 12px;
   font-weight: 500;
 }
 
