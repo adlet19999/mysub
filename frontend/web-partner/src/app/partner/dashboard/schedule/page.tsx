@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
+import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
 import { formatRuPhone } from "../../../../lib/phone";
 
@@ -142,6 +142,15 @@ function formatDateInputValue(date: Date) {
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const dd = String(date.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+function parseDateInputValue(value: string): Date | null {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function parseBookingDateTime(raw: string) {
@@ -334,6 +343,7 @@ export default function SchedulePage() {
   const [bulkSelectedSpecialistIds, setBulkSelectedSpecialistIds] = useState<number[]>([]);
   const [bulkScheduleError, setBulkScheduleError] = useState("");
   const [isSavingBulkSchedule, setIsSavingBulkSchedule] = useState(false);
+  const dateInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeSpecialists = useMemo(
     () => specialists.filter((specialist) => specialist.is_active).sort((a, b) => a.full_name.localeCompare(b.full_name)),
@@ -807,6 +817,15 @@ export default function SchedulePage() {
     });
   }
 
+  function openDatePicker() {
+    const input = dateInputRef.current;
+    if (!input) {
+      return;
+    }
+    input.showPicker?.();
+    input.focus();
+  }
+
   function openBulkScheduleModal() {
     setBulkScheduleDraft(defaultWorkingSchedule());
     setBulkSelectedSpecialistIds(activeSpecialists.map((specialist) => specialist.id));
@@ -893,10 +912,22 @@ export default function SchedulePage() {
         <button type="button" className={styles.dateArrow} onClick={() => moveDate(-1)} aria-label="Предыдущий день">
           &lt;
         </button>
-        <div className={styles.dateBody}>
+        <button type="button" className={styles.dateBody} onClick={openDatePicker} aria-label="Выбрать дату">
           <p className={styles.dateTitle}>{formatDateTitle(selectedDate)}</p>
           <p className={styles.dateWeekday}>{RUS_WEEKDAY[selectedDay]}</p>
-        </div>
+        </button>
+        <input
+          ref={dateInputRef}
+          className={styles.datePickerInput}
+          type="date"
+          value={formatDateInputValue(selectedDate)}
+          onChange={(event) => {
+            const nextDate = parseDateInputValue(event.target.value);
+            if (nextDate) setSelectedDate(nextDate);
+          }}
+          tabIndex={-1}
+          aria-hidden="true"
+        />
         <button type="button" className={styles.dateArrow} onClick={() => moveDate(1)} aria-label="Следующий день">
           &gt;
         </button>

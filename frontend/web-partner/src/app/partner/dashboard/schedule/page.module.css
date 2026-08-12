@@ -103,11 +103,26 @@
 }
 
 .dateBody {
+  border: 0;
+  background: #ffffff;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2px;
+  cursor: pointer;
+}
+
+.dateBody:hover .dateTitle {
+  color: #1f6b52;
+}
+
+.datePickerInput {
+  position: fixed;
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+  height: 1px;
 }
 
 .dateTitle {
