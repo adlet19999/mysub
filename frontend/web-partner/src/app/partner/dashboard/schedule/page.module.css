@@ -911,6 +911,145 @@
   cursor: not-allowed;
 }
 
+.bulkScheduleModal {
+  width: min(1120px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+}
+
+.bulkScheduleHeader {
+  height: 72px;
+  flex: 0 0 auto;
+  padding: 0 22px;
+  background: linear-gradient(105deg, #165743 0%, #082a22 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bulkScheduleBody {
+  min-height: 0;
+  padding: 16px;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 14px;
+}
+
+.specialistPicker,
+.scheduleEditor {
+  min-width: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfd;
+}
+
+.specialistPicker {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.selectAllSpecialists,
+.specialistOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #374151;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.selectAllSpecialists {
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+  font-weight: 600;
+}
+
+.specialistOption {
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.selectAllSpecialists input,
+.specialistOption input,
+.scheduleEditorRow label input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #1f6b52;
+}
+
+.scheduleEditor {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  background: #ffffff;
+}
+
+.scheduleEditorRow {
+  display: grid;
+  grid-template-columns: 112px 94px minmax(192px, 1fr) minmax(260px, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid #edf0f2;
+  border-radius: 6px;
+}
+
+.scheduleEditorRow strong,
+.scheduleEditorRow label,
+.scheduleEditorRow div {
+  color: #374151;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.scheduleEditorRow label,
+.scheduleEditorRow div {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.scheduleEditorRow input[type="time"] {
+  width: 84px;
+  height: 32px;
+  border: 1px solid #d8dde3;
+  border-radius: 6px;
+  padding: 0 6px;
+  color: #1e1e1e;
+  font-family: var(--font-family-base);
+  font-size: 12px;
+}
+
+.scheduleFormError {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #fff1f2;
+  color: #b42318;
+  font-size: 12px;
+}
+
+.bulkScheduleFooter {
+  flex: 0 0 auto;
+  padding: 14px 22px;
+  border-top: 1px solid #edf0f2;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
 @media (max-width: 1280px) {
   .headerRow {
     flex-direction: column;
@@ -977,6 +1116,30 @@
 
   .detailsFooter {
     padding: 12px 16px 16px;
+  }
+
+  .bulkScheduleModal {
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+
+  .bulkScheduleHeader {
+    height: 58px;
+    padding: 0 16px;
+  }
+
+  .bulkScheduleBody {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+
+  .scheduleEditorRow {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .bulkScheduleFooter {
+    padding: 12px 16px;
   }
 
   .detailServiceCard {
