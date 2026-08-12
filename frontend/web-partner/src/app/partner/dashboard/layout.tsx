@@ -108,6 +108,7 @@ export default function DashboardLayout({ children }: LayoutProps) {
   const [avatarLabel, setAvatarLabel] = useState("П");
   const [role, setRole] = useState<"partner" | "manager">("manager");
   const [authResolved, setAuthResolved] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -117,13 +118,20 @@ export default function DashboardLayout({ children }: LayoutProps) {
     const raw = localStorage.getItem("partner_auth_user");
     if (!raw) {
       setAuthResolved(true);
+      router.replace("/partner");
       return;
     }
 
     try {
       const parsed = JSON.parse(raw) as PartnerAuthUser;
+      if (!(parsed.email || parsed.username || "").trim()) {
+        localStorage.removeItem("partner_auth_user");
+        router.replace("/partner");
+        return;
+      }
       const parsedRole = parsed.user_type === "manager" ? "manager" : "partner";
       setRole(parsedRole);
+      setIsAuthenticated(true);
       const companyName = (parsed.company_name || "").trim();
       const fallbackName = (parsed.full_name || parsed.username || parsed.email || "").trim();
       const displayName = companyName || fallbackName || "Партнер";
@@ -132,11 +140,12 @@ export default function DashboardLayout({ children }: LayoutProps) {
       const firstWord = displayName.split(/\s+/).find(Boolean) || "П";
       setAvatarLabel(firstWord.slice(0, 2).toUpperCase());
     } catch {
-      // ignore invalid local storage payload
+      localStorage.removeItem("partner_auth_user");
+      router.replace("/partner");
     } finally {
       setAuthResolved(true);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     if (!authResolved) {
@@ -175,6 +184,10 @@ export default function DashboardLayout({ children }: LayoutProps) {
     localStorage.removeItem("partner_auth_user");
     localStorage.removeItem("partner_register_draft");
     router.push("/partner");
+  }
+
+  if (!authResolved || !isAuthenticated) {
+    return null;
   }
 
   return (
