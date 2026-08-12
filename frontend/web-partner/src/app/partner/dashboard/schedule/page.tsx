@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import styles from "./page.module.css";
 import { formatRuPhone } from "../../../../lib/phone";
 
@@ -290,6 +291,7 @@ function getStatusLabel(status: string): string {
 }
 
 export default function SchedulePage() {
+  const router = useRouter();
   const tenant = TENANT_DEFAULT;
   const [partnerEmail, setPartnerEmail] = useState("");
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
@@ -791,9 +793,9 @@ export default function SchedulePage() {
         </div>
 
         <div className={styles.actions}>
-          <button type="button" className={styles.settingsButton}>
+          <button type="button" className={styles.settingsButton} onClick={() => router.push("/partner/dashboard/specialists?openSchedule=1")}>
             <img src="/setting.svg" alt="" aria-hidden />
-            <span>График работы столов</span>
+            <span>Составить график работы</span>
           </button>
           <button type="button" className={styles.addButton} onClick={openBookingModal}>
             <span className={styles.plus}>+</span>

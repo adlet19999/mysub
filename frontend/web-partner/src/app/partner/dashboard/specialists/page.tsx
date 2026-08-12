@@ -145,6 +145,7 @@ export default function SpecialistsPage() {
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadingPhotoIdsRef = useRef<Set<number>>(new Set());
+  const openedBulkScheduleFromQueryRef = useRef(false);
 
   function showToast(text: string, tone: ToastTone = "success") {
     if (toastTimerRef.current) {
@@ -184,6 +185,22 @@ export default function SpecialistsPage() {
   const activeSpecialists = useMemo(() => {
     return specialists.filter((item) => item.is_active).sort((left, right) => left.full_name.localeCompare(right.full_name));
   }, [specialists]);
+
+  useEffect(() => {
+    if (openedBulkScheduleFromQueryRef.current || !partnerEmail || !activeSpecialists.length) {
+      return;
+    }
+    if (new URLSearchParams(window.location.search).get("openSchedule") !== "1") {
+      return;
+    }
+
+    openedBulkScheduleFromQueryRef.current = true;
+    setIsBulkScheduleOpen(true);
+    setBulkScheduleDraft(defaultWorkingSchedule());
+    setActiveBulkSchedulePreset(null);
+    setBulkSelectedSpecialistIds(activeSpecialists.map((item) => item.id));
+    setScheduleError("");
+  }, [activeSpecialists, partnerEmail]);
 
   async function api(path: string, init?: RequestInit) {
     return fetch(`${API_BASE}${path}`, {
@@ -760,16 +777,6 @@ export default function SpecialistsPage() {
             </div>
 
             <div className={styles.headActions}>
-              <button
-                type="button"
-                className={styles.scheduleTopButton}
-                onClick={openBulkScheduleModal}
-                disabled={!partnerEmail || !activeSpecialists.length}
-              >
-                <img src="/setting.svg" alt="" className={styles.actionIcon} aria-hidden />
-                Составить график работы
-              </button>
-
               <button type="button" className={styles.addButton} onClick={openCreateModal} disabled={!partnerEmail}>
                 <span className={styles.plusIcon} aria-hidden>+</span>
                 Добавить специалиста
