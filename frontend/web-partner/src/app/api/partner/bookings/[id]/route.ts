@@ -28,6 +28,13 @@ export async function PATCH(request: Request, { params }: Params) {
     startTime?: string;
     status?: string;
   };
+  const updatePayload: Record<string, string> = {};
+  if (body.specialist != null) updatePayload.manager_name = body.specialist.trim();
+  if (body.service != null) updatePayload.service_name = body.service.trim();
+  if (body.startTime != null) updatePayload.starts_at = body.startTime.trim();
+  if (body.clientName != null) updatePayload.client_name = body.clientName.trim();
+  if (body.clientPhone != null) updatePayload.client_phone = body.clientPhone.trim();
+  if (body.status != null) updatePayload.status = body.status.trim();
 
   try {
     const response = await fetch(`${BACKEND_BASE_URL}/api/v1/partner/bookings/${id}/`, {
@@ -37,14 +44,7 @@ export async function PATCH(request: Request, { params }: Params) {
         "X-Tenant": TENANT,
         ...(partnerEmail ? { "X-Partner-Email": partnerEmail } : {}),
       },
-      body: JSON.stringify({
-        service_name: (body.service || "").trim(),
-        manager_name: (body.specialist || "").trim(),
-        starts_at: (body.startTime || "").trim(),
-        client_name: (body.clientName || "").trim(),
-        client_phone: (body.clientPhone || "").trim(),
-        status: (body.status || "booked").trim(),
-      }),
+      body: JSON.stringify(updatePayload),
       cache: "no-store",
     });
 

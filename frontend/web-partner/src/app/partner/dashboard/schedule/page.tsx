@@ -293,6 +293,8 @@ export default function SchedulePage() {
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [detailsBooking, setDetailsBooking] = useState<Booking | null>(null);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [bookingModalMode, setBookingModalMode] = useState<"create" | "edit">("create");
@@ -364,6 +366,30 @@ export default function SchedulePage() {
     }
     return bookingLines.some((line) => line.serviceId);
   }, [bookingClientName, bookingPhone, bookingDate, bookingStartTime, bookingSpecialistId, bookingLines]);
+
+  const detailsServices = useMemo(() => {
+    if (!detailsBooking) {
+      return [];
+    }
+    return parseServiceNames(detailsBooking.service_name).map((serviceName) => {
+      const service = services.find(
+        (item) =>
+          item.name.trim().toLowerCase() === serviceName.toLowerCase() ||
+          (item.kind_name || "").trim().toLowerCase() === serviceName.toLowerCase(),
+      );
+      const price = Number(String(service?.price || "").replace(/[^0-9.,]/g, "").replace(",", "."));
+      return {
+        name: serviceName,
+        price: Number.isFinite(price) ? price : null,
+        durationMinutes: service?.duration_minutes && service.duration_minutes > 0 ? service.duration_minutes : 60,
+      };
+    });
+  }, [detailsBooking, services]);
+
+  const detailsSpecialist = useMemo(
+    () => activeSpecialists.find((item) => item.full_name.trim().toLowerCase() === (detailsBooking?.manager_name || "").trim().toLowerCase()),
+    [activeSpecialists, detailsBooking],
+  );
 
   const selectedDayScheduleBySpecialist = useMemo(() => {
     const map = new Map<number, WorkingDaySchedule | undefined>();
@@ -579,6 +605,35 @@ export default function SchedulePage() {
     setBookingModalMode("edit");
     setEditingBookingId(target.id);
     setIsBookingModalOpen(true);
+  }
+
+  function openDetailsModal(target: Booking) {
+    setDetailsBooking(target);
+  }
+
+  async function updateBookingStatus(status: "completed" | "no_show") {
+    if (!detailsBooking || !partnerEmail || isUpdatingStatus) {
+      return;
+    }
+
+    setIsUpdatingStatus(true);
+    try {
+      const response = await fetch(`/api/partner/bookings/${detailsBooking.id}/`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Partner-Email": partnerEmail,
+        },
+        body: JSON.stringify({ status }),
+      });
+      if (!response.ok) {
+        return;
+      }
+      setDetailsBooking(null);
+      await loadDirectory();
+    } finally {
+      setIsUpdatingStatus(false);
+    }
   }
 
   function closeBookingModal() {
@@ -800,6 +855,7 @@ export default function SchedulePage() {
                           <article
                             key={entry.booking.id}
                             className={`${styles.bookingCard} ${styles[`bookingCard${getStatusTone(entry.booking.status).charAt(0).toUpperCase()}${getStatusTone(entry.booking.status).slice(1)}`]}`}
+                            onClick={() => openDetailsModal(entry.booking)}
                             style={{
                               marginTop: `${Math.min(SLOT_HEIGHT - 1, Math.max(0, Math.round((entry.minutes / 60) * SLOT_HEIGHT)))}px`,
                               minHeight: `${Math.max(28, Math.round((entry.durationMinutes / 60) * SLOT_HEIGHT))}px`,
@@ -808,8 +864,11 @@ export default function SchedulePage() {
                             <button
                               type="button"
                               className={styles.bookingEditButton}
-                              onClick={() => openEditBookingModal(entry.booking)}
-                              aria-label="Редактировать запись"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openDetailsModal(entry.booking);
+                              }}
+                              aria-label="Посмотреть запись"
                             >
                               <img src="/change.svg" alt="" aria-hidden />
                             </button>
@@ -942,6 +1001,73 @@ export default function SchedulePage() {
               </div>
             </div>
           </form>
+        </div>
+      ) : null}
+
+      {detailsBooking ? (
+        <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label="Детали записи">
+          <section className={styles.detailsModal}>
+            <header className={styles.detailsHeader}>
+              <div className={styles.detailsTitle}>
+                <img src="/modal_icon.svg" alt="" aria-hidden />
+                <h3>Детали записи</h3>
+              </div>
+              <button type="button" className={styles.closeModalButton} onClick={() => setDetailsBooking(null)} aria-label="Закрыть">
+                ×
+              </button>
+            </header>
+
+            <div className={styles.detailsBody}>
+              <div className={styles.clientSummary}>
+                <div className={styles.clientAvatar}>{detailsBooking.client_name.trim().slice(0, 1).toUpperCase() || "К"}</div>
+                <div>
+                  <strong>{detailsBooking.client_name}</strong>
+                  <span>{formatRuPhone(detailsBooking.client_phone)}</span>
+                </div>
+                <div className={styles.subscriptionStatus}>
+                  <span>Подписка</span>
+                  <strong>Активна</strong>
+                </div>
+              </div>
+
+              <div className={styles.detailServices}>
+                {detailsServices.map((service, index) => (
+                  <section key={`${service.name}-${index}`} className={styles.detailServiceCard}>
+                    <div><span>Получатель услуги</span><strong>{detailsBooking.client_name}</strong></div>
+                    <div><span>Услуга</span><strong>{service.name}</strong></div>
+                    <div><span>Стоимость услуги</span><strong>{service.price == null ? "-" : `${service.price.toLocaleString("ru-RU")} т`}</strong></div>
+                    <div><span>Дата и время</span><strong>{`${formatDateTitle(new Date(detailsBooking.starts_at))}, ${formatBookingTime(detailsBooking.starts_at)} - ${addMinutesToTimeLabel(detailsBooking.starts_at, service.durationMinutes)}`}</strong></div>
+                    <div>
+                      <span>Ресурс</span>
+                      <strong className={styles.resourceValue}>
+                        <b>{detailsSpecialist?.full_name.slice(0, 1).toUpperCase() || "С"}</b>
+                        {detailsBooking.manager_name || "Не назначен"}
+                      </strong>
+                    </div>
+                    <div><span>Статус</span><strong className={styles[`detailStatus${getStatusTone(detailsBooking.status).charAt(0).toUpperCase()}${getStatusTone(detailsBooking.status).slice(1)}`]}>{getStatusLabel(detailsBooking.status)}</strong></div>
+                  </section>
+                ))}
+              </div>
+
+              <div className={styles.totalRow}>
+                <span>Общая сумма</span>
+                <strong>{`${detailsServices.reduce((sum, service) => sum + (service.price || 0), 0).toLocaleString("ru-RU")} т`}</strong>
+              </div>
+              <div className={styles.commentBlock}>
+                <span>Комментарий</span>
+                <p>Комментарий не добавлен</p>
+              </div>
+            </div>
+
+            <footer className={styles.detailsFooter}>
+              <button type="button" className={styles.noShowButton} onClick={() => void updateBookingStatus("no_show")} disabled={isUpdatingStatus}>
+                Отметить неявку
+              </button>
+              <button type="button" className={styles.completeButton} onClick={() => void updateBookingStatus("completed")} disabled={isUpdatingStatus}>
+                {isUpdatingStatus ? "Сохранение..." : "Завершить визит"}
+              </button>
+            </footer>
+          </section>
         </div>
       ) : null}
     </section>
