@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
 import styles from "./page.module.css";
 import { formatRuPhone } from "../../../../lib/phone";
 
@@ -142,15 +142,6 @@ function formatDateInputValue(date: Date) {
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const dd = String(date.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
-}
-
-function parseDateInputValue(value: string): Date | null {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) {
-    return null;
-  }
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function parseBookingDateTime(raw: string) {
@@ -343,7 +334,8 @@ export default function SchedulePage() {
   const [bulkSelectedSpecialistIds, setBulkSelectedSpecialistIds] = useState<number[]>([]);
   const [bulkScheduleError, setBulkScheduleError] = useState("");
   const [isSavingBulkSchedule, setIsSavingBulkSchedule] = useState(false);
-  const dateInputRef = useRef<HTMLInputElement | null>(null);
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
 
   const activeSpecialists = useMemo(
     () => specialists.filter((specialist) => specialist.is_active).sort((a, b) => a.full_name.localeCompare(b.full_name)),
@@ -351,6 +343,17 @@ export default function SchedulePage() {
   );
 
   const selectedDay = toWorkingDayKey(selectedDate);
+
+  const calendarDays = useMemo(() => {
+    const monthStart = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
+    const gridStart = new Date(monthStart);
+    gridStart.setDate(monthStart.getDate() - ((monthStart.getDay() + 6) % 7));
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(gridStart);
+      date.setDate(gridStart.getDate() + index);
+      return date;
+    });
+  }, [calendarMonth]);
 
   const activeServices = useMemo(() => {
     return services.filter((service) => service.is_active).sort((a, b) => a.name.localeCompare(b.name));
@@ -813,17 +816,14 @@ export default function SchedulePage() {
     setSelectedDate((prev) => {
       const next = new Date(prev);
       next.setDate(prev.getDate() + step);
+      setCalendarMonth(new Date(next.getFullYear(), next.getMonth(), 1));
       return next;
     });
   }
 
   function openDatePicker() {
-    const input = dateInputRef.current;
-    if (!input) {
-      return;
-    }
-    input.showPicker?.();
-    input.focus();
+    setCalendarMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
+    setIsDatePickerOpen((previous) => !previous);
   }
 
   function openBulkScheduleModal() {
@@ -916,21 +916,39 @@ export default function SchedulePage() {
           <p className={styles.dateTitle}>{formatDateTitle(selectedDate)}</p>
           <p className={styles.dateWeekday}>{RUS_WEEKDAY[selectedDay]}</p>
         </button>
-        <input
-          ref={dateInputRef}
-          className={styles.datePickerInput}
-          type="date"
-          value={formatDateInputValue(selectedDate)}
-          onChange={(event) => {
-            const nextDate = parseDateInputValue(event.target.value);
-            if (nextDate) setSelectedDate(nextDate);
-          }}
-          tabIndex={-1}
-          aria-hidden="true"
-        />
         <button type="button" className={styles.dateArrow} onClick={() => moveDate(1)} aria-label="Следующий день">
           &gt;
         </button>
+        {isDatePickerOpen ? (
+          <div className={styles.calendarPopover} role="dialog" aria-label="Выбор даты">
+            <header className={styles.calendarHeader}>
+              <button type="button" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Предыдущий месяц">‹</button>
+              <strong>{`${RUS_MONTH[calendarMonth.getMonth()]} ${calendarMonth.getFullYear()}`}</strong>
+              <button type="button" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="Следующий месяц">›</button>
+            </header>
+            <div className={styles.calendarWeekdays}>{["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((day) => <span key={day}>{day}</span>)}</div>
+            <div className={styles.calendarDays}>
+              {calendarDays.map((date) => {
+                const isCurrentMonth = date.getMonth() === calendarMonth.getMonth();
+                const isSelected = formatDateInputValue(date) === formatDateInputValue(selectedDate);
+                return (
+                  <button
+                    key={formatDateInputValue(date)}
+                    type="button"
+                    className={`${styles.calendarDay} ${isCurrentMonth ? "" : styles.calendarDayMuted} ${isSelected ? styles.calendarDaySelected : ""}`}
+                    onClick={() => {
+                      setSelectedDate(date);
+                      setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+                      setIsDatePickerOpen(false);
+                    }}
+                  >
+                    {date.getDate()}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className={styles.tableWrap}>
