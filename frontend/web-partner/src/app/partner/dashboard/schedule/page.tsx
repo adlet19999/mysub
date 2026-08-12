@@ -1034,28 +1034,36 @@ export default function SchedulePage() {
               </div>
 
               <div className={styles.detailServices}>
-                {detailsServices.map((service, index) => (
-                  <section key={`${service.name}-${index}`} className={styles.detailServiceCard}>
-                    <div><span>Получатель услуги</span><strong>{detailsBooking.client_name}</strong></div>
-                    <div><span>Услуга</span><strong>{service.name}</strong></div>
-                    <div><span>Стоимость услуги</span><strong>{service.price == null ? "-" : `${service.price.toLocaleString("ru-RU")} т`}</strong></div>
-                    <div><span>Дата и время</span><strong>{`${formatDateTitle(new Date(detailsBooking.starts_at))}, ${formatBookingTime(detailsBooking.starts_at)} - ${addMinutesToTimeLabel(detailsBooking.starts_at, service.durationMinutes)}`}</strong></div>
-                    <div>
-                      <span>Ресурс</span>
-                      <strong className={styles.resourceValue}>
-                        <b>
-                          {detailsSpecialist?.photo_url ? (
-                            <img src={detailsSpecialist.photo_url} alt="" />
-                          ) : (
-                            detailsSpecialist?.full_name.slice(0, 1).toUpperCase() || "С"
-                          )}
-                        </b>
-                        {detailsBooking.manager_name || "Не назначен"}
-                      </strong>
-                    </div>
-                    <div><span>Статус</span><strong className={styles[`detailStatus${getStatusTone(detailsBooking.status).charAt(0).toUpperCase()}${getStatusTone(detailsBooking.status).slice(1)}`]}>{getStatusLabel(detailsBooking.status)}</strong></div>
-                  </section>
-                ))}
+                {detailsServices.map((service, index) => {
+                  const minutesBeforeService = detailsServices
+                    .slice(0, index)
+                    .reduce((total, previousService) => total + previousService.durationMinutes, 0);
+                  const serviceStart = addMinutesToTimeLabel(detailsBooking.starts_at, minutesBeforeService);
+                  const serviceEnd = addMinutesToTimeLabel(detailsBooking.starts_at, minutesBeforeService + service.durationMinutes);
+
+                  return (
+                    <section key={`${service.name}-${index}`} className={styles.detailServiceCard}>
+                      <div><span>Получатель услуги</span><strong>{detailsBooking.client_name}</strong></div>
+                      <div><span>Услуга</span><strong>{service.name}</strong></div>
+                      <div><span>Стоимость услуги</span><strong>{service.price == null ? "-" : `${service.price.toLocaleString("ru-RU")} т`}</strong></div>
+                      <div><span>Дата и время</span><strong>{`${formatDateTitle(new Date(detailsBooking.starts_at))}, ${serviceStart} - ${serviceEnd}`}</strong></div>
+                      <div>
+                        <span>Ресурс</span>
+                        <strong className={styles.resourceValue}>
+                          <b>
+                            {detailsSpecialist?.photo_url ? (
+                              <img src={detailsSpecialist.photo_url} alt="" />
+                            ) : (
+                              detailsSpecialist?.full_name.slice(0, 1).toUpperCase() || "С"
+                            )}
+                          </b>
+                          {detailsBooking.manager_name || "Не назначен"}
+                        </strong>
+                      </div>
+                      <div><span>Статус</span><strong className={styles[`detailStatus${getStatusTone(detailsBooking.status).charAt(0).toUpperCase()}${getStatusTone(detailsBooking.status).slice(1)}`]}>{getStatusLabel(detailsBooking.status)}</strong></div>
+                    </section>
+                  );
+                })}
               </div>
 
               <div className={styles.totalRow}>
