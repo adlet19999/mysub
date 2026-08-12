@@ -401,29 +401,6 @@
   font-weight: 500;
 }
 
-.bookingSpecialistAvatar {
-  position: absolute;
-  right: 8px;
-  bottom: 7px;
-  width: 20px;
-  height: 20px;
-  overflow: hidden;
-  border-radius: 5px;
-  background: #e9ecef;
-  color: #1f5f4d;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 9px;
-  font-weight: 600;
-}
-
-.bookingSpecialistAvatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
 .bookingEditButton {
   position: absolute;
   right: 6px;

@@ -855,11 +855,6 @@ export default function SchedulePage() {
                           <p className={`${styles.slotStateText} ${slotStateTextClass}`}>Тех. перерыв</p>
                         ) : null}
                         {slotEntries.map((entry) => (
-                          (() => {
-                            const bookingSpecialist = activeSpecialists.find(
-                              (item) => item.full_name.trim().toLowerCase() === (entry.booking.manager_name || "").trim().toLowerCase(),
-                            );
-                            return (
                           <article
                             key={entry.booking.id}
                             className={`${styles.bookingCard} ${styles[`bookingCard${getStatusTone(entry.booking.status).charAt(0).toUpperCase()}${getStatusTone(entry.booking.status).slice(1)}`]}`}
@@ -886,16 +881,7 @@ export default function SchedulePage() {
                             <p className={styles.bookingTime}>
                               {formatBookingTime(entry.booking.starts_at)} - {addMinutesToTimeLabel(entry.booking.starts_at, entry.durationMinutes)}
                             </p>
-                            <span className={styles.bookingSpecialistAvatar} title={entry.booking.manager_name || "Специалист"}>
-                              {bookingSpecialist?.photo_url ? (
-                                <img src={bookingSpecialist.photo_url} alt="" />
-                              ) : (
-                                (entry.booking.manager_name || "С").trim().slice(0, 1).toUpperCase()
-                              )}
-                            </span>
                           </article>
-                            );
-                          })()
                         ))}
                       </div>
                     );
