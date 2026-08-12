@@ -200,3 +200,105 @@
   }
 }
 
+@media (max-width: 600px) {
+  .shell {
+    min-height: 100dvh;
+    padding: 0;
+    background: #ffffff;
+  }
+
+  .panel {
+    min-height: 100dvh;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .left {
+    min-height: 100dvh;
+    padding: 24px 20px 20px;
+    justify-content: flex-start;
+  }
+
+  .brandRow {
+    padding-bottom: 22px;
+    border-bottom: 1px solid #e7ece9;
+  }
+
+  .brandRow img {
+    width: 106px;
+    height: auto;
+  }
+
+  .formWrap {
+    max-width: none;
+    margin: 44px 0 0;
+  }
+
+  .title {
+    font-size: 28px;
+    line-height: 34px;
+    letter-spacing: 0;
+    white-space: normal;
+  }
+
+  .subtitle {
+    margin-bottom: 30px;
+    font-size: 15px;
+    line-height: 22px;
+  }
+
+  .label {
+    margin-bottom: 8px;
+    font-size: 14px;
+  }
+
+  .input,
+  .loginButton {
+    height: 52px;
+    border-radius: 10px;
+  }
+
+  .input {
+    margin-bottom: 16px;
+    font-size: 16px;
+  }
+
+  .passwordRow .input {
+    margin-bottom: 10px;
+  }
+
+  .eyeButton {
+    top: 10px;
+  }
+
+  .loginButton {
+    margin-top: 4px;
+    font-size: 16px;
+  }
+
+  .linkButton {
+    margin-top: 18px;
+    font-size: 14px;
+  }
+
+  .footer {
+    margin-top: auto;
+    padding-top: 34px;
+    align-items: center;
+    text-align: center;
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  .footerLinks {
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+  }
+
+  .footerLinks button {
+    padding: 0;
+    font-size: inherit;
+  }
+}
+
