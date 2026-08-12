@@ -19,6 +19,7 @@ type Specialist = {
   id: number;
   full_name: string;
   description?: string;
+  photo_url?: string;
   working_schedule: WorkingDaySchedule[];
   service_ids?: number[];
   is_active: boolean;
@@ -505,7 +506,7 @@ export default function SchedulePage() {
         "X-Partner-Email": partnerEmail,
       };
       const [specialistsResponse, servicesResponse, bookingsResponse] = await Promise.all([
-        fetch(`${API_BASE}/partner/specialists/?include_photo=0`, {
+        fetch(`${API_BASE}/partner/specialists/`, {
           headers,
           cache: "no-store",
         }),
@@ -852,6 +853,11 @@ export default function SchedulePage() {
                           <p className={`${styles.slotStateText} ${slotStateTextClass}`}>Тех. перерыв</p>
                         ) : null}
                         {slotEntries.map((entry) => (
+                          (() => {
+                            const bookingSpecialist = activeSpecialists.find(
+                              (item) => item.full_name.trim().toLowerCase() === (entry.booking.manager_name || "").trim().toLowerCase(),
+                            );
+                            return (
                           <article
                             key={entry.booking.id}
                             className={`${styles.bookingCard} ${styles[`bookingCard${getStatusTone(entry.booking.status).charAt(0).toUpperCase()}${getStatusTone(entry.booking.status).slice(1)}`]}`}
@@ -878,7 +884,16 @@ export default function SchedulePage() {
                             <p className={styles.bookingTime}>
                               {formatBookingTime(entry.booking.starts_at)} - {addMinutesToTimeLabel(entry.booking.starts_at, entry.durationMinutes)}
                             </p>
+                            <span className={styles.bookingSpecialistAvatar} title={entry.booking.manager_name || "Специалист"}>
+                              {bookingSpecialist?.photo_url ? (
+                                <img src={bookingSpecialist.photo_url} alt="" />
+                              ) : (
+                                (entry.booking.manager_name || "С").trim().slice(0, 1).toUpperCase()
+                              )}
+                            </span>
                           </article>
+                            );
+                          })()
                         ))}
                       </div>
                     );
@@ -1040,7 +1055,13 @@ export default function SchedulePage() {
                     <div>
                       <span>Ресурс</span>
                       <strong className={styles.resourceValue}>
-                        <b>{detailsSpecialist?.full_name.slice(0, 1).toUpperCase() || "С"}</b>
+                        <b>
+                          {detailsSpecialist?.photo_url ? (
+                            <img src={detailsSpecialist.photo_url} alt="" />
+                          ) : (
+                            detailsSpecialist?.full_name.slice(0, 1).toUpperCase() || "С"
+                          )}
+                        </b>
                         {detailsBooking.manager_name || "Не назначен"}
                       </strong>
                     </div>
