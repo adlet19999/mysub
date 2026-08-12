@@ -876,6 +876,10 @@
   font-weight: 600;
 }
 
+.discountedTotalRow strong {
+  color: #1f6b52;
+}
+
 .commentBlock {
   display: grid;
   gap: 8px;

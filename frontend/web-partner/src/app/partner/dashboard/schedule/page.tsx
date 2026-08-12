@@ -32,6 +32,7 @@ type Service = {
   kind_name?: string | null;
   duration_minutes?: number;
   price: string | null;
+  discount_percent?: number;
   is_active: boolean;
 };
 
@@ -382,6 +383,7 @@ export default function SchedulePage() {
       return {
         name: serviceName,
         price: Number.isFinite(price) ? price : null,
+        discountPercent: Math.max(0, Math.min(100, Number(service?.discount_percent || 0))),
         durationMinutes: service?.duration_minutes && service.duration_minutes > 0 ? service.duration_minutes : 60,
       };
     });
@@ -1073,6 +1075,10 @@ export default function SchedulePage() {
               <div className={styles.totalRow}>
                 <span>Общая сумма</span>
                 <strong>{`${detailsServices.reduce((sum, service) => sum + (service.price || 0), 0).toLocaleString("ru-RU")} т`}</strong>
+              </div>
+              <div className={`${styles.totalRow} ${styles.discountedTotalRow}`}>
+                <span>Общая сумма со скидкой</span>
+                <strong>{`${detailsServices.reduce((sum, service) => sum + (service.price || 0) * (1 - service.discountPercent / 100), 0).toLocaleString("ru-RU")} т`}</strong>
               </div>
               <div className={styles.commentBlock}>
                 <span>Комментарий</span>
