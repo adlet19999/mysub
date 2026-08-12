@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import styles from "./page.module.css";
@@ -113,7 +112,7 @@ export default function PartnerPage() {
       <div className={styles.panel}>
         <section className={styles.left}>
           <header className={styles.brandRow}>
-            <Image src="/logo.svg" alt="MySub" width={118} height={42} priority />
+            <img src="/logo.svg" alt="MySub" width={118} height={42} />
           </header>
 
           <form className={styles.formWrap} onSubmit={onSubmit}>
@@ -183,15 +182,7 @@ export default function PartnerPage() {
         </section>
 
         <section className={styles.right}>
-          <div className={styles.heroMedia}>
-            <Image
-              src="/partner-login-left.webp"
-              alt="MySub partner preview"
-              fill
-              sizes="(max-width: 1080px) 100vw, 54vw"
-              className={styles.heroImage}
-            />
-          </div>
+          <div className={styles.heroMedia} aria-hidden="true" />
         </section>
       </div>
     </div>

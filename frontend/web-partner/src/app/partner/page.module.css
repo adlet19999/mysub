@@ -171,11 +171,7 @@
   right: 24px;
   bottom: 24px;
   left: 24px;
-}
-
-.heroImage {
-  object-fit: contain;
-  object-position: right center;
+  background: url("/partner-login-left.webp") right center / contain no-repeat;
 }
 
 @media (max-width: 1080px) {
