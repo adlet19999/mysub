@@ -185,8 +185,8 @@ export default function PartnerDashboardPage() {
   return (
     <section className={styles.content}>
       <div className={styles.contentHeading}>
-        <h2 className={styles.pageTitle}>Записи</h2>
-        <p className={styles.pageSubtitle}>Реестр записей и аналитика по выбранному периоду</p>
+        <h2 className={styles.pageTitle}>Статистика</h2>
+        <p className={styles.pageSubtitle}>Аналитика записей и выгрузка данных</p>
       </div>
 
       <section className={styles.statsRow}>
