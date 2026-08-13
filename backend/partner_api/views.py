@@ -1066,6 +1066,10 @@ class ManagerDetailView(APIView):
 		is_active = request.data.get("is_active")
 		if is_active is not None:
 			item.is_active = parse_bool(is_active, item.is_active)
+			manager_user = User.objects.filter(Q(username__iexact=item.email) | Q(email__iexact=item.email)).first()
+			if manager_user and manager_user.is_active != item.is_active:
+				manager_user.is_active = item.is_active
+				manager_user.save(update_fields=["is_active"])
 
 		item.save()
 		if item.photo_url != previous_photo_url:

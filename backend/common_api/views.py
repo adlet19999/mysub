@@ -97,6 +97,12 @@ class AuthLoginView(APIView):
 
 		profile = getattr(user, "partner_profile", None)
 		user_type = profile.user_type if profile else "partner"
+		if user_type == "manager":
+			from partner_api.models import Manager
+
+			is_archived = Manager.objects.filter(email__iexact=user.email, is_active=False).exists()
+			if is_archived:
+				return Response({"message": "Аккаунт менеджера заблокирован"}, status=403)
 		phone = profile.phone if profile else "+7"
 		company_name = profile.company_name if profile else ""
 		address = profile.address if profile else ""
