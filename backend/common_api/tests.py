@@ -12,7 +12,7 @@ class ArchivedManagerLoginTests(TestCase):
 	def test_archived_manager_cannot_log_in(self):
 		partner = User.objects.create_user(username="partner@example.com", email="partner@example.com", password="password123")
 		partner_profile = PartnerProfile.objects.create(user=partner, phone="+77001112233", user_type="partner")
-		manager = User.objects.create_user(username="manager@example.com", email="manager@example.com", password="password123")
+		manager = User.objects.create_user(username="manager@example.com", email="manager@example.com", password="password123", is_active=False)
 		PartnerProfile.objects.create(user=manager, phone="+77001112234", user_type="manager")
 		Manager.objects.create(
 			tenant_slug="public",

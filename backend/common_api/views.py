@@ -93,6 +93,16 @@ class AuthLoginView(APIView):
 
 		user = authenticate(request, username=username, password=password)
 		if user is None:
+			inactive_user = (
+				User.objects.filter(username__iexact=username, is_active=False).first()
+				or User.objects.filter(email__iexact=username, is_active=False).first()
+			)
+			if inactive_user and inactive_user.check_password(password):
+				from partner_api.models import Manager
+
+				is_archived_manager = Manager.objects.filter(email__iexact=inactive_user.email, is_active=False).exists()
+				if is_archived_manager:
+					return Response({"message": "Аккаунт менеджера заблокирован"}, status=403)
 			return Response({"message": "Неверный логин или пароль"}, status=401)
 
 		profile = getattr(user, "partner_profile", None)
