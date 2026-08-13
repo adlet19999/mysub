@@ -46,16 +46,12 @@ const RUS_MONTHS = [
   "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
 ];
 
+const RUS_MONTHS_SHORT = ["янв.", "февр.", "мар.", "апр.", "мая", "июн.", "июл.", "авг.", "сент.", "окт.", "нояб.", "дек."];
+
 function formatDateTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return `${String(date.getDate()).padStart(2, "0")} ${RUS_MONTHS_SHORT[date.getMonth()]} ${date.getFullYear()}, ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function toDateKey(value: string) {
@@ -78,6 +74,14 @@ function toDateValue(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function parseDateInput(value: string) {
+  const match = value.trim().match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (!match) return null;
+  const date = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+  if (date.getFullYear() !== Number(match[3]) || date.getMonth() !== Number(match[2]) - 1 || date.getDate() !== Number(match[1])) return null;
+  return toDateValue(date);
 }
 
 function parseServiceNames(value: string) {
@@ -109,6 +113,8 @@ export default function PartnerDashboardPage() {
   const [partnerEmail, setPartnerEmail] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [dateFromInput, setDateFromInput] = useState("");
+  const [dateToInput, setDateToInput] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [serviceFilter, setServiceFilter] = useState("all");
   const [specialistFilter, setSpecialistFilter] = useState("all");
@@ -214,6 +220,8 @@ export default function PartnerDashboardPage() {
   function resetFilters() {
     setDateFrom("");
     setDateTo("");
+    setDateFromInput("");
+    setDateToInput("");
     setStatusFilter("all");
     setServiceFilter("all");
     setSpecialistFilter("all");
@@ -228,9 +236,37 @@ export default function PartnerDashboardPage() {
 
   function selectCalendarDate(date: Date) {
     const value = toDateValue(date);
-    if (openDateField === "from") setDateFrom(value);
-    if (openDateField === "to") setDateTo(value);
+    if (openDateField === "from") {
+      setDateFrom(value);
+      setDateFromInput(formatDateInput(value));
+    }
+    if (openDateField === "to") {
+      setDateTo(value);
+      setDateToInput(formatDateInput(value));
+    }
     setOpenDateField(null);
+  }
+
+  function commitManualDate(field: DateField) {
+    const inputValue = field === "from" ? dateFromInput : dateToInput;
+    const value = parseDateInput(inputValue);
+    if (!inputValue.trim()) {
+      if (field === "from") setDateFrom("");
+      else setDateTo("");
+      return;
+    }
+    if (!value) {
+      if (field === "from") setDateFromInput(formatDateInput(dateFrom));
+      else setDateToInput(formatDateInput(dateTo));
+      return;
+    }
+    if (field === "from") {
+      setDateFrom(value);
+      setDateFromInput(formatDateInput(value));
+    } else {
+      setDateTo(value);
+      setDateToInput(formatDateInput(value));
+    }
   }
 
   return (
@@ -248,13 +284,24 @@ export default function PartnerDashboardPage() {
         <div className={styles.filterInputs}>
           {(["from", "to"] as DateField[]).map((field) => {
             const value = field === "from" ? dateFrom : dateTo;
+            const inputValue = field === "from" ? dateFromInput : dateToInput;
             const isOpen = openDateField === field;
             return <div key={field} className={styles.inputGroup}>
               <span>{field === "from" ? "Период с" : "Период по"}</span>
-              <button type="button" className={styles.datePickerButton} onClick={() => openCalendar(field)} aria-expanded={isOpen}>
-                <span className={styles.calendarGlyph} aria-hidden="true" />
-                {formatDateInput(value)}
-              </button>
+              <div className={styles.dateField}>
+                <input
+                  type="text"
+                  value={inputValue}
+                  placeholder="дд.мм.гггг"
+                  inputMode="numeric"
+                  maxLength={10}
+                  onChange={(event) => field === "from" ? setDateFromInput(event.target.value) : setDateToInput(event.target.value)}
+                  onBlur={() => commitManualDate(field)}
+                />
+                <button type="button" className={styles.calendarButton} onClick={() => openCalendar(field)} aria-label={field === "from" ? "Выбрать начальную дату" : "Выбрать конечную дату"} aria-expanded={isOpen}>
+                  <img src="/calendar.svg" alt="" aria-hidden="true" />
+                </button>
+              </div>
               {isOpen && <div className={styles.calendarPopover} role="dialog" aria-label={field === "from" ? "Выбор начальной даты" : "Выбор конечной даты"}>
                 <header className={styles.calendarHeader}>
                   <button type="button" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Предыдущий месяц">‹</button>

@@ -132,45 +132,58 @@
   box-shadow: 0 0 0 3px rgba(31, 95, 77, 0.12);
 }
 
-.datePickerButton {
+.dateField {
   width: 100%;
   height: 40px;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   background: #ffffff;
-  padding: 0 12px;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 8px;
+}
+
+.dateField:focus-within {
+  border-color: #1f5f4d;
+  box-shadow: 0 0 0 3px rgba(31, 95, 77, 0.12);
+}
+
+.dateField input {
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  padding: 0 0 0 12px;
   color: #1e1e1e;
   font-family: var(--font-family-base);
   font-size: 16px;
   line-height: 24px;
-  text-align: left;
+  outline: none;
+}
+
+.dateField input::placeholder {
+  color: rgba(30, 30, 30, 0.5);
+}
+
+.calendarButton {
+  width: 40px;
+  height: 38px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  display: grid;
+  place-items: center;
   cursor: pointer;
 }
 
-.datePickerButton:hover,
-.datePickerButton[aria-expanded="true"] {
-  border-color: #1f5f4d;
+.calendarButton:hover,
+.calendarButton[aria-expanded="true"] {
+  background: #edf5f1;
 }
 
-.calendarGlyph {
+.calendarButton img {
   width: 16px;
   height: 16px;
-  flex: 0 0 16px;
-  border: 1.5px solid #52616b;
-  border-radius: 3px;
-  position: relative;
-}
-
-.calendarGlyph::before {
-  content: "";
-  position: absolute;
-  top: 3px;
-  left: 0;
-  width: 100%;
-  border-top: 1.5px solid #52616b;
 }
 
 .calendarPopover {
