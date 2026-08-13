@@ -29,14 +29,6 @@ type RowItem = Booking & {
   statusLabel: string;
 };
 
-type BookingFilters = {
-  dateFrom: string;
-  dateTo: string;
-  status: string;
-  service: string;
-  specialist: string;
-};
-
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1";
 const TENANT_DEFAULT = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public";
 
@@ -45,14 +37,6 @@ const STATUS_LABELS: Record<string, string> = {
   completed: "Завершена",
   cancelled: "Отменена",
   no_show: "Неявка",
-};
-
-const EMPTY_FILTERS: BookingFilters = {
-  dateFrom: "",
-  dateTo: "",
-  status: "all",
-  service: "all",
-  specialist: "all",
 };
 
 function formatDateTime(value: string) {
@@ -80,10 +64,6 @@ function formatTenge(value: number) {
   return `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(value)} ₸`;
 }
 
-function escapeCsvValue(value: string | number) {
-  return `"${String(value).replace(/"/g, '""')}"`;
-}
-
 function Badge({ value, type }: { value: string; type: "status" | "subscription" }) {
   const className =
     type === "status"
@@ -108,7 +88,7 @@ export default function PartnerDashboardPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [serviceFilter, setServiceFilter] = useState("all");
   const [specialistFilter, setSpecialistFilter] = useState("all");
-  const [appliedFilters, setAppliedFilters] = useState<BookingFilters>(EMPTY_FILTERS);
+  const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -176,13 +156,13 @@ export default function PartnerDashboardPage() {
 
   const filteredRows = useMemo(() => rows.filter((row) => {
     const dateKey = toDateKey(row.starts_at);
-    if (appliedFilters.dateFrom && dateKey < appliedFilters.dateFrom) return false;
-    if (appliedFilters.dateTo && dateKey > appliedFilters.dateTo) return false;
-    if (appliedFilters.status !== "all" && row.status !== appliedFilters.status) return false;
-    if (appliedFilters.service !== "all" && !parseServiceNames(row.service_name).some((name) => name === appliedFilters.service)) return false;
-    if (appliedFilters.specialist !== "all" && (row.manager_name || "Не назначен") !== appliedFilters.specialist) return false;
+    if (dateFrom && dateKey < dateFrom) return false;
+    if (dateTo && dateKey > dateTo) return false;
+    if (statusFilter !== "all" && row.status !== statusFilter) return false;
+    if (serviceFilter !== "all" && !parseServiceNames(row.service_name).some((name) => name === serviceFilter)) return false;
+    if (specialistFilter !== "all" && (row.manager_name || "Не назначен") !== specialistFilter) return false;
     return true;
-  }), [rows, appliedFilters]);
+  }), [rows, dateFrom, dateTo, statusFilter, serviceFilter, specialistFilter]);
 
   const stats = useMemo(() => [
     { label: "Всего записей", value: String(filteredRows.length) },
@@ -200,39 +180,6 @@ export default function PartnerDashboardPage() {
     setStatusFilter("all");
     setServiceFilter("all");
     setSpecialistFilter("all");
-    setAppliedFilters(EMPTY_FILTERS);
-  }
-
-  function applyFilters() {
-    setAppliedFilters({
-      dateFrom,
-      dateTo,
-      status: statusFilter,
-      service: serviceFilter,
-      specialist: specialistFilter,
-    });
-  }
-
-  function exportToExcel() {
-    const header = ["Дата и время", "ФИО клиента", "Телефон", "Услуги", "Специалист", "Статус", "Подписка", "Сумма"];
-    const records = filteredRows.map((row) => [
-      row.date,
-      row.client_name,
-      row.client_phone,
-      row.service,
-      row.manager_name || "Не назначен",
-      row.statusLabel,
-      row.subscription,
-      row.sum,
-    ]);
-    const csv = [header, ...records].map((row) => row.map(escapeCsvValue).join(";")).join("\r\n");
-    const file = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
-    const downloadUrl = URL.createObjectURL(file);
-    const link = document.createElement("a");
-    link.href = downloadUrl;
-    link.download = "zapisi-partnera.csv";
-    link.click();
-    URL.revokeObjectURL(downloadUrl);
   }
 
   return (
@@ -252,23 +199,19 @@ export default function PartnerDashboardPage() {
           <label className={styles.inputGroup}><span>Период по</span><input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} /></label>
         </div>
         <div className={styles.filterActions}>
-          <button type="button" className={styles.filterButton} onClick={applyFilters}>
+          <button type="button" className={styles.filterButton} onClick={() => setIsFiltersOpen((value) => !value)} aria-expanded={isFiltersOpen}>
             <span className={styles.filterIcon} aria-hidden="true" />
-            Применить фильтры
+            Фильтры
           </button>
           <button type="button" className={styles.resetButton} onClick={resetFilters}>Сбросить</button>
-          <button type="button" className={styles.exportButton} onClick={exportToExcel} disabled={filteredRows.length === 0}>
-            <span className={styles.downloadIcon} aria-hidden="true" />
-            Выгрузить в Excel
-          </button>
         </div>
       </section>
 
-      <section className={styles.advancedFilters} aria-label="Дополнительные фильтры">
+      {isFiltersOpen && <section className={styles.advancedFilters} aria-label="Дополнительные фильтры">
         <label className={styles.selectGroup}>Статус<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Все статусы</option>{statusOptions.map((status) => <option key={status} value={status}>{STATUS_LABELS[status] || status}</option>)}</select></label>
         <label className={styles.selectGroup}>Услуга<select value={serviceFilter} onChange={(event) => setServiceFilter(event.target.value)}><option value="all">Все услуги</option>{serviceOptions.map((service) => <option key={service} value={service}>{service}</option>)}</select></label>
         <label className={styles.selectGroup}>Специалист<select value={specialistFilter} onChange={(event) => setSpecialistFilter(event.target.value)}><option value="all">Все специалисты</option>{specialistOptions.map((specialist) => <option key={specialist} value={specialist}>{specialist}</option>)}</select></label>
-      </section>
+      </section>}
 
       <div className={styles.tableBox}>
         <table className={styles.table}>
