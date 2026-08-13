@@ -85,6 +85,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  position: relative;
 }
 
 .inputGroup span:first-child {
@@ -129,6 +130,137 @@
 .selectGroup select:focus {
   border-color: #1f5f4d;
   box-shadow: 0 0 0 3px rgba(31, 95, 77, 0.12);
+}
+
+.datePickerButton {
+  width: 100%;
+  height: 40px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #1e1e1e;
+  font-family: var(--font-family-base);
+  font-size: 16px;
+  line-height: 24px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.datePickerButton:hover,
+.datePickerButton[aria-expanded="true"] {
+  border-color: #1f5f4d;
+}
+
+.calendarGlyph {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  border: 1.5px solid #52616b;
+  border-radius: 3px;
+  position: relative;
+}
+
+.calendarGlyph::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 0;
+  width: 100%;
+  border-top: 1.5px solid #52616b;
+}
+
+.calendarPopover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 294px;
+  border: 1px solid #e1e8e5;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(17, 40, 32, 0.16);
+  padding: 12px;
+}
+
+.calendarHeader {
+  display: grid;
+  grid-template-columns: 32px 1fr 32px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.calendarHeader strong {
+  color: #1e1e1e;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  text-align: center;
+  text-transform: capitalize;
+}
+
+.calendarHeader button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #1f6b52;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.calendarHeader button:hover,
+.calendarDay:hover {
+  background: #edf5f1;
+}
+
+.calendarWeekdays,
+.calendarDays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.calendarWeekdays {
+  margin-bottom: 4px;
+}
+
+.calendarWeekdays span {
+  color: #8a969d;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.calendarDay {
+  aspect-ratio: 1;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #26332d;
+  font-family: var(--font-family-base);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.calendarDayMuted {
+  color: #b4bdc0;
+}
+
+.calendarDaySelected {
+  background: #1f6b52;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.calendarDaySelected:hover {
+  background: #185340;
 }
 
 .calendarIcon {

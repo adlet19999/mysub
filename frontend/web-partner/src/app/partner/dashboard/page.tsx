@@ -25,9 +25,11 @@ type RowItem = Booking & {
   date: string;
   service: string;
   subscription: string;
-  sum: number;
+  sum: number | null;
   statusLabel: string;
 };
+
+type DateField = "from" | "to";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1";
 const TENANT_DEFAULT = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public";
@@ -38,6 +40,11 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: "Отменена",
   no_show: "Неявка",
 };
+
+const RUS_MONTHS = [
+  "январь", "февраль", "март", "апрель", "май", "июнь",
+  "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
+];
 
 function formatDateTime(value: string) {
   const date = new Date(value);
@@ -54,6 +61,23 @@ function formatDateTime(value: string) {
 function toDateKey(value: string) {
   const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
   return match?.[1] ?? "";
+}
+
+function formatDateInput(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}.${match[2]}.${match[1]}` : "Выберите дату";
+}
+
+function toCalendarDate(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : new Date();
+}
+
+function toDateValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function parseServiceNames(value: string) {
@@ -89,6 +113,8 @@ export default function PartnerDashboardPage() {
   const [serviceFilter, setServiceFilter] = useState("all");
   const [specialistFilter, setSpecialistFilter] = useState("all");
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+  const [openDateField, setOpenDateField] = useState<DateField | null>(null);
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -139,7 +165,7 @@ export default function PartnerDashboardPage() {
     return bookings.map((booking) => {
       const bookedServices = parseServiceNames(booking.service_name);
       const relatedServices = bookedServices.map((name) => servicesByName.get(name.toLowerCase())).filter(Boolean) as Service[];
-      const sum = relatedServices.reduce((total, service) => {
+      const calculatedSum = relatedServices.reduce((total, service) => {
         const price = Number(service.price || 0);
         return total + price * (1 - Math.min(100, Math.max(0, service.discount_percent || 0)) / 100);
       }, 0);
@@ -148,11 +174,22 @@ export default function PartnerDashboardPage() {
         date: formatDateTime(booking.starts_at),
         service: bookedServices.join(", ") || "Не указана",
         subscription: relatedServices.length > 0 && relatedServices.every((service) => service.is_subscription) ? "Доступна" : "Нет",
-        sum,
+        sum: booking.status === "no_show" ? null : calculatedSum,
         statusLabel: STATUS_LABELS[booking.status] || booking.status || "Запланирована",
       };
     });
   }, [bookings, services]);
+
+  const calendarDays = useMemo(() => {
+    const monthStart = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
+    const gridStart = new Date(monthStart);
+    gridStart.setDate(monthStart.getDate() - ((monthStart.getDay() + 6) % 7));
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(gridStart);
+      date.setDate(gridStart.getDate() + index);
+      return date;
+    });
+  }, [calendarMonth]);
 
   const filteredRows = useMemo(() => rows.filter((row) => {
     const dateKey = toDateKey(row.starts_at);
@@ -167,7 +204,7 @@ export default function PartnerDashboardPage() {
   const stats = useMemo(() => [
     { label: "Всего записей", value: String(filteredRows.length) },
     { label: "Завершено", value: String(filteredRows.filter((row) => row.status === "completed").length) },
-    { label: "Выручка", value: formatTenge(filteredRows.filter((row) => row.status === "completed").reduce((sum, row) => sum + row.sum, 0)) },
+    { label: "Выручка", value: formatTenge(filteredRows.filter((row) => row.status === "completed").reduce((sum, row) => sum + (row.sum ?? 0), 0)) },
   ], [filteredRows]);
 
   const statusOptions = [...new Set(bookings.map((booking) => booking.status).filter(Boolean))];
@@ -180,6 +217,20 @@ export default function PartnerDashboardPage() {
     setStatusFilter("all");
     setServiceFilter("all");
     setSpecialistFilter("all");
+  }
+
+  function openCalendar(field: DateField) {
+    const currentValue = field === "from" ? dateFrom : dateTo;
+    const currentDate = toCalendarDate(currentValue);
+    setCalendarMonth(new Date(currentDate.getFullYear(), currentDate.getMonth(), 1));
+    setOpenDateField((previous) => previous === field ? null : field);
+  }
+
+  function selectCalendarDate(date: Date) {
+    const value = toDateValue(date);
+    if (openDateField === "from") setDateFrom(value);
+    if (openDateField === "to") setDateTo(value);
+    setOpenDateField(null);
   }
 
   return (
@@ -195,8 +246,30 @@ export default function PartnerDashboardPage() {
 
       <section className={styles.filtersBox}>
         <div className={styles.filterInputs}>
-          <label className={styles.inputGroup}><span>Период с</span><input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)} /></label>
-          <label className={styles.inputGroup}><span>Период по</span><input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} /></label>
+          {(["from", "to"] as DateField[]).map((field) => {
+            const value = field === "from" ? dateFrom : dateTo;
+            const isOpen = openDateField === field;
+            return <div key={field} className={styles.inputGroup}>
+              <span>{field === "from" ? "Период с" : "Период по"}</span>
+              <button type="button" className={styles.datePickerButton} onClick={() => openCalendar(field)} aria-expanded={isOpen}>
+                <span className={styles.calendarGlyph} aria-hidden="true" />
+                {formatDateInput(value)}
+              </button>
+              {isOpen && <div className={styles.calendarPopover} role="dialog" aria-label={field === "from" ? "Выбор начальной даты" : "Выбор конечной даты"}>
+                <header className={styles.calendarHeader}>
+                  <button type="button" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Предыдущий месяц">‹</button>
+                  <strong>{`${RUS_MONTHS[calendarMonth.getMonth()]} ${calendarMonth.getFullYear()}`}</strong>
+                  <button type="button" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="Следующий месяц">›</button>
+                </header>
+                <div className={styles.calendarWeekdays}>{["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((day) => <span key={day}>{day}</span>)}</div>
+                <div className={styles.calendarDays}>{calendarDays.map((date) => {
+                  const dateValue = toDateValue(date);
+                  const isCurrentMonth = date.getMonth() === calendarMonth.getMonth();
+                  return <button key={dateValue} type="button" className={`${styles.calendarDay} ${isCurrentMonth ? "" : styles.calendarDayMuted} ${dateValue === value ? styles.calendarDaySelected : ""}`} onClick={() => selectCalendarDate(date)}>{date.getDate()}</button>;
+                })}</div>
+              </div>}
+            </div>;
+          })}
         </div>
         <div className={styles.filterActions}>
           <button type="button" className={styles.filterButton} onClick={() => setIsFiltersOpen((value) => !value)} aria-expanded={isFiltersOpen}>
@@ -220,7 +293,7 @@ export default function PartnerDashboardPage() {
             {isLoading && <tr><td colSpan={8} className={styles.emptyState}>Загрузка записей...</td></tr>}
             {!isLoading && loadError && <tr><td colSpan={8} className={styles.emptyState}>{loadError}</td></tr>}
             {!isLoading && !loadError && filteredRows.length === 0 && <tr><td colSpan={8} className={styles.emptyState}>Записей по выбранным фильтрам нет.</td></tr>}
-            {!isLoading && !loadError && filteredRows.map((row) => <tr key={row.id}><td>{row.date}</td><td>{row.client_name}</td><td>{row.client_phone}</td><td>{row.service}</td><td>{row.manager_name || "Не назначен"}</td><td className={styles.center}><Badge value={row.statusLabel} type="status" /></td><td className={styles.center}><Badge value={row.subscription} type="subscription" /></td><td>{formatTenge(row.sum)}</td></tr>)}
+            {!isLoading && !loadError && filteredRows.map((row) => <tr key={row.id}><td>{row.date}</td><td>{row.client_name}</td><td>{row.client_phone}</td><td>{row.service}</td><td>{row.manager_name || "Не назначен"}</td><td className={styles.center}><Badge value={row.statusLabel} type="status" /></td><td className={styles.center}><Badge value={row.subscription} type="subscription" /></td><td>{row.sum === null ? "-" : formatTenge(row.sum)}</td></tr>)}
           </tbody>
         </table>
       </div>
