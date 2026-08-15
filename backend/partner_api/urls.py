@@ -3,6 +3,8 @@ from django.urls import path
 from .views import (
     BookingDetailView,
     BookingListCreateView,
+    BusinessTableDetailView,
+    BusinessTableListCreateView,
     CategoryListCreateView,
     ManagerDetailView,
     ManagerListCreateView,
@@ -19,6 +21,8 @@ from .views import (
 
 urlpatterns = [
     path("profile/", PartnerProfileView.as_view(), name="partner-profile"),
+    path("business-tables/", BusinessTableListCreateView.as_view(), name="partner-business-tables"),
+    path("business-tables/<int:table_id>/", BusinessTableDetailView.as_view(), name="partner-business-table-detail"),
     path("categories/", CategoryListCreateView.as_view(), name="partner-categories"),
     path("service-kinds/", ServiceKindListCreateView.as_view(), name="partner-service-kinds"),
     path("services/", ServiceListCreateView.as_view(), name="partner-services"),

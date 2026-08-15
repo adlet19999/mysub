@@ -43,6 +43,22 @@
   cursor: pointer;
 }
 
+.saveTopButton:disabled,
+.saveButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.errorMessage,
+.successMessage {
+  margin: 0;
+  font-family: var(--font-family-base);
+  font-size: 13px;
+}
+
+.errorMessage { color: #b42318; }
+.successMessage { color: #16794f; }
+
 .grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
@@ -89,6 +105,7 @@
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .fieldGrid {
@@ -147,6 +164,20 @@
   justify-content: center;
   height: 90px;
   margin-bottom: 8px;
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.uploadBox img,
+.photoBox img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.fileInput {
+  display: none;
 }
 
 .photoBox {
@@ -161,6 +192,104 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.itemList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.listItem {
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 6px;
+}
+
+.listItem img,
+.itemPlaceholder {
+  width: 44px;
+  height: 40px;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+.itemPlaceholder {
+  background: #f3f4f6;
+}
+
+.listItem strong,
+.listItem p,
+.listItem span {
+  font-family: var(--font-family-base);
+}
+
+.listItem strong {
+  display: block;
+  color: #1e1e1e;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.listItem p {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: #6b7280;
+  font-size: 11px;
+  line-height: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listItem > span {
+  color: #1f5f4d;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tableForm {
+  margin-bottom: 12px;
+}
+
+.counter {
+  min-width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #edf5f1;
+  color: #1f5f4d;
+  display: inline-grid;
+  place-items: center;
+  font-family: var(--font-family-base);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.archiveButton {
+  height: 26px;
+  border: 1px solid #e5e7eb;
+  border-radius: 5px;
+  background: #ffffff;
+  padding: 0 8px;
+  color: #6b7280;
+  font-family: var(--font-family-base);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.emptyText {
+  margin: 0;
+  color: #6b7280;
+  font-family: var(--font-family-base);
+  font-size: 12px;
 }
 
 .checkboxLabel {
@@ -193,6 +322,14 @@
   padding: 12px;
   position: sticky;
   top: 86px;
+}
+
+.previewLabel {
+  display: block;
+  color: #6b7280;
+  font-family: var(--font-family-base);
+  font-size: 11px;
+  text-align: right;
 }
 
 .previewBtn {
@@ -242,6 +379,30 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+img.mockImage {
+  width: 100%;
+  object-fit: cover;
+}
+
+.mockCategory,
+.mockDescription {
+  margin: 0;
+  font-family: var(--font-family-base);
+}
+
+.mockCategory {
+  color: #1f5f4d;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.mockDescription {
+  margin-top: 6px;
+  color: #6b7280;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .mockBusinessName {
@@ -306,6 +467,16 @@
 
   .previewCard {
     position: static;
+  }
+
+  .listItem {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .listItem > span,
+  .archiveButton {
+    grid-column: 2;
+    justify-self: start;
   }
 }
 

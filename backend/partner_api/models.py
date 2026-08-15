@@ -118,4 +118,18 @@ class Booking(models.Model):
 	status = models.CharField(max_length=20, default="booked")
 	created_at = models.DateTimeField(auto_now_add=True)
 
+
+class BusinessTable(models.Model):
+	tenant_slug = models.CharField(max_length=80, db_index=True)
+	partner_profile = models.ForeignKey(
+		"common_api.PartnerProfile",
+		on_delete=models.CASCADE,
+		related_name="business_tables",
+	)
+	name = models.CharField(max_length=120)
+	description = models.TextField(blank=True, default="")
+	photo_url = models.URLField(blank=True, default="")
+	is_active = models.BooleanField(default=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+
 # Create your models here.

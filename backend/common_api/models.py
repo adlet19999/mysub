@@ -9,6 +9,12 @@ class PartnerProfile(models.Model):
 	company_name = models.CharField(max_length=200, blank=True, default="")
 	address = models.CharField(max_length=255, blank=True, default="")
 	business_category = models.CharField(max_length=120, blank=True, default="")
+	description = models.TextField(blank=True, default="")
+	city = models.CharField(max_length=120, blank=True, default="")
+	working_hours = models.CharField(max_length=255, blank=True, default="")
+	website = models.URLField(blank=True, default="")
+	instagram = models.CharField(max_length=255, blank=True, default="")
+	business_photo_url = models.URLField(blank=True, default="")
 	created_at = models.DateTimeField(auto_now_add=True)
 
 	def __str__(self) -> str:

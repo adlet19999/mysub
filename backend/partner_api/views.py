@@ -19,7 +19,7 @@ from rest_framework.views import APIView
 from common_api.models import PartnerProfile
 from common_api.views import normalize_ru_phone, PHONE_RU_RE
 
-from .models import Booking, Category, Manager, Service, ServiceKind, Specialist, SpecialistService
+from .models import Booking, BusinessTable, Category, Manager, Service, ServiceKind, Specialist, SpecialistService
 
 
 def tenant_from_request(request) -> str:
@@ -502,6 +502,22 @@ def serialize_partner_profile(profile: PartnerProfile):
 		"company_name": profile.company_name,
 		"business_category": profile.business_category,
 		"address": profile.address,
+		"description": profile.description,
+		"city": profile.city,
+		"working_hours": profile.working_hours,
+		"website": profile.website,
+		"instagram": profile.instagram,
+		"business_photo_url": normalize_profile_image_url(profile.business_photo_url),
+	}
+
+
+def serialize_business_table(item: BusinessTable):
+	return {
+		"id": item.id,
+		"name": item.name,
+		"description": item.description,
+		"photo_url": normalize_profile_image_url(item.photo_url),
+		"is_active": item.is_active,
 	}
 
 
@@ -566,11 +582,99 @@ class PartnerProfileView(APIView):
 		if address is not None:
 			profile.address = str(address).strip()
 
+		for field in ("description", "city", "working_hours", "website", "instagram"):
+			if field in request.data:
+				setattr(profile, field, str(request.data.get(field) or "").strip())
+
+		business_photo_base64 = request.data.get("business_photo_base64")
+		previous_business_photo_url = profile.business_photo_url
+		if business_photo_base64 is not None:
+			photo_url, photo_error = save_profile_image_from_base64(
+				str(business_photo_base64).strip(), tenant_from_request(request), profile.id, "business"
+			)
+			if photo_error:
+				return Response({"message": photo_error}, status=400)
+			profile.business_photo_url = photo_url
+
 		profile.user.save()
 		profile.save()
+		if profile.business_photo_url != previous_business_photo_url:
+			delete_managed_image(previous_business_photo_url)
 		profile.refresh_from_db()
 
 		return Response(serialize_partner_profile(profile))
+
+
+class BusinessTableListCreateView(APIView):
+	def get(self, request):
+		if request_actor_role(request) == "manager":
+			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
+		profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+		items = BusinessTable.objects.filter(
+			tenant_slug=tenant_from_request(request), partner_profile=profile
+		).order_by("-id")
+		return Response([serialize_business_table(item) for item in items])
+
+	def post(self, request):
+		if request_actor_role(request) == "manager":
+			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
+		profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+		name = str(request.data.get("name") or "").strip()
+		if not name:
+			return Response({"message": "Название стола обязательно"}, status=400)
+		tenant = tenant_from_request(request)
+		photo_url, photo_error = save_profile_image_from_base64(
+			str(request.data.get("photo_base64") or "").strip(), tenant, profile.id, "table"
+		)
+		if photo_error:
+			return Response({"message": photo_error}, status=400)
+		item = BusinessTable.objects.create(
+			tenant_slug=tenant,
+			partner_profile=profile,
+			name=name,
+			description=str(request.data.get("description") or "").strip(),
+			photo_url=photo_url,
+		)
+		return Response(serialize_business_table(item), status=201)
+
+
+class BusinessTableDetailView(APIView):
+	def patch(self, request, table_id: int):
+		if request_actor_role(request) == "manager":
+			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
+		profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+		item = BusinessTable.objects.filter(
+			id=table_id, tenant_slug=tenant_from_request(request), partner_profile=profile
+		).first()
+		if not item:
+			return Response({"message": "Стол не найден"}, status=404)
+		if "name" in request.data:
+			name = str(request.data.get("name") or "").strip()
+			if not name:
+				return Response({"message": "Название стола обязательно"}, status=400)
+			item.name = name
+		if "description" in request.data:
+			item.description = str(request.data.get("description") or "").strip()
+		if "is_active" in request.data:
+			item.is_active = parse_bool(request.data.get("is_active"), item.is_active)
+		previous_photo_url = item.photo_url
+		if "photo_base64" in request.data:
+			photo_url, photo_error = save_profile_image_from_base64(
+				str(request.data.get("photo_base64") or "").strip(), tenant_from_request(request), profile.id, "table"
+			)
+			if photo_error:
+				return Response({"message": photo_error}, status=400)
+			item.photo_url = photo_url
+		item.save()
+		if item.photo_url != previous_photo_url:
+			delete_managed_image(previous_photo_url)
+		return Response(serialize_business_table(item))
 
 
 class CategoryListCreateView(APIView):

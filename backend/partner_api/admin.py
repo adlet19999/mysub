@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Booking, Category, Manager, Service, ServiceKind, Specialist, SpecialistService
+from .models import Booking, BusinessTable, Category, Manager, Service, ServiceKind, Specialist, SpecialistService
 
 
 @admin.register(Category)
@@ -60,3 +60,10 @@ class BookingAdmin(admin.ModelAdmin):
 	list_display = ("service_name", "manager_name", "client_name", "starts_at", "status", "tenant_slug")
 	list_filter = ("tenant_slug", "status")
 	search_fields = ("service_name", "client_name", "client_phone")
+
+
+@admin.register(BusinessTable)
+class BusinessTableAdmin(admin.ModelAdmin):
+	list_display = ("name", "partner_profile", "tenant_slug", "is_active", "created_at")
+	list_filter = ("tenant_slug", "is_active")
+	search_fields = ("name", "description")
