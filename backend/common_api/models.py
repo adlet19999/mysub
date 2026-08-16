@@ -15,6 +15,7 @@ class PartnerProfile(models.Model):
 	website = models.URLField(blank=True, default="")
 	instagram = models.CharField(max_length=255, blank=True, default="")
 	business_photo_url = models.URLField(blank=True, default="")
+	business_photo_urls = models.JSONField(default=list, blank=True)
 	created_at = models.DateTimeField(auto_now_add=True)
 
 	def __str__(self) -> str:

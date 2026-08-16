@@ -20,7 +20,7 @@ from rest_framework.views import APIView
 from common_api.models import PartnerProfile
 from common_api.views import normalize_ru_phone, PHONE_RU_RE
 
-from .models import Booking, BusinessOffer, BusinessTable, Category, Manager, Service, ServiceKind, Specialist, SpecialistService
+from .models import Booking, BusinessOffer, Category, Manager, Service, ServiceKind, Specialist, SpecialistService
 
 
 def tenant_from_request(request) -> str:
@@ -496,6 +496,13 @@ def has_booking_overlap(
 
 
 def serialize_partner_profile(profile: PartnerProfile):
+	business_photo_urls = [
+		normalize_profile_image_url(value)
+		for value in (profile.business_photo_urls or [])
+		if str(value or "").strip()
+	]
+	if not business_photo_urls and profile.business_photo_url:
+		business_photo_urls = [normalize_profile_image_url(profile.business_photo_url)]
 	return {
 		"full_name": profile.user.first_name,
 		"email": profile.user.email,
@@ -508,37 +515,8 @@ def serialize_partner_profile(profile: PartnerProfile):
 		"working_hours": profile.working_hours,
 		"website": profile.website,
 		"instagram": profile.instagram,
-		"business_photo_url": normalize_profile_image_url(profile.business_photo_url),
-	}
-
-
-def serialize_business_table(item: BusinessTable):
-	return {
-		"id": item.id,
-		"name": item.name,
-		"description": item.description,
-		"photo_url": normalize_profile_image_url(item.photo_url),
-		"is_active": item.is_active,
-	}
-
-
-def serialize_business_offer(item: BusinessOffer):
-	photo_urls = [
-		normalize_profile_image_url(value)
-		for value in (item.photo_urls or [])
-		if str(value or "").strip()
-	]
-	if not photo_urls and item.photo_url:
-		photo_urls = [normalize_profile_image_url(item.photo_url)]
-	return {
-		"id": item.id,
-		"title": item.title,
-		"description": item.description,
-		"photo_url": photo_urls[0] if photo_urls else "",
-		"photo_urls": photo_urls,
-		"is_subscription": item.is_subscription,
-		"is_active": item.is_active,
-		"display_order": item.display_order,
+		"business_photo_url": business_photo_urls[0] if business_photo_urls else "",
+		"business_photo_urls": business_photo_urls,
 	}
 
 
@@ -552,6 +530,194 @@ class PartnerProfileView(APIView):
 			return error_response
 
 		return Response(serialize_partner_profile(profile))
+
+	def patch(self, request):
+		if request_actor_role(request) == "manager":
+			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
+		profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+		for field in ("company_name", "business_category", "address", "description", "city", "working_hours", "website", "instagram"):
+			if field in request.data:
+				setattr(profile, field, str(request.data.get(field) or "").strip())
+		if "full_name" in request.data:
+			full_name = str(request.data.get("full_name") or "").strip()
+			if not full_name:
+				return Response({"message": "full_name не может быть пустым"}, status=400)
+			profile.user.first_name = full_name
+		if "email" in request.data:
+			email = str(request.data.get("email") or "").strip().lower()
+			if not email:
+				return Response({"message": "email не может быть пустым"}, status=400)
+			existing = PartnerProfile.objects.select_related("user").filter(
+				Q(user__username__iexact=email) | Q(user__email__iexact=email)
+			).exclude(id=profile.id).first()
+			if existing is not None:
+				return Response({"message": "Пользователь с таким email уже существует"}, status=409)
+			profile.user.username = email
+			profile.user.email = email
+		if "phone" in request.data:
+			phone = str(request.data.get("phone") or "").strip()
+			if not phone:
+				return Response({"message": "phone не может быть пустым"}, status=400)
+			profile.phone = phone
+		previous_photo_urls = list(profile.business_photo_urls or ([profile.business_photo_url] if profile.business_photo_url else []))
+		if "business_photo_urls" in request.data or "business_photo_base64_list" in request.data:
+			existing_urls = request.data.get("business_photo_urls") or []
+			new_photo_payloads = request.data.get("business_photo_base64_list") or []
+			if not isinstance(existing_urls, list) or not isinstance(new_photo_payloads, list):
+				return Response({"message": "Фотографии бизнеса должны быть массивом"}, status=400)
+			kept_urls = [str(url).strip() for url in existing_urls if str(url).strip()]
+			if any(url not in previous_photo_urls for url in kept_urls):
+				return Response({"message": "Некорректная фотография бизнеса"}, status=400)
+			if len(kept_urls) + len(new_photo_payloads) > 8:
+				return Response({"message": "Можно добавить не более 8 фотографий"}, status=400)
+			new_urls = []
+			for index, payload in enumerate(new_photo_payloads):
+				if not str(payload or "").strip():
+					continue
+				photo_url, photo_error = save_profile_image_from_base64(str(payload).strip(), tenant_from_request(request), profile.id, f"business-{index + 1}")
+				if photo_error:
+					for saved_url in new_urls:
+						delete_managed_image(saved_url)
+					return Response({"message": photo_error}, status=400)
+				new_urls.append(photo_url)
+			profile.business_photo_urls = kept_urls + new_urls
+			profile.business_photo_url = profile.business_photo_urls[0] if profile.business_photo_urls else ""
+		profile.user.save()
+		profile.save()
+		for photo_url in previous_photo_urls:
+			if photo_url not in profile.business_photo_urls:
+				delete_managed_image(photo_url)
+		return Response(serialize_partner_profile(profile))
+
+
+def serialize_business_offer(item: BusinessOffer):
+	photo_urls = [normalize_profile_image_url(value) for value in (item.photo_urls or []) if str(value or "").strip()]
+	if not photo_urls and item.photo_url:
+		photo_urls = [normalize_profile_image_url(item.photo_url)]
+	return {"id": item.id, "title": item.title, "description": item.description, "photo_url": photo_urls[0] if photo_urls else "", "photo_urls": photo_urls, "is_subscription": item.is_subscription, "is_active": item.is_active, "display_order": item.display_order}
+
+
+def save_offer_photos(request, profile, previous_photo_urls=None):
+	existing_urls = request.data.get("photo_urls") or []
+	new_payloads = request.data.get("photo_base64_list")
+	if new_payloads is None:
+		new_payloads = [request.data.get("photo_base64")]
+	if not isinstance(existing_urls, list) or not isinstance(new_payloads, list):
+		return None, Response({"message": "Фотографии должны быть массивом"}, status=400)
+	kept_urls = [str(url).strip() for url in existing_urls if str(url).strip()]
+	if previous_photo_urls is not None and any(url not in previous_photo_urls for url in kept_urls):
+		return None, Response({"message": "Некорректная фотография предложения"}, status=400)
+	if len(kept_urls) + len(new_payloads) > 8:
+		return None, Response({"message": "Можно добавить не более 8 фотографий"}, status=400)
+	new_urls = []
+	for index, payload in enumerate(new_payloads):
+		if not str(payload or "").strip():
+			continue
+		photo_url, photo_error = save_profile_image_from_base64(str(payload).strip(), tenant_from_request(request), profile.id, f"offer-{index + 1}")
+		if photo_error:
+			for saved_url in new_urls:
+				delete_managed_image(saved_url)
+			return None, Response({"message": photo_error}, status=400)
+		new_urls.append(photo_url)
+	return kept_urls + new_urls, None
+
+
+class BusinessOfferListCreateView(APIView):
+	def get(self, request):
+		profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+		items = BusinessOffer.objects.filter(tenant_slug=tenant_from_request(request), partner_profile=profile).order_by("display_order", "id")
+		return Response([serialize_business_offer(item) for item in items])
+
+	def post(self, request):
+		profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+		title = str(request.data.get("title") or "").strip()
+		if not title:
+			return Response({"message": "Название предложения обязательно"}, status=400)
+		photo_urls, photo_error = save_offer_photos(request, profile)
+		if photo_error is not None:
+			return photo_error
+		tenant = tenant_from_request(request)
+		last_order = BusinessOffer.objects.filter(tenant_slug=tenant, partner_profile=profile).aggregate(max_order=Max("display_order"))["max_order"] or 0
+		item = BusinessOffer.objects.create(tenant_slug=tenant, partner_profile=profile, title=title, description=str(request.data.get("description") or "").strip(), photo_url=photo_urls[0] if photo_urls else "", photo_urls=photo_urls, is_subscription=parse_bool(request.data.get("is_subscription"), False), display_order=last_order + 1)
+		return Response(serialize_business_offer(item), status=201)
+
+
+class BusinessOfferDetailView(APIView):
+	def get_item(self, request, offer_id):
+		profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return None, None, error_response
+		item = BusinessOffer.objects.filter(id=offer_id, tenant_slug=tenant_from_request(request), partner_profile=profile).first()
+		if not item:
+			return None, None, Response({"message": "Предложение не найдено"}, status=404)
+		return item, profile, None
+
+	def patch(self, request, offer_id):
+		item, profile, error_response = self.get_item(request, offer_id)
+		if error_response is not None:
+			return error_response
+		if "title" in request.data:
+			title = str(request.data.get("title") or "").strip()
+			if not title:
+				return Response({"message": "Название предложения обязательно"}, status=400)
+			item.title = title
+		if "description" in request.data:
+			item.description = str(request.data.get("description") or "").strip()
+		if "is_subscription" in request.data:
+			item.is_subscription = parse_bool(request.data.get("is_subscription"), item.is_subscription)
+		previous_photo_urls = list(item.photo_urls or ([item.photo_url] if item.photo_url else []))
+		if "photo_urls" in request.data or "photo_base64_list" in request.data:
+			photo_urls, photo_error = save_offer_photos(request, profile, previous_photo_urls)
+			if photo_error is not None:
+				return photo_error
+			item.photo_urls = photo_urls
+			item.photo_url = photo_urls[0] if photo_urls else ""
+		item.save()
+		for photo_url in previous_photo_urls:
+			if photo_url not in item.photo_urls:
+				delete_managed_image(photo_url)
+		return Response(serialize_business_offer(item))
+
+	def delete(self, request, offer_id):
+		item, _, error_response = self.get_item(request, offer_id)
+		if error_response is not None:
+			return error_response
+		photo_urls = list(item.photo_urls or ([item.photo_url] if item.photo_url else []))
+		item.delete()
+		for photo_url in photo_urls:
+			delete_managed_image(photo_url)
+		return Response(status=204)
+
+
+class BusinessOfferMoveView(BusinessOfferDetailView):
+	pass
+
+
+class BusinessOfferReorderView(APIView):
+	def post(self, request):
+		profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+		ordered_ids = request.data.get("ordered_ids")
+		if not isinstance(ordered_ids, list) or not all(isinstance(item_id, int) for item_id in ordered_ids):
+			return Response({"message": "ordered_ids должен быть массивом идентификаторов"}, status=400)
+		with transaction.atomic():
+			items = list(BusinessOffer.objects.select_for_update().filter(tenant_slug=tenant_from_request(request), partner_profile=profile).order_by("display_order", "id"))
+			if len(items) != len(ordered_ids) or {item.id for item in items} != set(ordered_ids):
+				return Response({"message": "Список предложений не совпадает"}, status=400)
+			by_id = {item.id: item for item in items}
+			ordered_items = [by_id[item_id] for item_id in ordered_ids]
+			for index, item in enumerate(ordered_items, start=1):
+				if item.display_order != index:
+					item.display_order = index
+					item.save(update_fields=["display_order"])
+		return Response([serialize_business_offer(item) for item in ordered_items])
 
 	def patch(self, request):
 		if request_actor_role(request) == "manager":
@@ -607,192 +773,15 @@ class PartnerProfileView(APIView):
 			if field in request.data:
 				setattr(profile, field, str(request.data.get(field) or "").strip())
 
-		business_photo_base64 = request.data.get("business_photo_base64")
-		previous_business_photo_url = profile.business_photo_url
-		if business_photo_base64 is not None:
-			photo_url, photo_error = save_profile_image_from_base64(
-				str(business_photo_base64).strip(), tenant_from_request(request), profile.id, "business"
-			)
-			if photo_error:
-				return Response({"message": photo_error}, status=400)
-			profile.business_photo_url = photo_url
-
-		profile.user.save()
-		profile.save()
-		if profile.business_photo_url != previous_business_photo_url:
-			delete_managed_image(previous_business_photo_url)
-		profile.refresh_from_db()
-
-		return Response(serialize_partner_profile(profile))
-
-
-class BusinessTableListCreateView(APIView):
-	def get(self, request):
-		if request_actor_role(request) == "manager":
-			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
-		profile, error_response = get_partner_profile(request)
-		if error_response is not None:
-			return error_response
-		items = BusinessTable.objects.filter(
-			tenant_slug=tenant_from_request(request), partner_profile=profile
-		).order_by("-id")
-		return Response([serialize_business_table(item) for item in items])
-
-	def post(self, request):
-		if request_actor_role(request) == "manager":
-			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
-		profile, error_response = get_partner_profile(request)
-		if error_response is not None:
-			return error_response
-		name = str(request.data.get("name") or "").strip()
-		if not name:
-			return Response({"message": "Название стола обязательно"}, status=400)
-		tenant = tenant_from_request(request)
-		photo_url, photo_error = save_profile_image_from_base64(
-			str(request.data.get("photo_base64") or "").strip(), tenant, profile.id, "table"
-		)
-		if photo_error:
-			return Response({"message": photo_error}, status=400)
-		item = BusinessTable.objects.create(
-			tenant_slug=tenant,
-			partner_profile=profile,
-			name=name,
-			description=str(request.data.get("description") or "").strip(),
-			photo_url=photo_url,
-		)
-		return Response(serialize_business_table(item), status=201)
-
-
-class BusinessTableDetailView(APIView):
-	def patch(self, request, table_id: int):
-		if request_actor_role(request) == "manager":
-			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
-		profile, error_response = get_partner_profile(request)
-		if error_response is not None:
-			return error_response
-		item = BusinessTable.objects.filter(
-			id=table_id, tenant_slug=tenant_from_request(request), partner_profile=profile
-		).first()
-		if not item:
-			return Response({"message": "Стол не найден"}, status=404)
-		if "name" in request.data:
-			name = str(request.data.get("name") or "").strip()
-			if not name:
-				return Response({"message": "Название стола обязательно"}, status=400)
-			item.name = name
-		if "description" in request.data:
-			item.description = str(request.data.get("description") or "").strip()
-		if "is_active" in request.data:
-			item.is_active = parse_bool(request.data.get("is_active"), item.is_active)
-		previous_photo_url = item.photo_url
-		if "photo_base64" in request.data:
-			photo_url, photo_error = save_profile_image_from_base64(
-				str(request.data.get("photo_base64") or "").strip(), tenant_from_request(request), profile.id, "table"
-			)
-			if photo_error:
-				return Response({"message": photo_error}, status=400)
-			item.photo_url = photo_url
-		item.save()
-		if item.photo_url != previous_photo_url:
-			delete_managed_image(previous_photo_url)
-		return Response(serialize_business_table(item))
-
-
-class BusinessOfferListCreateView(APIView):
-	def get(self, request):
-		if request_actor_role(request) == "manager":
-			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
-		profile, error_response = get_partner_profile(request)
-		if error_response is not None:
-			return error_response
-		items = BusinessOffer.objects.filter(
-			tenant_slug=tenant_from_request(request), partner_profile=profile
-		).order_by("display_order", "id")
-		return Response([serialize_business_offer(item) for item in items])
-
-	def post(self, request):
-		if request_actor_role(request) == "manager":
-			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
-		profile, error_response = get_partner_profile(request)
-		if error_response is not None:
-			return error_response
-		title = str(request.data.get("title") or "").strip()
-		if not title:
-			return Response({"message": "Название предложения обязательно"}, status=400)
-		tenant = tenant_from_request(request)
-		photo_payloads = request.data.get("photo_base64_list")
-		if photo_payloads is None:
-			photo_payloads = [request.data.get("photo_base64")]
-		if not isinstance(photo_payloads, list):
-			return Response({"message": "photo_base64_list должен быть массивом"}, status=400)
-		if len(photo_payloads) > 8:
-			return Response({"message": "Можно добавить не более 8 фотографий"}, status=400)
-		photo_urls = []
-		for index, photo_payload in enumerate(photo_payloads):
-			if not str(photo_payload or "").strip():
-				continue
-			photo_url, photo_error = save_profile_image_from_base64(
-				str(photo_payload).strip(), tenant, profile.id, f"offer-{index + 1}"
-			)
-			if photo_error:
-				for saved_url in photo_urls:
-					delete_managed_image(saved_url)
-				return Response({"message": photo_error}, status=400)
-			photo_urls.append(photo_url)
-		last_order = BusinessOffer.objects.filter(
-			tenant_slug=tenant, partner_profile=profile
-		).aggregate(max_order=Max("display_order"))["max_order"] or 0
-		item = BusinessOffer.objects.create(
-			tenant_slug=tenant,
-			partner_profile=profile,
-			title=title,
-			description=str(request.data.get("description") or "").strip(),
-			photo_url=photo_urls[0] if photo_urls else "",
-			photo_urls=photo_urls,
-			is_subscription=parse_bool(request.data.get("is_subscription"), False),
-			display_order=last_order + 1,
-		)
-		return Response(serialize_business_offer(item), status=201)
-
-
-class BusinessOfferDetailView(APIView):
-	def _get_offer(self, request, offer_id):
-		profile, error_response = get_partner_profile(request)
-		if error_response is not None:
-			return None, None, error_response
-		item = BusinessOffer.objects.filter(
-			id=offer_id, tenant_slug=tenant_from_request(request), partner_profile=profile
-		).first()
-		if not item:
-			return None, None, Response({"message": "Предложение не найдено"}, status=404)
-		return item, profile, None
-
-	def patch(self, request, offer_id: int):
-		if request_actor_role(request) == "manager":
-			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
-		item, profile, error_response = self._get_offer(request, offer_id)
-		if error_response is not None:
-			return error_response
-		if "title" in request.data:
-			title = str(request.data.get("title") or "").strip()
-			if not title:
-				return Response({"message": "Название предложения обязательно"}, status=400)
-			item.title = title
-		for field in ("description",):
-			if field in request.data:
-				setattr(item, field, str(request.data.get(field) or "").strip())
-		for field in ("is_subscription", "is_active"):
-			if field in request.data:
-				setattr(item, field, parse_bool(request.data.get(field), getattr(item, field)))
-		previous_photo_urls = list(item.photo_urls or ([item.photo_url] if item.photo_url else []))
-		if "photo_urls" in request.data or "photo_base64_list" in request.data:
-			existing_photo_urls = request.data.get("photo_urls") or []
-			new_photo_payloads = request.data.get("photo_base64_list") or []
-			if not isinstance(existing_photo_urls, list) or not isinstance(new_photo_payloads, list):
-				return Response({"message": "Фотографии должны быть массивом"}, status=400)
-			kept_urls = [str(url).strip() for url in existing_photo_urls if str(url).strip()]
+		previous_photo_urls = list(profile.business_photo_urls or ([profile.business_photo_url] if profile.business_photo_url else []))
+		if "business_photo_urls" in request.data or "business_photo_base64_list" in request.data:
+			existing_urls = request.data.get("business_photo_urls") or []
+			new_photo_payloads = request.data.get("business_photo_base64_list") or []
+			if not isinstance(existing_urls, list) or not isinstance(new_photo_payloads, list):
+				return Response({"message": "Фотографии бизнеса должны быть массивом"}, status=400)
+			kept_urls = [str(url).strip() for url in existing_urls if str(url).strip()]
 			if any(url not in previous_photo_urls for url in kept_urls):
-				return Response({"message": "Некорректная фотография предложения"}, status=400)
+				return Response({"message": "Некорректная фотография бизнеса"}, status=400)
 			if len(kept_urls) + len(new_photo_payloads) > 8:
 				return Response({"message": "Можно добавить не более 8 фотографий"}, status=400)
 			new_urls = []
@@ -800,85 +789,24 @@ class BusinessOfferDetailView(APIView):
 				if not str(photo_payload or "").strip():
 					continue
 				photo_url, photo_error = save_profile_image_from_base64(
-					str(photo_payload).strip(), tenant_from_request(request), profile.id, f"offer-{index + 1}"
+					str(photo_payload).strip(), tenant_from_request(request), profile.id, f"business-{index + 1}"
 				)
 				if photo_error:
 					for saved_url in new_urls:
 						delete_managed_image(saved_url)
 					return Response({"message": photo_error}, status=400)
 				new_urls.append(photo_url)
-			item.photo_urls = kept_urls + new_urls
-			item.photo_url = item.photo_urls[0] if item.photo_urls else ""
-		item.save()
+			profile.business_photo_urls = kept_urls + new_urls
+			profile.business_photo_url = profile.business_photo_urls[0] if profile.business_photo_urls else ""
+
+		profile.user.save()
+		profile.save()
 		for previous_photo_url in previous_photo_urls:
-			if previous_photo_url not in item.photo_urls:
+			if previous_photo_url not in profile.business_photo_urls:
 				delete_managed_image(previous_photo_url)
-		return Response(serialize_business_offer(item))
+		profile.refresh_from_db()
 
-	def delete(self, request, offer_id: int):
-		if request_actor_role(request) == "manager":
-			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
-		item, _, error_response = self._get_offer(request, offer_id)
-		if error_response is not None:
-			return error_response
-		photo_urls = list(item.photo_urls or ([item.photo_url] if item.photo_url else []))
-		item.delete()
-		for photo_url in photo_urls:
-			delete_managed_image(photo_url)
-		return Response(status=204)
-
-
-class BusinessOfferMoveView(BusinessOfferDetailView):
-	def post(self, request, offer_id: int):
-		if request_actor_role(request) == "manager":
-			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
-		direction = str(request.data.get("direction") or "").strip().lower()
-		if direction not in {"up", "down"}:
-			return Response({"message": "direction должен быть up или down"}, status=400)
-		item, profile, error_response = self._get_offer(request, offer_id)
-		if error_response is not None:
-			return error_response
-		with transaction.atomic():
-			items = list(BusinessOffer.objects.select_for_update().filter(
-				tenant_slug=tenant_from_request(request), partner_profile=profile
-			).order_by("display_order", "id"))
-			item_index = next((index for index, offer in enumerate(items) if offer.id == item.id), None)
-			if item_index is None:
-				return Response({"message": "Предложение не найдено"}, status=404)
-			target_index = item_index - 1 if direction == "up" else item_index + 1
-			if 0 <= target_index < len(items):
-				current = items[item_index]
-				target = items[target_index]
-				current.display_order, target.display_order = target.display_order, current.display_order
-				current.save(update_fields=["display_order"])
-				target.save(update_fields=["display_order"])
-				items[item_index], items[target_index] = items[target_index], items[item_index]
-		return Response([serialize_business_offer(offer) for offer in items])
-
-
-class BusinessOfferReorderView(APIView):
-	def post(self, request):
-		if request_actor_role(request) == "manager":
-			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
-		profile, error_response = get_partner_profile(request)
-		if error_response is not None:
-			return error_response
-		ordered_ids = request.data.get("ordered_ids")
-		if not isinstance(ordered_ids, list) or not all(isinstance(item_id, int) for item_id in ordered_ids):
-			return Response({"message": "ordered_ids должен быть массивом идентификаторов"}, status=400)
-		with transaction.atomic():
-			items = list(BusinessOffer.objects.select_for_update().filter(
-				tenant_slug=tenant_from_request(request), partner_profile=profile
-			).order_by("display_order", "id"))
-			if {item.id for item in items} != set(ordered_ids) or len(items) != len(ordered_ids):
-				return Response({"message": "Список предложений не совпадает"}, status=400)
-			by_id = {item.id: item for item in items}
-			ordered_items = [by_id[item_id] for item_id in ordered_ids]
-			for index, item in enumerate(ordered_items, start=1):
-				if item.display_order != index:
-					item.display_order = index
-					item.save(update_fields=["display_order"])
-		return Response([serialize_business_offer(item) for item in ordered_items])
+		return Response(serialize_partner_profile(profile))
 
 
 class CategoryListCreateView(APIView):

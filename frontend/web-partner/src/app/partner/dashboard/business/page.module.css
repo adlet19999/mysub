@@ -198,8 +198,7 @@
   overflow: hidden;
 }
 
-.uploadBox img,
-.photoBox img {
+.uploadBox img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -209,21 +208,69 @@
   display: none;
 }
 
-.photoBox {
-  width: 128px;
-  height: 128px;
-  border: 1px dashed #d1d5db;
+.businessPhotoGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.businessPhotoPreview,
+.addBusinessPhotoButton {
+  position: relative;
+  width: clamp(140px, calc((100% - 24px) / 3), 240px);
+  aspect-ratio: 1;
+  overflow: hidden;
   border-radius: 6px;
+}
+
+.businessPhotoPreview {
+  border: 1px solid #d8dde3;
+  background: #f5f7f8;
+}
+
+.businessPhotoPreview > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.businessPhotoPreview > button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0;
+  background: #fff;
+  cursor: pointer;
+}
+
+.businessPhotoPreview > button img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.addBusinessPhotoButton {
+  border: 1px dashed #cfd5da;
   background: #f8f9fa;
   color: #6b7280;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  padding: 12px;
   font-family: var(--font-family-base);
   font-size: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
   cursor: pointer;
-  overflow: hidden;
+}
+
+.addBusinessPhotoButton img {
+  width: 26px;
+  height: 26px;
+  margin: 0 auto;
 }
 
 .itemList {

@@ -18,6 +18,7 @@ type PartnerProfile = {
   website: string;
   instagram: string;
   business_photo_url: string;
+  business_photo_urls: string[];
 };
 
 type BusinessOffer = {
@@ -35,7 +36,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1";
 const TENANT_DEFAULT = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public";
 const EMPTY_PROFILE: PartnerProfile = {
   full_name: "", email: "", phone: "", company_name: "", business_category: "", address: "",
-  description: "", city: "", working_hours: "", website: "", instagram: "", business_photo_url: "",
+  description: "", city: "", working_hours: "", website: "", instagram: "", business_photo_url: "", business_photo_urls: [],
 };
 
 export default function PartnerBusinessPage() {
@@ -107,11 +108,19 @@ export default function PartnerBusinessPage() {
   useEffect(() => { void loadBusiness(); }, [partnerEmail]);
 
   async function handlePhotoChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(event.target.files ?? []);
+    if (!files.length) return;
     try {
-      const image = await compressImageFileToDataUrl(file, { maxWidth: 1280, maxHeight: 1280 });
-      setProfile((previous) => ({ ...previous, business_photo_url: image }));
+      const availableSlots = 8 - profile.business_photo_urls.length;
+      if (availableSlots <= 0) {
+        setError("Можно добавить не более 8 фотографий бизнеса");
+        return;
+      }
+      const images = await Promise.all(files.slice(0, availableSlots).map((file) => compressImageFileToDataUrl(file, { maxWidth: 1280, maxHeight: 960 })));
+      setProfile((previous) => {
+        const business_photo_urls = [...previous.business_photo_urls, ...images];
+        return { ...previous, business_photo_urls, business_photo_url: business_photo_urls[0] || "" };
+      });
     } catch {
       setError("Не удалось обработать изображение");
     } finally {
@@ -263,10 +272,11 @@ export default function PartnerBusinessPage() {
     setMessage("");
     setError("");
     try {
-      const { business_photo_url, ...profileFields } = profile;
+      const { business_photo_url: _businessPhotoUrl, business_photo_urls, ...profileFields } = profile;
       const body = {
         ...profileFields,
-        business_photo_base64: business_photo_url.startsWith("data:image/") ? business_photo_url : undefined,
+        business_photo_urls: business_photo_urls.filter((photo) => !photo.startsWith("data:image/")),
+        business_photo_base64_list: business_photo_urls.filter((photo) => photo.startsWith("data:image/")),
       };
       const response = await api("/partner/profile/", { method: "PATCH", body: JSON.stringify(body) });
       const payload = (await response.json()) as Partial<PartnerProfile> & { message?: string };
@@ -297,7 +307,7 @@ export default function PartnerBusinessPage() {
       <div className={styles.dynamicIsland} aria-hidden="true"><span /></div>
       <div className={styles.phoneStatus}><span>9:41</span><div className={styles.phoneIndicators} aria-hidden="true"><span className={styles.signalIndicator} /><span className={styles.wifiIndicator} /><span className={styles.batteryIndicator} /></div></div>
       <h4>Ваша карточка</h4>
-      {profile.business_photo_url ? <img className={styles.mockImage} src={profile.business_photo_url} alt="" /> : <div className={styles.mockImage}>Добавьте фото</div>}
+      {profile.business_photo_urls[0] || profile.business_photo_url ? <img className={styles.mockImage} src={profile.business_photo_urls[0] || profile.business_photo_url} alt="" /> : <div className={styles.mockImage}>Добавьте фото</div>}
       <p className={styles.mockBusinessName}>{profile.company_name || "Ваш бизнес"}</p>
       <p className={styles.mockCategory}>{profile.business_category || "Категория бизнеса"}</p>
       <div className={styles.mockPills} role="tablist"><button type="button" className={previewTab === "offers" ? styles.mockPillActive : styles.mockPill} onClick={() => setPreviewTab("offers")}>Предложения</button><button type="button" className={previewTab === "reviews" ? styles.mockPillActive : styles.mockPill} onClick={() => setPreviewTab("reviews")}>Отзывы</button></div>
@@ -366,9 +376,12 @@ export default function PartnerBusinessPage() {
           </section>
 
           <section className={styles.sectionCard}>
-            <div className={styles.sectionHeaderInline}><h3>Фотография бизнеса</h3><button type="button" className={styles.ghostButton} onClick={() => profilePhotoInput.current?.click()}>Загрузить фото</button></div>
-            <button type="button" className={styles.photoBox} onClick={() => profilePhotoInput.current?.click()}>{profile.business_photo_url ? <img src={profile.business_photo_url} alt="Фотография бизнеса" /> : "Добавить фото"}</button>
-            <input ref={profilePhotoInput} className={styles.fileInput} type="file" accept="image/*" onChange={(event) => void handlePhotoChange(event)} />
+            <div className={styles.sectionHeaderInline}><h3>Фотографии бизнеса</h3><button type="button" className={styles.ghostButton} onClick={() => profilePhotoInput.current?.click()}>+ Загрузить фото</button></div>
+            <div className={styles.businessPhotoGrid}>
+              {profile.business_photo_urls.map((photo, index) => <div key={`${photo}-${index}`} className={styles.businessPhotoPreview}><img src={photo} alt={`Фотография бизнеса ${index + 1}`} /><button type="button" onClick={() => setProfile((previous) => { const business_photo_urls = previous.business_photo_urls.filter((_, photoIndex) => photoIndex !== index); return { ...previous, business_photo_urls, business_photo_url: business_photo_urls[0] || "" }; })} aria-label={`Удалить фото ${index + 1}`}><img src="/delete.svg" alt="" aria-hidden /></button></div>)}
+              {profile.business_photo_urls.length < 8 && <button type="button" className={styles.addBusinessPhotoButton} onClick={() => profilePhotoInput.current?.click()}><img src="/photo.svg" alt="" aria-hidden /><span>Добавить фото</span></button>}
+            </div>
+            <input ref={profilePhotoInput} className={styles.fileInput} type="file" accept="image/*" multiple onChange={(event) => void handlePhotoChange(event)} />
           </section>
         </div>
 

@@ -7,8 +7,6 @@ from .views import (
     BusinessOfferListCreateView,
     BusinessOfferMoveView,
     BusinessOfferReorderView,
-    BusinessTableDetailView,
-    BusinessTableListCreateView,
     CategoryListCreateView,
     ManagerDetailView,
     ManagerListCreateView,
@@ -25,8 +23,6 @@ from .views import (
 
 urlpatterns = [
     path("profile/", PartnerProfileView.as_view(), name="partner-profile"),
-    path("business-tables/", BusinessTableListCreateView.as_view(), name="partner-business-tables"),
-    path("business-tables/<int:table_id>/", BusinessTableDetailView.as_view(), name="partner-business-table-detail"),
     path("business-offers/", BusinessOfferListCreateView.as_view(), name="partner-business-offers"),
     path("business-offers/<int:offer_id>/", BusinessOfferDetailView.as_view(), name="partner-business-offer-detail"),
     path("business-offers/<int:offer_id>/move/", BusinessOfferMoveView.as_view(), name="partner-business-offer-move"),
