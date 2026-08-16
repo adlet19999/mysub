@@ -228,6 +228,7 @@ export default function PartnerBusinessPage() {
     return <div className={styles.phoneMock}>
       <span className={styles.phoneMuteButton} aria-hidden="true" /><span className={styles.phoneVolumeUpButton} aria-hidden="true" /><span className={styles.phoneVolumeDownButton} aria-hidden="true" /><span className={styles.phonePowerButton} aria-hidden="true" />
       <div className={styles.phoneScreen}>
+      <div className={styles.dynamicIsland} aria-hidden="true"><span /></div>
       <div className={styles.phoneStatus}><span>9:41</span><div className={styles.phoneIndicators} aria-hidden="true"><span className={styles.signalIndicator} /><span className={styles.wifiIndicator} /><span className={styles.batteryIndicator} /></div></div>
       <h4>Ваша карточка</h4>
       {profile.business_photo_url ? <img className={styles.mockImage} src={profile.business_photo_url} alt="" /> : <div className={styles.mockImage}>Добавьте фото</div>}
