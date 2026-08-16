@@ -48,6 +48,8 @@ export default function PartnerBusinessPage() {
   const [offerSubscription, setOfferSubscription] = useState(false);
   const [isSavingOffer, setIsSavingOffer] = useState(false);
   const [isOfferEditorOpen, setIsOfferEditorOpen] = useState(false);
+  const [editingOfferId, setEditingOfferId] = useState<number | null>(null);
+  const [draggedOfferId, setDraggedOfferId] = useState<number | null>(null);
   const [offerError, setOfferError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -157,6 +159,7 @@ export default function PartnerBusinessPage() {
       setOffers((items) => [...items, payload]);
       setOfferTitle(""); setOfferDescription(""); setOfferPhotos([]); setOfferSubscription(false);
       setIsOfferEditorOpen(false);
+      setEditingOfferId(null);
     } catch (offerError) {
       setOfferError(offerError instanceof Error ? offerError.message : "Не удалось добавить предложение");
     } finally {
@@ -170,8 +173,49 @@ export default function PartnerBusinessPage() {
     setOfferPhotos([]);
     setOfferSubscription(false);
     setOfferError("");
+    setEditingOfferId(null);
     setIsOfferEditorOpen(true);
     requestAnimationFrame(() => offerTitleInput.current?.focus());
+  }
+
+  function startEditOffer(offer: BusinessOffer) {
+    setOfferTitle(offer.title);
+    setOfferDescription(offer.description);
+    setOfferPhotos(offer.photo_urls);
+    setOfferSubscription(offer.is_subscription);
+    setOfferError("");
+    setEditingOfferId(offer.id);
+    setIsOfferEditorOpen(true);
+    requestAnimationFrame(() => offerTitleInput.current?.focus());
+  }
+
+  async function saveOffer() {
+    if (editingOfferId === null) {
+      await createOffer();
+      return;
+    }
+    if (!partnerEmail) return;
+    if (!offerTitle.trim()) {
+      setOfferError("Введите название предложения.");
+      offerTitleInput.current?.focus();
+      return;
+    }
+    setIsSavingOffer(true);
+    setOfferError("");
+    try {
+      const existingPhotoUrls = offerPhotos.filter((photo) => !photo.startsWith("data:image/"));
+      const newPhotoPayloads = offerPhotos.filter((photo) => photo.startsWith("data:image/"));
+      const response = await api(`/partner/business-offers/${editingOfferId}/`, { method: "PATCH", body: JSON.stringify({ title: offerTitle.trim(), description: offerDescription.trim(), is_subscription: offerSubscription, photo_urls: existingPhotoUrls, photo_base64_list: newPhotoPayloads }) });
+      const payload = (await response.json()) as BusinessOffer & { message?: string };
+      if (!response.ok) throw new Error(payload.message || "Не удалось сохранить предложение");
+      setOffers((items) => items.map((offer) => offer.id === payload.id ? payload : offer));
+      setOfferTitle(""); setOfferDescription(""); setOfferPhotos([]); setOfferSubscription(false);
+      setIsOfferEditorOpen(false); setEditingOfferId(null);
+    } catch (saveError) {
+      setOfferError(saveError instanceof Error ? saveError.message : "Не удалось сохранить предложение");
+    } finally {
+      setIsSavingOffer(false);
+    }
   }
 
   async function deleteOffer(offerId: number) {
@@ -185,17 +229,32 @@ export default function PartnerBusinessPage() {
     }
   }
 
-  async function moveOffer(offerId: number, direction: "up" | "down") {
+  async function reorderOffers(nextOffers: BusinessOffer[]) {
     if (!partnerEmail) return;
+    const previousOffers = offers;
+    setOffers(nextOffers);
     setError("");
     try {
-      const response = await api(`/partner/business-offers/${offerId}/move/`, { method: "POST", body: JSON.stringify({ direction }) });
+      const response = await api("/partner/business-offers/reorder/", { method: "POST", body: JSON.stringify({ ordered_ids: nextOffers.map((offer) => offer.id) }) });
       const payload = (await response.json()) as BusinessOffer[] | { message?: string };
       if (!response.ok || !Array.isArray(payload)) throw new Error("message" in payload ? payload.message || "Не удалось изменить порядок" : "Не удалось изменить порядок");
       setOffers(payload);
     } catch (moveError) {
+      setOffers(previousOffers);
       setError(moveError instanceof Error ? moveError.message : "Не удалось изменить порядок");
     }
+  }
+
+  function handleOfferDrop(targetOfferId: number) {
+    if (draggedOfferId === null || draggedOfferId === targetOfferId) return;
+    const fromIndex = offers.findIndex((offer) => offer.id === draggedOfferId);
+    const toIndex = offers.findIndex((offer) => offer.id === targetOfferId);
+    if (fromIndex < 0 || toIndex < 0) return;
+    const nextOffers = [...offers];
+    const [draggedOffer] = nextOffers.splice(fromIndex, 1);
+    nextOffers.splice(toIndex, 0, draggedOffer);
+    setDraggedOfferId(null);
+    void reorderOffers(nextOffers);
   }
 
   async function saveProfile() {
@@ -301,9 +360,9 @@ export default function PartnerBusinessPage() {
               <label><span>Описание</span><textarea value={offerDescription} onChange={(event) => setOfferDescription(event.target.value)} placeholder="Расскажите клиентам о предложении" /></label>
               <label className={styles.offerSubscriptionLabel}><input type="checkbox" checked={offerSubscription} onChange={(event) => setOfferSubscription(event.target.checked)} /> <span>Доступно по подписке</span></label>
               {offerError && <p className={styles.offerError}>{offerError}</p>}
-              <div className={styles.offerEditorActions}><button type="button" className={styles.saveOfferButton} disabled={isSavingOffer} onClick={() => void createOffer()}>{isSavingOffer ? "Сохраняем..." : "Сохранить услугу"}</button></div>
+              <div className={styles.offerEditorActions}><button type="button" className={styles.saveOfferButton} disabled={isSavingOffer} onClick={() => void saveOffer()}>{isSavingOffer ? "Сохраняем..." : editingOfferId === null ? "Сохранить услугу" : "Сохранить изменения"}</button></div>
             </article>}
-            {offers.length ? <div className={styles.savedOfferList}>{offers.map((offer, index) => <article key={offer.id} className={styles.savedOfferCard}>{offer.photo_url ? <img src={offer.photo_url} alt="" /> : <div className={styles.itemPlaceholder} />}<div><strong>{offer.title}</strong><p>{offer.description || "Без описания"}</p>{offer.is_subscription && <span>Доступно по подписке</span>}</div><div className={styles.offerOrderControls}><button type="button" onClick={() => void moveOffer(offer.id, "up")} disabled={index === 0} aria-label={`Поднять ${offer.title}`}>↑</button><button type="button" onClick={() => void moveOffer(offer.id, "down")} disabled={index === offers.length - 1} aria-label={`Опустить ${offer.title}`}>↓</button><button type="button" className={styles.deleteOfferButton} onClick={() => void deleteOffer(offer.id)}>Удалить</button></div></article>)}</div> : null}
+            {offers.length ? <div className={styles.savedOfferList}>{offers.map((offer) => <article key={offer.id} className={`${styles.savedOfferCard} ${draggedOfferId === offer.id ? styles.savedOfferCardDragging : ""}`} draggable onDragStart={() => setDraggedOfferId(offer.id)} onDragEnd={() => setDraggedOfferId(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => handleOfferDrop(offer.id)}>{offer.photo_url ? <img src={offer.photo_url} alt="" /> : <div className={styles.itemPlaceholder} />}<div><strong>{offer.title}</strong><p>{offer.description || "Без описания"}</p>{offer.is_subscription && <span>Доступно по подписке</span>}</div><div className={styles.offerCardActions}><button type="button" className={styles.dragHandle} aria-label={`Перетащить ${offer.title}`}>⠿</button><button type="button" className={styles.offerIconButton} onClick={() => startEditOffer(offer)} aria-label={`Редактировать ${offer.title}`}><img src="/change.svg" alt="" aria-hidden /></button><button type="button" className={styles.offerIconButton} onClick={() => void deleteOffer(offer.id)} aria-label={`Удалить ${offer.title}`}><img src="/delete.svg" alt="" aria-hidden /></button></div></article>)}</div> : null}
           </section>
 
           <section className={styles.sectionCard}>

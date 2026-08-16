@@ -478,6 +478,13 @@
   gap: 12px;
   border-top: 1px solid #edf0ee;
   padding-top: 12px;
+  cursor: grab;
+}
+
+.savedOfferCard:active { cursor: grabbing; }
+
+.savedOfferCardDragging {
+  opacity: 0.45;
 }
 
 .savedOfferCard > img,
@@ -498,28 +505,38 @@
 .savedOfferCard p { margin: 3px 0; color: #6b7280; font-size: 12px; }
 .savedOfferCard span { color: #1f6b52; font-size: 11px; }
 
-.offerOrderControls {
+.offerCardActions {
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 
-.offerOrderControls > button:not(.deleteOfferButton) {
+.dragHandle,
+.offerIconButton {
   width: 28px;
   height: 28px;
   border: 1px solid #dfe5e1;
   border-radius: 6px;
   background: #ffffff;
-  color: #1f6b52;
-  font-family: var(--font-family-base);
-  font-size: 16px;
-  line-height: 1;
   cursor: pointer;
 }
 
-.offerOrderControls > button:disabled {
-  cursor: not-allowed;
-  opacity: 0.35;
+.dragHandle {
+  color: #6b7280;
+  font-size: 18px;
+  line-height: 1;
+  cursor: grab;
+}
+
+.offerIconButton {
+  padding: 0;
+  overflow: hidden;
+}
+
+.offerIconButton img {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .offerForm label {

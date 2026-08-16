@@ -785,17 +785,33 @@ class BusinessOfferDetailView(APIView):
 			if field in request.data:
 				setattr(item, field, parse_bool(request.data.get(field), getattr(item, field)))
 		previous_photo_urls = list(item.photo_urls or ([item.photo_url] if item.photo_url else []))
-		if "photo_base64" in request.data:
-			photo_url, photo_error = save_profile_image_from_base64(
-				str(request.data.get("photo_base64") or "").strip(), tenant_from_request(request), profile.id, "offer"
-			)
-			if photo_error:
-				return Response({"message": photo_error}, status=400)
-			item.photo_url = photo_url
-			item.photo_urls = [photo_url] if photo_url else []
+		if "photo_urls" in request.data or "photo_base64_list" in request.data:
+			existing_photo_urls = request.data.get("photo_urls") or []
+			new_photo_payloads = request.data.get("photo_base64_list") or []
+			if not isinstance(existing_photo_urls, list) or not isinstance(new_photo_payloads, list):
+				return Response({"message": "Фотографии должны быть массивом"}, status=400)
+			kept_urls = [str(url).strip() for url in existing_photo_urls if str(url).strip()]
+			if any(url not in previous_photo_urls for url in kept_urls):
+				return Response({"message": "Некорректная фотография предложения"}, status=400)
+			if len(kept_urls) + len(new_photo_payloads) > 8:
+				return Response({"message": "Можно добавить не более 8 фотографий"}, status=400)
+			new_urls = []
+			for index, photo_payload in enumerate(new_photo_payloads):
+				if not str(photo_payload or "").strip():
+					continue
+				photo_url, photo_error = save_profile_image_from_base64(
+					str(photo_payload).strip(), tenant_from_request(request), profile.id, f"offer-{index + 1}"
+				)
+				if photo_error:
+					for saved_url in new_urls:
+						delete_managed_image(saved_url)
+					return Response({"message": photo_error}, status=400)
+				new_urls.append(photo_url)
+			item.photo_urls = kept_urls + new_urls
+			item.photo_url = item.photo_urls[0] if item.photo_urls else ""
 		item.save()
-		if item.photo_url not in previous_photo_urls:
-			for previous_photo_url in previous_photo_urls:
+		for previous_photo_url in previous_photo_urls:
+			if previous_photo_url not in item.photo_urls:
 				delete_managed_image(previous_photo_url)
 		return Response(serialize_business_offer(item))
 
@@ -838,6 +854,31 @@ class BusinessOfferMoveView(BusinessOfferDetailView):
 				target.save(update_fields=["display_order"])
 				items[item_index], items[target_index] = items[target_index], items[item_index]
 		return Response([serialize_business_offer(offer) for offer in items])
+
+
+class BusinessOfferReorderView(APIView):
+	def post(self, request):
+		if request_actor_role(request) == "manager":
+			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
+		profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+		ordered_ids = request.data.get("ordered_ids")
+		if not isinstance(ordered_ids, list) or not all(isinstance(item_id, int) for item_id in ordered_ids):
+			return Response({"message": "ordered_ids должен быть массивом идентификаторов"}, status=400)
+		with transaction.atomic():
+			items = list(BusinessOffer.objects.select_for_update().filter(
+				tenant_slug=tenant_from_request(request), partner_profile=profile
+			).order_by("display_order", "id"))
+			if {item.id for item in items} != set(ordered_ids) or len(items) != len(ordered_ids):
+				return Response({"message": "Список предложений не совпадает"}, status=400)
+			by_id = {item.id: item for item in items}
+			ordered_items = [by_id[item_id] for item_id in ordered_ids]
+			for index, item in enumerate(ordered_items, start=1):
+				if item.display_order != index:
+					item.display_order = index
+					item.save(update_fields=["display_order"])
+		return Response([serialize_business_offer(item) for item in ordered_items])
 
 
 class CategoryListCreateView(APIView):
