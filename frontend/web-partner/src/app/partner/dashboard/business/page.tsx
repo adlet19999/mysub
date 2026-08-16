@@ -247,17 +247,17 @@ export default function PartnerBusinessPage() {
           </section>
 
           <section className={`${styles.sectionCard} ${styles.offersSection}`}>
-            <div className={styles.offersHeader}><h3>Предложения</h3><button type="button" className={styles.addOfferButton} onClick={() => setIsOfferEditorOpen(true)}>+&nbsp; Добавить еще</button></div>
+            <div className={styles.offersHeader}><h3>Предложение</h3><button type="button" className={styles.addOfferButton} onClick={() => setIsOfferEditorOpen(true)}>+&nbsp; Добавить еще</button></div>
             <input ref={offerPhotoInput} className={styles.fileInput} type="file" accept="image/*" onChange={(event) => void handleOfferPhotoChange(event)} />
-            {isOfferEditorOpen && <article className={styles.offerEditorCard}>
-              <button type="button" className={styles.offerPhotoButton} onClick={() => offerPhotoInput.current?.click()}>{offerPhoto ? <img src={offerPhoto} alt="Выбранное изображение предложения" /> : <span>Загрузить фото</span>}</button>
+            {(isOfferEditorOpen || offers.length === 0) && <article className={styles.offerEditorCard}>
+              <button type="button" className={styles.offerPhotoButton} onClick={() => offerPhotoInput.current?.click()}>{offerPhoto ? <img src={offerPhoto} alt="Выбранное изображение предложения" /> : <span className={styles.offerPhotoPlaceholder}><b aria-hidden="true">▧</b>Добавить фото</span>}</button>
               {offerPhoto && <button type="button" className={styles.removeOfferPhotoButton} onClick={() => setOfferPhoto("")} aria-label="Удалить фото предложения">⌫</button>}
               <label><span>Название услуги</span><input value={offerTitle} onChange={(event) => setOfferTitle(event.target.value)} placeholder="Например, дегустационное меню" /></label>
               <label><span>Описание</span><textarea value={offerDescription} onChange={(event) => setOfferDescription(event.target.value)} placeholder="Расскажите клиентам о предложении" /></label>
-              <label className={styles.offerSubscriptionLabel}><input type="checkbox" checked={offerSubscription} onChange={(event) => setOfferSubscription(event.target.checked)} /> <span>Доступно по абонементу</span></label>
-              <div className={styles.offerEditorActions}><button type="button" className={styles.cancelOfferButton} onClick={() => { setOfferTitle(""); setOfferDescription(""); setOfferPhoto(""); setOfferSubscription(false); setIsOfferEditorOpen(false); }}>Отменить</button><button type="button" className={styles.saveOfferButton} disabled={!offerTitle.trim() || isSavingOffer} onClick={() => void createOffer()}>{isSavingOffer ? "Сохраняем..." : "Сохранить предложение"}</button></div>
+              <label className={styles.offerSubscriptionLabel}><input type="checkbox" checked={offerSubscription} onChange={(event) => setOfferSubscription(event.target.checked)} /> <span>Доступно по подписке</span></label>
+              <div className={styles.offerEditorActions}><button type="button" className={styles.saveOfferButton} disabled={!offerTitle.trim() || isSavingOffer} onClick={() => void createOffer()}>{isSavingOffer ? "Сохраняем..." : "Сохранить услугу"}</button></div>
             </article>}
-            {offers.length ? <div className={styles.savedOfferList}>{offers.map((offer) => <article key={offer.id} className={styles.savedOfferCard}>{offer.photo_url ? <img src={offer.photo_url} alt="" /> : <div className={styles.itemPlaceholder} />}<div><strong>{offer.title}</strong><p>{offer.description || "Без описания"}</p>{offer.is_subscription && <span>Доступно по абонементу</span>}</div><button type="button" className={styles.deleteOfferButton} onClick={() => void deleteOffer(offer.id)}>Удалить</button></article>)}</div> : !isOfferEditorOpen && <p className={styles.emptyText}>Добавьте предложение с фотографией и описанием.</p>}
+            {offers.length ? <div className={styles.savedOfferList}>{offers.map((offer) => <article key={offer.id} className={styles.savedOfferCard}>{offer.photo_url ? <img src={offer.photo_url} alt="" /> : <div className={styles.itemPlaceholder} />}<div><strong>{offer.title}</strong><p>{offer.description || "Без описания"}</p>{offer.is_subscription && <span>Доступно по подписке</span>}</div><button type="button" className={styles.deleteOfferButton} onClick={() => void deleteOffer(offer.id)}>Удалить</button></article>)}</div> : null}
           </section>
 
           <section className={styles.sectionCard}>
