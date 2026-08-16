@@ -307,7 +307,7 @@
 }
 
 .offerPhotoButton {
-  width: 100%;
+  width: min(320px, 100%);
   aspect-ratio: 16 / 9;
   height: auto;
   overflow: hidden;
