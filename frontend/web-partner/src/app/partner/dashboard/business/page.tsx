@@ -50,7 +50,7 @@ export default function PartnerBusinessPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isPreviewMode, setIsPreviewMode] = useState(false);
-  const [previewTab, setPreviewTab] = useState<"services" | "about">("services");
+  const [previewTab, setPreviewTab] = useState<"offers" | "reviews">("offers");
   const [addedServiceIds, setAddedServiceIds] = useState<number[]>([]);
   const profilePhotoInput = useRef<HTMLInputElement>(null);
   const offerPhotoInput = useRef<HTMLInputElement>(null);
@@ -186,16 +186,17 @@ export default function PartnerBusinessPage() {
   }
 
   function renderPhonePreview() {
-    return <div className={styles.phoneMock}><div className={styles.phoneScreen}>
-      <div className={styles.dynamicIsland} aria-hidden="true" />
-      <div className={styles.phoneStatus}><span>9:41</span><span>▮▮▮ ◒ ▰</span></div>
+    return <div className={styles.phoneMock}>
+      <span className={styles.phoneMuteButton} aria-hidden="true" /><span className={styles.phoneVolumeUpButton} aria-hidden="true" /><span className={styles.phoneVolumeDownButton} aria-hidden="true" /><span className={styles.phonePowerButton} aria-hidden="true" />
+      <div className={styles.phoneScreen}>
+      <div className={styles.phoneStatus}><span>9:41</span><div className={styles.phoneIndicators} aria-hidden="true"><span className={styles.signalIndicator} /><span className={styles.wifiIndicator} /><span className={styles.batteryIndicator} /></div></div>
       <h4>Ваша карточка</h4>
       {profile.business_photo_url ? <img className={styles.mockImage} src={profile.business_photo_url} alt="" /> : <div className={styles.mockImage}>Добавьте фото</div>}
       <p className={styles.mockBusinessName}>{profile.company_name || "Ваш бизнес"}</p>
       <p className={styles.mockCategory}>{profile.business_category || "Категория бизнеса"}</p>
-      <div className={styles.mockPills} role="tablist"><button type="button" className={previewTab === "services" ? styles.mockPillActive : styles.mockPill} onClick={() => setPreviewTab("services")}>Услуги</button><button type="button" className={previewTab === "about" ? styles.mockPillActive : styles.mockPill} onClick={() => setPreviewTab("about")}>О бизнесе</button></div>
+      <div className={styles.mockPills} role="tablist"><button type="button" className={previewTab === "offers" ? styles.mockPillActive : styles.mockPill} onClick={() => setPreviewTab("offers")}>Предложения</button><button type="button" className={previewTab === "reviews" ? styles.mockPillActive : styles.mockPill} onClick={() => setPreviewTab("reviews")}>Отзывы</button></div>
       <div className={styles.phoneContent}>
-        {previewTab === "services" ? activeOffers.length ? activeOffers.map((offer) => <article key={offer.id} className={styles.clientServiceCard}>{offer.photo_url ? <img src={offer.photo_url} alt="" /> : <div className={styles.clientServiceImage} />}<div className={styles.clientServiceBody}><strong>{offer.title}</strong><p>{offer.description || "Описание предложения"}</p>{offer.is_subscription && <span>Доступно по подписке MySub</span>}</div><button type="button" aria-label={`Добавить ${offer.title}`} className={addedServiceIds.includes(offer.id) ? styles.addedButton : styles.addButton} onClick={() => setAddedServiceIds((items) => items.includes(offer.id) ? items.filter((id) => id !== offer.id) : [...items, offer.id])}>{addedServiceIds.includes(offer.id) ? "✓" : "+"}</button></article>) : <p className={styles.phoneEmpty}>Добавьте первое предложение для клиентов.</p> : <div className={styles.phoneAbout}><p>{profile.description || "Добавьте описание, чтобы клиентам было проще выбрать вас."}</p><strong>{profile.city || "Город"}</strong><p>{profile.address || "Адрес не указан"}</p><p>{profile.working_hours || "График работы не указан"}</p>{profile.website && <a href={profile.website} target="_blank" rel="noreferrer">Сайт</a>}{profile.instagram && <p>{profile.instagram}</p>}</div>}
+        {previewTab === "offers" ? activeOffers.length ? activeOffers.map((offer) => <article key={offer.id} className={styles.clientServiceCard}>{offer.photo_url ? <img src={offer.photo_url} alt="" /> : <div className={styles.clientServiceImage} />}<div className={styles.clientServiceBody}><strong>{offer.title}</strong><p>{offer.description || "Описание предложения"}</p>{offer.is_subscription && <span>Доступно по подписке MySub</span>}</div><button type="button" aria-label={`Добавить ${offer.title}`} className={addedServiceIds.includes(offer.id) ? styles.addedButton : styles.addButton} onClick={() => setAddedServiceIds((items) => items.includes(offer.id) ? items.filter((id) => id !== offer.id) : [...items, offer.id])}>{addedServiceIds.includes(offer.id) ? "✓" : "+"}</button></article>) : <p className={styles.phoneEmpty}>Добавьте первое предложение для клиентов.</p> : <p className={styles.phoneEmpty}>Отзывов пока нет.</p>}
       </div>
     </div></div>;
   }
