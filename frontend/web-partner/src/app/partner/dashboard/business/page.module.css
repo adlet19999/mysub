@@ -539,6 +539,25 @@
   height: 100%;
 }
 
+.editOfferButton {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.editOfferIcon {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
 .offerForm label {
   display: flex;
   flex-direction: column;
