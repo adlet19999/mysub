@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { compressImageFileToDataUrl } from "../../../../lib/imageCompression";
 import { formatRuPhone } from "../../../../lib/phone";
@@ -21,13 +20,11 @@ type PartnerProfile = {
   business_photo_url: string;
 };
 
-type Service = {
+type BusinessOffer = {
   id: number;
-  name: string;
+  title: string;
   description: string;
-  price: string | null;
-  image_url: string;
-  discount_percent: number;
+  photo_url: string;
   is_subscription: boolean;
   is_active: boolean;
 };
@@ -39,21 +36,15 @@ const EMPTY_PROFILE: PartnerProfile = {
   description: "", city: "", working_hours: "", website: "", instagram: "", business_photo_url: "",
 };
 
-function formatPrice(value: string | null) {
-  const number = Number(value || 0);
-  return Number.isFinite(number) && number > 0 ? `${new Intl.NumberFormat("ru-RU").format(number)} ₸` : "Цена не указана";
-}
-
-function discountedPrice(service: Service) {
-  const price = Number(service.price || 0);
-  if (!Number.isFinite(price) || price <= 0) return "Цена не указана";
-  return formatPrice(String(price * (1 - Math.min(100, service.discount_percent || 0) / 100)));
-}
-
 export default function PartnerBusinessPage() {
   const [partnerEmail, setPartnerEmail] = useState("");
   const [profile, setProfile] = useState<PartnerProfile>(EMPTY_PROFILE);
-  const [services, setServices] = useState<Service[]>([]);
+  const [offers, setOffers] = useState<BusinessOffer[]>([]);
+  const [offerTitle, setOfferTitle] = useState("");
+  const [offerDescription, setOfferDescription] = useState("");
+  const [offerPhoto, setOfferPhoto] = useState("");
+  const [offerSubscription, setOfferSubscription] = useState(false);
+  const [isSavingOffer, setIsSavingOffer] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -62,9 +53,10 @@ export default function PartnerBusinessPage() {
   const [previewTab, setPreviewTab] = useState<"services" | "about">("services");
   const [addedServiceIds, setAddedServiceIds] = useState<number[]>([]);
   const profilePhotoInput = useRef<HTMLInputElement>(null);
+  const offerPhotoInput = useRef<HTMLInputElement>(null);
 
   const isSaveDisabled = useMemo(() => saving || !profile.company_name.trim() || !profile.email.trim() || !profile.phone.trim(), [profile, saving]);
-  const activeServices = useMemo(() => services.filter((service) => service.is_active), [services]);
+  const activeOffers = useMemo(() => offers.filter((offer) => offer.is_active), [offers]);
 
   useEffect(() => {
     const raw = localStorage.getItem("partner_auth_user");
@@ -90,14 +82,14 @@ export default function PartnerBusinessPage() {
     setLoading(true);
     setError("");
     try {
-      const [profileResponse, servicesResponse] = await Promise.all([
-        api("/partner/profile/"), api("/partner/services/?include_image=0"),
+      const [profileResponse, offersResponse] = await Promise.all([
+        api("/partner/profile/"), api("/partner/business-offers/"),
       ]);
       const profilePayload = (await profileResponse.json()) as Partial<PartnerProfile> & { message?: string };
-      const servicesPayload = (await servicesResponse.json()) as Service[];
+      const offersPayload = (await offersResponse.json()) as BusinessOffer[];
       if (!profileResponse.ok) throw new Error(profilePayload.message || "Не удалось загрузить профиль");
       setProfile({ ...EMPTY_PROFILE, ...profilePayload });
-      setServices(Array.isArray(servicesPayload) ? servicesPayload : []);
+      setOffers(Array.isArray(offersPayload) ? offersPayload : []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить данные бизнеса");
     } finally {
@@ -117,6 +109,46 @@ export default function PartnerBusinessPage() {
       setError("Не удалось обработать изображение");
     } finally {
       event.target.value = "";
+    }
+  }
+
+  async function handleOfferPhotoChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      setOfferPhoto(await compressImageFileToDataUrl(file, { maxWidth: 1280, maxHeight: 960 }));
+    } catch {
+      setError("Не удалось обработать изображение предложения");
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  async function createOffer() {
+    if (!partnerEmail || !offerTitle.trim() || isSavingOffer) return;
+    setIsSavingOffer(true);
+    setError("");
+    try {
+      const response = await api("/partner/business-offers/", { method: "POST", body: JSON.stringify({ title: offerTitle.trim(), description: offerDescription.trim(), photo_base64: offerPhoto, is_subscription: offerSubscription }) });
+      const payload = (await response.json()) as BusinessOffer & { message?: string };
+      if (!response.ok) throw new Error(payload.message || "Не удалось добавить предложение");
+      setOffers((items) => [payload, ...items]);
+      setOfferTitle(""); setOfferDescription(""); setOfferPhoto(""); setOfferSubscription(false);
+    } catch (offerError) {
+      setError(offerError instanceof Error ? offerError.message : "Не удалось добавить предложение");
+    } finally {
+      setIsSavingOffer(false);
+    }
+  }
+
+  async function deleteOffer(offerId: number) {
+    if (!partnerEmail) return;
+    try {
+      const response = await api(`/partner/business-offers/${offerId}/`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Не удалось удалить предложение");
+      setOffers((items) => items.filter((offer) => offer.id !== offerId));
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Не удалось удалить предложение");
     }
   }
 
@@ -163,7 +195,7 @@ export default function PartnerBusinessPage() {
       <p className={styles.mockCategory}>{profile.business_category || "Категория бизнеса"}</p>
       <div className={styles.mockPills} role="tablist"><button type="button" className={previewTab === "services" ? styles.mockPillActive : styles.mockPill} onClick={() => setPreviewTab("services")}>Услуги</button><button type="button" className={previewTab === "about" ? styles.mockPillActive : styles.mockPill} onClick={() => setPreviewTab("about")}>О бизнесе</button></div>
       <div className={styles.phoneContent}>
-        {previewTab === "services" ? activeServices.length ? activeServices.map((service) => <article key={service.id} className={styles.clientServiceCard}>{service.image_url ? <img src={service.image_url} alt="" /> : <div className={styles.clientServiceImage} />}<div className={styles.clientServiceBody}><strong>{service.discount_percent > 0 ? `Скидка ${service.discount_percent}%: ${service.name}` : service.name}</strong><p>{service.description || "Описание услуги"}</p><b>{discountedPrice(service)}</b>{service.is_subscription && <span>Доступно по подписке MySub</span>}</div><button type="button" aria-label={`Добавить ${service.name}`} className={addedServiceIds.includes(service.id) ? styles.addedButton : styles.addButton} onClick={() => setAddedServiceIds((items) => items.includes(service.id) ? items.filter((id) => id !== service.id) : [...items, service.id])}>{addedServiceIds.includes(service.id) ? "✓" : "+"}</button></article>) : <p className={styles.phoneEmpty}>Здесь появятся ваши услуги.</p> : <div className={styles.phoneAbout}><p>{profile.description || "Добавьте описание, чтобы клиентам было проще выбрать вас."}</p><strong>{profile.city || "Город"}</strong><p>{profile.address || "Адрес не указан"}</p><p>{profile.working_hours || "График работы не указан"}</p>{profile.website && <a href={profile.website} target="_blank" rel="noreferrer">Сайт</a>}{profile.instagram && <p>{profile.instagram}</p>}</div>}
+        {previewTab === "services" ? activeOffers.length ? activeOffers.map((offer) => <article key={offer.id} className={styles.clientServiceCard}>{offer.photo_url ? <img src={offer.photo_url} alt="" /> : <div className={styles.clientServiceImage} />}<div className={styles.clientServiceBody}><strong>{offer.title}</strong><p>{offer.description || "Описание предложения"}</p>{offer.is_subscription && <span>Доступно по подписке MySub</span>}</div><button type="button" aria-label={`Добавить ${offer.title}`} className={addedServiceIds.includes(offer.id) ? styles.addedButton : styles.addButton} onClick={() => setAddedServiceIds((items) => items.includes(offer.id) ? items.filter((id) => id !== offer.id) : [...items, offer.id])}>{addedServiceIds.includes(offer.id) ? "✓" : "+"}</button></article>) : <p className={styles.phoneEmpty}>Добавьте первое предложение для клиентов.</p> : <div className={styles.phoneAbout}><p>{profile.description || "Добавьте описание, чтобы клиентам было проще выбрать вас."}</p><strong>{profile.city || "Город"}</strong><p>{profile.address || "Адрес не указан"}</p><p>{profile.working_hours || "График работы не указан"}</p>{profile.website && <a href={profile.website} target="_blank" rel="noreferrer">Сайт</a>}{profile.instagram && <p>{profile.instagram}</p>}</div>}
       </div>
     </div></div>;
   }
@@ -212,8 +244,10 @@ export default function PartnerBusinessPage() {
           </section>
 
           <section className={styles.sectionCard}>
-            <div className={styles.sectionHeaderInline}><div><h3>Услуги для клиентов</h3><p className={styles.sectionHint}>Эти услуги будут показаны клиентам в мобильной карточке.</p></div><Link className={styles.ghostButton} href="/partner/dashboard/manage">Управлять услугами</Link></div>
-            {activeServices.length ? <div className={styles.itemList}>{activeServices.map((service) => <article key={service.id} className={styles.listItem}>{service.image_url ? <img src={service.image_url} alt="" /> : <div className={styles.itemPlaceholder} /> }<div><strong>{service.name}</strong><p>{service.description || formatPrice(service.price)}</p></div><span>{formatPrice(service.price)}</span></article>)}</div> : <p className={styles.emptyText}>Добавьте услуги в разделе «Услуги и категории».</p>}
+            <div className={styles.sectionHeaderInline}><div><h3>Предложения для клиентов</h3><p className={styles.sectionHint}>Это отдельные карточки витрины. Они не связаны с услугами и записями.</p></div></div>
+            <div className={styles.offerForm}><label><span>Название предложения</span><input value={offerTitle} onChange={(event) => setOfferTitle(event.target.value)} placeholder="Например, скидка на роллы 50%" /></label><label><span>Описание</span><textarea value={offerDescription} onChange={(event) => setOfferDescription(event.target.value)} placeholder="Расскажите клиентам о предложении" /></label><div className={styles.offerActions}><button type="button" className={styles.ghostButton} onClick={() => offerPhotoInput.current?.click()}>{offerPhoto ? "Фото выбрано" : "Загрузить фото"}</button><label className={styles.checkboxLabel}><input type="checkbox" checked={offerSubscription} onChange={(event) => setOfferSubscription(event.target.checked)} /> Доступно по подписке MySub</label><button type="button" className={styles.saveButton} disabled={!offerTitle.trim() || isSavingOffer} onClick={() => void createOffer()}>{isSavingOffer ? "Добавляем..." : "Добавить"}</button></div></div>
+            <input ref={offerPhotoInput} className={styles.fileInput} type="file" accept="image/*" onChange={(event) => void handleOfferPhotoChange(event)} />
+            {offers.length ? <div className={styles.itemList}>{offers.map((offer) => <article key={offer.id} className={styles.listItem}>{offer.photo_url ? <img src={offer.photo_url} alt="" /> : <div className={styles.itemPlaceholder} />}<div><strong>{offer.title}</strong><p>{offer.description || "Без описания"}</p></div><button type="button" className={styles.deleteOfferButton} onClick={() => void deleteOffer(offer.id)}>Удалить</button></article>)}</div> : <p className={styles.emptyText}>Добавьте первое предложение с фотографией и описанием.</p>}
           </section>
 
           <section className={styles.sectionCard}>

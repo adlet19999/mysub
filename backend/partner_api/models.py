@@ -132,4 +132,19 @@ class BusinessTable(models.Model):
 	is_active = models.BooleanField(default=True)
 	created_at = models.DateTimeField(auto_now_add=True)
 
+
+class BusinessOffer(models.Model):
+	tenant_slug = models.CharField(max_length=80, db_index=True)
+	partner_profile = models.ForeignKey(
+		"common_api.PartnerProfile",
+		on_delete=models.CASCADE,
+		related_name="business_offers",
+	)
+	title = models.CharField(max_length=120)
+	description = models.TextField(blank=True, default="")
+	photo_url = models.URLField(blank=True, default="")
+	is_subscription = models.BooleanField(default=False)
+	is_active = models.BooleanField(default=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+
 # Create your models here.

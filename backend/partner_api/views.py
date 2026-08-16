@@ -19,7 +19,7 @@ from rest_framework.views import APIView
 from common_api.models import PartnerProfile
 from common_api.views import normalize_ru_phone, PHONE_RU_RE
 
-from .models import Booking, BusinessTable, Category, Manager, Service, ServiceKind, Specialist, SpecialistService
+from .models import Booking, BusinessOffer, BusinessTable, Category, Manager, Service, ServiceKind, Specialist, SpecialistService
 
 
 def tenant_from_request(request) -> str:
@@ -521,6 +521,17 @@ def serialize_business_table(item: BusinessTable):
 	}
 
 
+def serialize_business_offer(item: BusinessOffer):
+	return {
+		"id": item.id,
+		"title": item.title,
+		"description": item.description,
+		"photo_url": normalize_profile_image_url(item.photo_url),
+		"is_subscription": item.is_subscription,
+		"is_active": item.is_active,
+	}
+
+
 class PartnerProfileView(APIView):
 	def get(self, request):
 		if request_actor_role(request) == "manager":
@@ -675,6 +686,98 @@ class BusinessTableDetailView(APIView):
 		if item.photo_url != previous_photo_url:
 			delete_managed_image(previous_photo_url)
 		return Response(serialize_business_table(item))
+
+
+class BusinessOfferListCreateView(APIView):
+	def get(self, request):
+		if request_actor_role(request) == "manager":
+			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
+		profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+		items = BusinessOffer.objects.filter(
+			tenant_slug=tenant_from_request(request), partner_profile=profile
+		).order_by("-id")
+		return Response([serialize_business_offer(item) for item in items])
+
+	def post(self, request):
+		if request_actor_role(request) == "manager":
+			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
+		profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+		title = str(request.data.get("title") or "").strip()
+		if not title:
+			return Response({"message": "Название предложения обязательно"}, status=400)
+		tenant = tenant_from_request(request)
+		photo_url, photo_error = save_profile_image_from_base64(
+			str(request.data.get("photo_base64") or "").strip(), tenant, profile.id, "offer"
+		)
+		if photo_error:
+			return Response({"message": photo_error}, status=400)
+		item = BusinessOffer.objects.create(
+			tenant_slug=tenant,
+			partner_profile=profile,
+			title=title,
+			description=str(request.data.get("description") or "").strip(),
+			photo_url=photo_url,
+			is_subscription=parse_bool(request.data.get("is_subscription"), False),
+		)
+		return Response(serialize_business_offer(item), status=201)
+
+
+class BusinessOfferDetailView(APIView):
+	def _get_offer(self, request, offer_id):
+		profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return None, None, error_response
+		item = BusinessOffer.objects.filter(
+			id=offer_id, tenant_slug=tenant_from_request(request), partner_profile=profile
+		).first()
+		if not item:
+			return None, None, Response({"message": "Предложение не найдено"}, status=404)
+		return item, profile, None
+
+	def patch(self, request, offer_id: int):
+		if request_actor_role(request) == "manager":
+			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
+		item, profile, error_response = self._get_offer(request, offer_id)
+		if error_response is not None:
+			return error_response
+		if "title" in request.data:
+			title = str(request.data.get("title") or "").strip()
+			if not title:
+				return Response({"message": "Название предложения обязательно"}, status=400)
+			item.title = title
+		for field in ("description",):
+			if field in request.data:
+				setattr(item, field, str(request.data.get(field) or "").strip())
+		for field in ("is_subscription", "is_active"):
+			if field in request.data:
+				setattr(item, field, parse_bool(request.data.get(field), getattr(item, field)))
+		previous_photo_url = item.photo_url
+		if "photo_base64" in request.data:
+			photo_url, photo_error = save_profile_image_from_base64(
+				str(request.data.get("photo_base64") or "").strip(), tenant_from_request(request), profile.id, "offer"
+			)
+			if photo_error:
+				return Response({"message": photo_error}, status=400)
+			item.photo_url = photo_url
+		item.save()
+		if item.photo_url != previous_photo_url:
+			delete_managed_image(previous_photo_url)
+		return Response(serialize_business_offer(item))
+
+	def delete(self, request, offer_id: int):
+		if request_actor_role(request) == "manager":
+			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
+		item, _, error_response = self._get_offer(request, offer_id)
+		if error_response is not None:
+			return error_response
+		photo_url = item.photo_url
+		item.delete()
+		delete_managed_image(photo_url)
+		return Response(status=204)
 
 
 class CategoryListCreateView(APIView):
