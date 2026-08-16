@@ -387,11 +387,10 @@
   font-size: 13px;
 }
 
-.offerPhotoPlaceholder b {
+.offerPhotoPlaceholder img {
   color: #667085;
-  font-size: 29px;
-  font-weight: 400;
-  line-height: 1;
+  width: 29px;
+  height: 29px;
 }
 
 .removeOfferPhotoButton {
