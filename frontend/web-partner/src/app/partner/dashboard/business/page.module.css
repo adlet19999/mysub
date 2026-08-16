@@ -772,7 +772,7 @@
 }
 
 .compactPhonePreview {
-  height: 420px;
+  height: 630px;
   margin: 0;
   display: grid;
   justify-content: center;
@@ -780,7 +780,7 @@
 }
 
 .compactPhonePreview .phoneMock {
-  transform: scale(0.58);
+  transform: scale(0.87);
   transform-origin: top center;
 }
 
