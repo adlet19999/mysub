@@ -7,7 +7,8 @@ from io import BytesIO
 from pathlib import Path
 
 from django.contrib.auth.models import User
-from django.db.models import Q
+from django.db import transaction
+from django.db.models import Max, Q
 from django.conf import settings
 from django.http import FileResponse
 from django.utils import timezone
@@ -529,6 +530,7 @@ def serialize_business_offer(item: BusinessOffer):
 		"photo_url": normalize_profile_image_url(item.photo_url),
 		"is_subscription": item.is_subscription,
 		"is_active": item.is_active,
+		"display_order": item.display_order,
 	}
 
 
@@ -697,7 +699,7 @@ class BusinessOfferListCreateView(APIView):
 			return error_response
 		items = BusinessOffer.objects.filter(
 			tenant_slug=tenant_from_request(request), partner_profile=profile
-		).order_by("-id")
+		).order_by("display_order", "id")
 		return Response([serialize_business_offer(item) for item in items])
 
 	def post(self, request):
@@ -715,6 +717,9 @@ class BusinessOfferListCreateView(APIView):
 		)
 		if photo_error:
 			return Response({"message": photo_error}, status=400)
+		last_order = BusinessOffer.objects.filter(
+			tenant_slug=tenant, partner_profile=profile
+		).aggregate(max_order=Max("display_order"))["max_order"] or 0
 		item = BusinessOffer.objects.create(
 			tenant_slug=tenant,
 			partner_profile=profile,
@@ -722,6 +727,7 @@ class BusinessOfferListCreateView(APIView):
 			description=str(request.data.get("description") or "").strip(),
 			photo_url=photo_url,
 			is_subscription=parse_bool(request.data.get("is_subscription"), False),
+			display_order=last_order + 1,
 		)
 		return Response(serialize_business_offer(item), status=201)
 
@@ -778,6 +784,34 @@ class BusinessOfferDetailView(APIView):
 		item.delete()
 		delete_managed_image(photo_url)
 		return Response(status=204)
+
+
+class BusinessOfferMoveView(BusinessOfferDetailView):
+	def post(self, request, offer_id: int):
+		if request_actor_role(request) == "manager":
+			return Response({"message": "Доступ запрещен для роли manager"}, status=403)
+		direction = str(request.data.get("direction") or "").strip().lower()
+		if direction not in {"up", "down"}:
+			return Response({"message": "direction должен быть up или down"}, status=400)
+		item, profile, error_response = self._get_offer(request, offer_id)
+		if error_response is not None:
+			return error_response
+		with transaction.atomic():
+			items = list(BusinessOffer.objects.select_for_update().filter(
+				tenant_slug=tenant_from_request(request), partner_profile=profile
+			).order_by("display_order", "id"))
+			item_index = next((index for index, offer in enumerate(items) if offer.id == item.id), None)
+			if item_index is None:
+				return Response({"message": "Предложение не найдено"}, status=404)
+			target_index = item_index - 1 if direction == "up" else item_index + 1
+			if 0 <= target_index < len(items):
+				current = items[item_index]
+				target = items[target_index]
+				current.display_order, target.display_order = target.display_order, current.display_order
+				current.save(update_fields=["display_order"])
+				target.save(update_fields=["display_order"])
+				items[item_index], items[target_index] = items[target_index], items[item_index]
+		return Response([serialize_business_offer(offer) for offer in items])
 
 
 class CategoryListCreateView(APIView):

@@ -27,6 +27,7 @@ type BusinessOffer = {
   photo_url: string;
   is_subscription: boolean;
   is_active: boolean;
+  display_order: number;
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1";
@@ -146,7 +147,7 @@ export default function PartnerBusinessPage() {
       const response = await api("/partner/business-offers/", { method: "POST", body: JSON.stringify({ title: offerTitle.trim(), description: offerDescription.trim(), photo_base64: offerPhoto, is_subscription: offerSubscription }) });
       const payload = (await response.json()) as BusinessOffer & { message?: string };
       if (!response.ok) throw new Error(payload.message || "Не удалось добавить предложение");
-      setOffers((items) => [payload, ...items]);
+      setOffers((items) => [...items, payload]);
       setOfferTitle(""); setOfferDescription(""); setOfferPhoto(""); setOfferSubscription(false);
       setIsOfferEditorOpen(false);
     } catch (offerError) {
@@ -174,6 +175,19 @@ export default function PartnerBusinessPage() {
       setOffers((items) => items.filter((offer) => offer.id !== offerId));
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Не удалось удалить предложение");
+    }
+  }
+
+  async function moveOffer(offerId: number, direction: "up" | "down") {
+    if (!partnerEmail) return;
+    setError("");
+    try {
+      const response = await api(`/partner/business-offers/${offerId}/move/`, { method: "POST", body: JSON.stringify({ direction }) });
+      const payload = (await response.json()) as BusinessOffer[] | { message?: string };
+      if (!response.ok || !Array.isArray(payload)) throw new Error("message" in payload ? payload.message || "Не удалось изменить порядок" : "Не удалось изменить порядок");
+      setOffers(payload);
+    } catch (moveError) {
+      setError(moveError instanceof Error ? moveError.message : "Не удалось изменить порядок");
     }
   }
 
@@ -281,7 +295,7 @@ export default function PartnerBusinessPage() {
               {offerError && <p className={styles.offerError}>{offerError}</p>}
               <div className={styles.offerEditorActions}><button type="button" className={styles.saveOfferButton} disabled={isSavingOffer} onClick={() => void createOffer()}>{isSavingOffer ? "Сохраняем..." : "Сохранить услугу"}</button></div>
             </article>}
-            {offers.length ? <div className={styles.savedOfferList}>{offers.map((offer) => <article key={offer.id} className={styles.savedOfferCard}>{offer.photo_url ? <img src={offer.photo_url} alt="" /> : <div className={styles.itemPlaceholder} />}<div><strong>{offer.title}</strong><p>{offer.description || "Без описания"}</p>{offer.is_subscription && <span>Доступно по подписке</span>}</div><button type="button" className={styles.deleteOfferButton} onClick={() => void deleteOffer(offer.id)}>Удалить</button></article>)}</div> : null}
+            {offers.length ? <div className={styles.savedOfferList}>{offers.map((offer, index) => <article key={offer.id} className={styles.savedOfferCard}>{offer.photo_url ? <img src={offer.photo_url} alt="" /> : <div className={styles.itemPlaceholder} />}<div><strong>{offer.title}</strong><p>{offer.description || "Без описания"}</p>{offer.is_subscription && <span>Доступно по подписке</span>}</div><div className={styles.offerOrderControls}><button type="button" onClick={() => void moveOffer(offer.id, "up")} disabled={index === 0} aria-label={`Поднять ${offer.title}`}>↑</button><button type="button" onClick={() => void moveOffer(offer.id, "down")} disabled={index === offers.length - 1} aria-label={`Опустить ${offer.title}`}>↓</button><button type="button" className={styles.deleteOfferButton} onClick={() => void deleteOffer(offer.id)}>Удалить</button></div></article>)}</div> : null}
           </section>
 
           <section className={styles.sectionCard}>

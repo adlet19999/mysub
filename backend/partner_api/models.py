@@ -145,6 +145,7 @@ class BusinessOffer(models.Model):
 	photo_url = models.URLField(blank=True, default="")
 	is_subscription = models.BooleanField(default=False)
 	is_active = models.BooleanField(default=True)
+	display_order = models.PositiveIntegerField(default=0)
 	created_at = models.DateTimeField(auto_now_add=True)
 
 # Create your models here.

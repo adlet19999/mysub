@@ -308,7 +308,7 @@
 
 .offerPhotoButton {
   width: 100%;
-  aspect-ratio: 4.4 / 1;
+  aspect-ratio: 16 / 9;
   height: auto;
   overflow: hidden;
   border: 0;
@@ -451,6 +451,30 @@
 .savedOfferCard strong { display: block; color: #1e1e1e; font-size: 13px; }
 .savedOfferCard p { margin: 3px 0; color: #6b7280; font-size: 12px; }
 .savedOfferCard span { color: #1f6b52; font-size: 11px; }
+
+.offerOrderControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.offerOrderControls > button:not(.deleteOfferButton) {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #dfe5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1f6b52;
+  font-family: var(--font-family-base);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.offerOrderControls > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
 
 .offerForm label {
   display: flex;
