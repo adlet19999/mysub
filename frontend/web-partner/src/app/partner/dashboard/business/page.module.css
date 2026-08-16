@@ -332,6 +332,53 @@
   background: #f5f7f8;
 }
 
+.offerPhotoList {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px;
+  scrollbar-width: none;
+}
+
+.offerPhotoList::-webkit-scrollbar { display: none; }
+
+.offerPhotoPreview {
+  position: relative;
+  flex: 0 0 132px;
+  height: 78px;
+  overflow: hidden;
+  border: 1px solid #d8dde3;
+  border-radius: 8px;
+  background: #f5f7f8;
+}
+
+.offerPhotoPreview > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.offerPhotoPreview > button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0;
+  overflow: hidden;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.offerPhotoPreview > button img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .offerPhotoPlaceholder {
   display: grid;
   justify-items: center;
@@ -955,6 +1002,28 @@ img.mockImage {
   display: block;
   width: 100%;
   height: 128px;
+  object-fit: cover;
+}
+
+.offerPhotoCarousel {
+  display: flex;
+  width: 100%;
+  height: 128px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  touch-action: pan-x;
+}
+
+.offerPhotoCarousel::-webkit-scrollbar { display: none; }
+
+.offerPhotoCarousel img {
+  display: block;
+  flex: 0 0 100%;
+  width: 100%;
+  height: 128px;
+  scroll-snap-align: start;
   object-fit: cover;
 }
 

@@ -25,6 +25,7 @@ type BusinessOffer = {
   title: string;
   description: string;
   photo_url: string;
+  photo_urls: string[];
   is_subscription: boolean;
   is_active: boolean;
   display_order: number;
@@ -43,7 +44,7 @@ export default function PartnerBusinessPage() {
   const [offers, setOffers] = useState<BusinessOffer[]>([]);
   const [offerTitle, setOfferTitle] = useState("");
   const [offerDescription, setOfferDescription] = useState("");
-  const [offerPhoto, setOfferPhoto] = useState("");
+  const [offerPhotos, setOfferPhotos] = useState<string[]>([]);
   const [offerSubscription, setOfferSubscription] = useState(false);
   const [isSavingOffer, setIsSavingOffer] = useState(false);
   const [isOfferEditorOpen, setIsOfferEditorOpen] = useState(false);
@@ -117,10 +118,16 @@ export default function PartnerBusinessPage() {
   }
 
   async function handleOfferPhotoChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(event.target.files ?? []);
+    if (!files.length) return;
     try {
-      setOfferPhoto(await compressImageFileToDataUrl(file, { maxWidth: 1280, maxHeight: 960 }));
+      const availableSlots = 8 - offerPhotos.length;
+      if (availableSlots <= 0) {
+        setOfferError("Можно добавить не более 8 фотографий.");
+        return;
+      }
+      const compressedPhotos = await Promise.all(files.slice(0, availableSlots).map((file) => compressImageFileToDataUrl(file, { maxWidth: 1280, maxHeight: 960 })));
+      setOfferPhotos((photos) => [...photos, ...compressedPhotos]);
       setOfferError("");
     } catch {
       setError("Не удалось обработать изображение предложения");
@@ -144,11 +151,11 @@ export default function PartnerBusinessPage() {
     setError("");
     setOfferError("");
     try {
-      const response = await api("/partner/business-offers/", { method: "POST", body: JSON.stringify({ title: offerTitle.trim(), description: offerDescription.trim(), photo_base64: offerPhoto, is_subscription: offerSubscription }) });
+      const response = await api("/partner/business-offers/", { method: "POST", body: JSON.stringify({ title: offerTitle.trim(), description: offerDescription.trim(), photo_base64_list: offerPhotos, is_subscription: offerSubscription }) });
       const payload = (await response.json()) as BusinessOffer & { message?: string };
       if (!response.ok) throw new Error(payload.message || "Не удалось добавить предложение");
       setOffers((items) => [...items, payload]);
-      setOfferTitle(""); setOfferDescription(""); setOfferPhoto(""); setOfferSubscription(false);
+      setOfferTitle(""); setOfferDescription(""); setOfferPhotos([]); setOfferSubscription(false);
       setIsOfferEditorOpen(false);
     } catch (offerError) {
       setOfferError(offerError instanceof Error ? offerError.message : "Не удалось добавить предложение");
@@ -160,7 +167,7 @@ export default function PartnerBusinessPage() {
   function startNewOffer() {
     setOfferTitle("");
     setOfferDescription("");
-    setOfferPhoto("");
+    setOfferPhotos([]);
     setOfferSubscription(false);
     setOfferError("");
     setIsOfferEditorOpen(true);
@@ -236,7 +243,7 @@ export default function PartnerBusinessPage() {
       <p className={styles.mockCategory}>{profile.business_category || "Категория бизнеса"}</p>
       <div className={styles.mockPills} role="tablist"><button type="button" className={previewTab === "offers" ? styles.mockPillActive : styles.mockPill} onClick={() => setPreviewTab("offers")}>Предложения</button><button type="button" className={previewTab === "reviews" ? styles.mockPillActive : styles.mockPill} onClick={() => setPreviewTab("reviews")}>Отзывы</button></div>
       <div className={styles.phoneContent}>
-        {previewTab === "offers" ? activeOffers.length ? activeOffers.map((offer) => <article key={offer.id} className={styles.clientServiceCard}>{offer.photo_url ? <img src={offer.photo_url} alt="" /> : <div className={styles.clientServiceImage} />}<div className={styles.clientServiceBody}><strong>{offer.title}</strong><p>{offer.description || "Описание предложения"}</p>{offer.is_subscription && <span>Доступно по подписке MySub</span>}</div><button type="button" aria-label={`Добавить ${offer.title}`} className={addedServiceIds.includes(offer.id) ? styles.addedButton : styles.addButton} onClick={() => setAddedServiceIds((items) => items.includes(offer.id) ? items.filter((id) => id !== offer.id) : [...items, offer.id])}>{addedServiceIds.includes(offer.id) ? "✓" : "+"}</button></article>) : <p className={styles.phoneEmpty}>Добавьте первое предложение для клиентов.</p> : <p className={styles.phoneEmpty}>Отзывов пока нет.</p>}
+        {previewTab === "offers" ? activeOffers.length ? activeOffers.map((offer) => <article key={offer.id} className={styles.clientServiceCard}>{offer.photo_urls.length ? <div className={styles.offerPhotoCarousel}>{offer.photo_urls.map((photoUrl, index) => <img key={`${photoUrl}-${index}`} src={photoUrl} alt={`${offer.title}, фото ${index + 1}`} />)}</div> : <div className={styles.clientServiceImage} />}<div className={styles.clientServiceBody}><strong>{offer.title}</strong><p>{offer.description || "Описание предложения"}</p>{offer.is_subscription && <span>Доступно по подписке MySub</span>}</div><button type="button" aria-label={`Добавить ${offer.title}`} className={addedServiceIds.includes(offer.id) ? styles.addedButton : styles.addButton} onClick={() => setAddedServiceIds((items) => items.includes(offer.id) ? items.filter((id) => id !== offer.id) : [...items, offer.id])}>{addedServiceIds.includes(offer.id) ? "✓" : "+"}</button></article>) : <p className={styles.phoneEmpty}>Добавьте первое предложение для клиентов.</p> : <p className={styles.phoneEmpty}>Отзывов пока нет.</p>}
       </div>
     </div></div>;
   }
@@ -286,10 +293,10 @@ export default function PartnerBusinessPage() {
 
           <section className={`${styles.sectionCard} ${styles.offersSection}`}>
             <div className={styles.offersHeader}><h3>Предложение</h3><button type="button" className={styles.addOfferButton} onClick={startNewOffer}>+&nbsp; Добавить еще</button></div>
-            <input ref={offerPhotoInput} className={styles.fileInput} type="file" accept="image/*" onChange={(event) => void handleOfferPhotoChange(event)} />
+            <input ref={offerPhotoInput} className={styles.fileInput} type="file" accept="image/*" multiple onChange={(event) => void handleOfferPhotoChange(event)} />
             {(isOfferEditorOpen || offers.length === 0) && <article className={styles.offerEditorCard}>
-              <button type="button" className={styles.offerPhotoButton} onClick={() => offerPhotoInput.current?.click()}>{offerPhoto ? <img src={offerPhoto} alt="Выбранное изображение предложения" /> : <span className={styles.offerPhotoPlaceholder}><b aria-hidden="true">▧</b>Добавить фото</span>}</button>
-              {offerPhoto && <button type="button" className={styles.removeOfferPhotoButton} onClick={() => setOfferPhoto("")} aria-label="Удалить фото предложения">⌫</button>}
+              <button type="button" className={styles.offerPhotoButton} onClick={() => offerPhotoInput.current?.click()}><span className={styles.offerPhotoPlaceholder}><b aria-hidden="true">▧</b>{offerPhotos.length ? "Добавить еще фото" : "Добавить фото"}</span></button>
+              {offerPhotos.length ? <div className={styles.offerPhotoList}>{offerPhotos.map((photo, index) => <div key={`${photo}-${index}`} className={styles.offerPhotoPreview}><img src={photo} alt={`Выбранное изображение ${index + 1}`} /><button type="button" onClick={() => setOfferPhotos((photos) => photos.filter((_, photoIndex) => photoIndex !== index))} aria-label={`Удалить фото ${index + 1}`}><img src="/delete.svg" alt="" aria-hidden /></button></div>)}</div> : null}
               <label><span>Название услуги</span><input ref={offerTitleInput} value={offerTitle} onChange={(event) => setOfferTitle(event.target.value)} placeholder="Например, дегустационное меню" /></label>
               <label><span>Описание</span><textarea value={offerDescription} onChange={(event) => setOfferDescription(event.target.value)} placeholder="Расскажите клиентам о предложении" /></label>
               <label className={styles.offerSubscriptionLabel}><input type="checkbox" checked={offerSubscription} onChange={(event) => setOfferSubscription(event.target.checked)} /> <span>Доступно по подписке</span></label>

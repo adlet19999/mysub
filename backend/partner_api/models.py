@@ -143,6 +143,7 @@ class BusinessOffer(models.Model):
 	title = models.CharField(max_length=120)
 	description = models.TextField(blank=True, default="")
 	photo_url = models.URLField(blank=True, default="")
+	photo_urls = models.JSONField(default=list, blank=True)
 	is_subscription = models.BooleanField(default=False)
 	is_active = models.BooleanField(default=True)
 	display_order = models.PositiveIntegerField(default=0)

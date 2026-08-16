@@ -523,11 +523,19 @@ def serialize_business_table(item: BusinessTable):
 
 
 def serialize_business_offer(item: BusinessOffer):
+	photo_urls = [
+		normalize_profile_image_url(value)
+		for value in (item.photo_urls or [])
+		if str(value or "").strip()
+	]
+	if not photo_urls and item.photo_url:
+		photo_urls = [normalize_profile_image_url(item.photo_url)]
 	return {
 		"id": item.id,
 		"title": item.title,
 		"description": item.description,
-		"photo_url": normalize_profile_image_url(item.photo_url),
+		"photo_url": photo_urls[0] if photo_urls else "",
+		"photo_urls": photo_urls,
 		"is_subscription": item.is_subscription,
 		"is_active": item.is_active,
 		"display_order": item.display_order,
@@ -712,11 +720,25 @@ class BusinessOfferListCreateView(APIView):
 		if not title:
 			return Response({"message": "Название предложения обязательно"}, status=400)
 		tenant = tenant_from_request(request)
-		photo_url, photo_error = save_profile_image_from_base64(
-			str(request.data.get("photo_base64") or "").strip(), tenant, profile.id, "offer"
-		)
-		if photo_error:
-			return Response({"message": photo_error}, status=400)
+		photo_payloads = request.data.get("photo_base64_list")
+		if photo_payloads is None:
+			photo_payloads = [request.data.get("photo_base64")]
+		if not isinstance(photo_payloads, list):
+			return Response({"message": "photo_base64_list должен быть массивом"}, status=400)
+		if len(photo_payloads) > 8:
+			return Response({"message": "Можно добавить не более 8 фотографий"}, status=400)
+		photo_urls = []
+		for index, photo_payload in enumerate(photo_payloads):
+			if not str(photo_payload or "").strip():
+				continue
+			photo_url, photo_error = save_profile_image_from_base64(
+				str(photo_payload).strip(), tenant, profile.id, f"offer-{index + 1}"
+			)
+			if photo_error:
+				for saved_url in photo_urls:
+					delete_managed_image(saved_url)
+				return Response({"message": photo_error}, status=400)
+			photo_urls.append(photo_url)
 		last_order = BusinessOffer.objects.filter(
 			tenant_slug=tenant, partner_profile=profile
 		).aggregate(max_order=Max("display_order"))["max_order"] or 0
@@ -725,7 +747,8 @@ class BusinessOfferListCreateView(APIView):
 			partner_profile=profile,
 			title=title,
 			description=str(request.data.get("description") or "").strip(),
-			photo_url=photo_url,
+			photo_url=photo_urls[0] if photo_urls else "",
+			photo_urls=photo_urls,
 			is_subscription=parse_bool(request.data.get("is_subscription"), False),
 			display_order=last_order + 1,
 		)
@@ -761,7 +784,7 @@ class BusinessOfferDetailView(APIView):
 		for field in ("is_subscription", "is_active"):
 			if field in request.data:
 				setattr(item, field, parse_bool(request.data.get(field), getattr(item, field)))
-		previous_photo_url = item.photo_url
+		previous_photo_urls = list(item.photo_urls or ([item.photo_url] if item.photo_url else []))
 		if "photo_base64" in request.data:
 			photo_url, photo_error = save_profile_image_from_base64(
 				str(request.data.get("photo_base64") or "").strip(), tenant_from_request(request), profile.id, "offer"
@@ -769,9 +792,11 @@ class BusinessOfferDetailView(APIView):
 			if photo_error:
 				return Response({"message": photo_error}, status=400)
 			item.photo_url = photo_url
+			item.photo_urls = [photo_url] if photo_url else []
 		item.save()
-		if item.photo_url != previous_photo_url:
-			delete_managed_image(previous_photo_url)
+		if item.photo_url not in previous_photo_urls:
+			for previous_photo_url in previous_photo_urls:
+				delete_managed_image(previous_photo_url)
 		return Response(serialize_business_offer(item))
 
 	def delete(self, request, offer_id: int):
@@ -780,9 +805,10 @@ class BusinessOfferDetailView(APIView):
 		item, _, error_response = self._get_offer(request, offer_id)
 		if error_response is not None:
 			return error_response
-		photo_url = item.photo_url
+		photo_urls = list(item.photo_urls or ([item.photo_url] if item.photo_url else []))
 		item.delete()
-		delete_managed_image(photo_url)
+		for photo_url in photo_urls:
+			delete_managed_image(photo_url)
 		return Response(status=204)
 
 
