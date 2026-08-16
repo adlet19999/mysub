@@ -45,6 +45,7 @@ export default function PartnerBusinessPage() {
   const [offerPhoto, setOfferPhoto] = useState("");
   const [offerSubscription, setOfferSubscription] = useState(false);
   const [isSavingOffer, setIsSavingOffer] = useState(false);
+  const [isOfferEditorOpen, setIsOfferEditorOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -134,6 +135,7 @@ export default function PartnerBusinessPage() {
       if (!response.ok) throw new Error(payload.message || "Не удалось добавить предложение");
       setOffers((items) => [payload, ...items]);
       setOfferTitle(""); setOfferDescription(""); setOfferPhoto(""); setOfferSubscription(false);
+      setIsOfferEditorOpen(false);
     } catch (offerError) {
       setError(offerError instanceof Error ? offerError.message : "Не удалось добавить предложение");
     } finally {
@@ -244,11 +246,18 @@ export default function PartnerBusinessPage() {
             </div>
           </section>
 
-          <section className={styles.sectionCard}>
-            <div className={styles.sectionHeaderInline}><div><h3>Предложения для клиентов</h3><p className={styles.sectionHint}>Это отдельные карточки витрины. Они не связаны с услугами и записями.</p></div></div>
-            <div className={styles.offerForm}><label><span>Название предложения</span><input value={offerTitle} onChange={(event) => setOfferTitle(event.target.value)} placeholder="Например, скидка на роллы 50%" /></label><label><span>Описание</span><textarea value={offerDescription} onChange={(event) => setOfferDescription(event.target.value)} placeholder="Расскажите клиентам о предложении" /></label><div className={styles.offerActions}><button type="button" className={styles.ghostButton} onClick={() => offerPhotoInput.current?.click()}>{offerPhoto ? "Фото выбрано" : "Загрузить фото"}</button><label className={styles.checkboxLabel}><input type="checkbox" checked={offerSubscription} onChange={(event) => setOfferSubscription(event.target.checked)} /> Доступно по подписке MySub</label><button type="button" className={styles.saveButton} disabled={!offerTitle.trim() || isSavingOffer} onClick={() => void createOffer()}>{isSavingOffer ? "Добавляем..." : "Добавить"}</button></div></div>
+          <section className={`${styles.sectionCard} ${styles.offersSection}`}>
+            <div className={styles.offersHeader}><h3>Предложения</h3><button type="button" className={styles.addOfferButton} onClick={() => setIsOfferEditorOpen(true)}>+&nbsp; Добавить еще</button></div>
             <input ref={offerPhotoInput} className={styles.fileInput} type="file" accept="image/*" onChange={(event) => void handleOfferPhotoChange(event)} />
-            {offers.length ? <div className={styles.itemList}>{offers.map((offer) => <article key={offer.id} className={styles.listItem}>{offer.photo_url ? <img src={offer.photo_url} alt="" /> : <div className={styles.itemPlaceholder} />}<div><strong>{offer.title}</strong><p>{offer.description || "Без описания"}</p></div><button type="button" className={styles.deleteOfferButton} onClick={() => void deleteOffer(offer.id)}>Удалить</button></article>)}</div> : <p className={styles.emptyText}>Добавьте первое предложение с фотографией и описанием.</p>}
+            {isOfferEditorOpen && <article className={styles.offerEditorCard}>
+              <button type="button" className={styles.offerPhotoButton} onClick={() => offerPhotoInput.current?.click()}>{offerPhoto ? <img src={offerPhoto} alt="Выбранное изображение предложения" /> : <span>Загрузить фото</span>}</button>
+              {offerPhoto && <button type="button" className={styles.removeOfferPhotoButton} onClick={() => setOfferPhoto("")} aria-label="Удалить фото предложения">⌫</button>}
+              <label><span>Название услуги</span><input value={offerTitle} onChange={(event) => setOfferTitle(event.target.value)} placeholder="Например, дегустационное меню" /></label>
+              <label><span>Описание</span><textarea value={offerDescription} onChange={(event) => setOfferDescription(event.target.value)} placeholder="Расскажите клиентам о предложении" /></label>
+              <label className={styles.offerSubscriptionLabel}><input type="checkbox" checked={offerSubscription} onChange={(event) => setOfferSubscription(event.target.checked)} /> <span>Доступно по абонементу</span></label>
+              <div className={styles.offerEditorActions}><button type="button" className={styles.cancelOfferButton} onClick={() => { setOfferTitle(""); setOfferDescription(""); setOfferPhoto(""); setOfferSubscription(false); setIsOfferEditorOpen(false); }}>Отменить</button><button type="button" className={styles.saveOfferButton} disabled={!offerTitle.trim() || isSavingOffer} onClick={() => void createOffer()}>{isSavingOffer ? "Сохраняем..." : "Сохранить предложение"}</button></div>
+            </article>}
+            {offers.length ? <div className={styles.savedOfferList}>{offers.map((offer) => <article key={offer.id} className={styles.savedOfferCard}>{offer.photo_url ? <img src={offer.photo_url} alt="" /> : <div className={styles.itemPlaceholder} />}<div><strong>{offer.title}</strong><p>{offer.description || "Без описания"}</p>{offer.is_subscription && <span>Доступно по абонементу</span>}</div><button type="button" className={styles.deleteOfferButton} onClick={() => void deleteOffer(offer.id)}>Удалить</button></article>)}</div> : !isOfferEditorOpen && <p className={styles.emptyText}>Добавьте предложение с фотографией и описанием.</p>}
           </section>
 
           <section className={styles.sectionCard}>
