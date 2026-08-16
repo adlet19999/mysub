@@ -58,6 +58,7 @@ export default function PartnerBusinessPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewTab, setPreviewTab] = useState<"services" | "about">("services");
   const [addedServiceIds, setAddedServiceIds] = useState<number[]>([]);
   const profilePhotoInput = useRef<HTMLInputElement>(null);
@@ -152,6 +153,21 @@ export default function PartnerBusinessPage() {
     setProfile((previous) => ({ ...previous, [key]: value }));
   }
 
+  function renderPhonePreview() {
+    return <div className={styles.phoneMock}><div className={styles.phoneScreen}>
+      <div className={styles.dynamicIsland} aria-hidden="true" />
+      <div className={styles.phoneStatus}><span>9:41</span><span>▮▮▮ ◒ ▰</span></div>
+      <h4>Ваша карточка</h4>
+      {profile.business_photo_url ? <img className={styles.mockImage} src={profile.business_photo_url} alt="" /> : <div className={styles.mockImage}>Добавьте фото</div>}
+      <p className={styles.mockBusinessName}>{profile.company_name || "Ваш бизнес"}</p>
+      <p className={styles.mockCategory}>{profile.business_category || "Категория бизнеса"}</p>
+      <div className={styles.mockPills} role="tablist"><button type="button" className={previewTab === "services" ? styles.mockPillActive : styles.mockPill} onClick={() => setPreviewTab("services")}>Услуги</button><button type="button" className={previewTab === "about" ? styles.mockPillActive : styles.mockPill} onClick={() => setPreviewTab("about")}>О бизнесе</button></div>
+      <div className={styles.phoneContent}>
+        {previewTab === "services" ? activeServices.length ? activeServices.map((service) => <article key={service.id} className={styles.clientServiceCard}>{service.image_url ? <img src={service.image_url} alt="" /> : <div className={styles.clientServiceImage} />}<div className={styles.clientServiceBody}><strong>{service.discount_percent > 0 ? `Скидка ${service.discount_percent}%: ${service.name}` : service.name}</strong><p>{service.description || "Описание услуги"}</p><b>{discountedPrice(service)}</b>{service.is_subscription && <span>Доступно по подписке MySub</span>}</div><button type="button" aria-label={`Добавить ${service.name}`} className={addedServiceIds.includes(service.id) ? styles.addedButton : styles.addButton} onClick={() => setAddedServiceIds((items) => items.includes(service.id) ? items.filter((id) => id !== service.id) : [...items, service.id])}>{addedServiceIds.includes(service.id) ? "✓" : "+"}</button></article>) : <p className={styles.phoneEmpty}>Здесь появятся ваши услуги.</p> : <div className={styles.phoneAbout}><p>{profile.description || "Добавьте описание, чтобы клиентам было проще выбрать вас."}</p><strong>{profile.city || "Город"}</strong><p>{profile.address || "Адрес не указан"}</p><p>{profile.working_hours || "График работы не указан"}</p>{profile.website && <a href={profile.website} target="_blank" rel="noreferrer">Сайт</a>}{profile.instagram && <p>{profile.instagram}</p>}</div>}
+      </div>
+    </div></div>;
+  }
+
   return (
     <section className={styles.page}>
       <div className={styles.headerRow}>
@@ -199,20 +215,17 @@ export default function PartnerBusinessPage() {
         </div>
 
         <aside className={styles.previewCard}>
-          <span className={styles.previewLabel}>Интерактивный предпросмотр</span>
-          <div className={styles.phoneMock}><div className={styles.phoneScreen}>
-            <div className={styles.phoneStatus}><span>9:41</span><span>◒ ▰</span></div>
-            <h4>Ваша карточка</h4>
-            {profile.business_photo_url ? <img className={styles.mockImage} src={profile.business_photo_url} alt="" /> : <div className={styles.mockImage}>Добавьте фото</div>}
-            <p className={styles.mockBusinessName}>{profile.company_name || "Ваш бизнес"}</p>
-            <p className={styles.mockCategory}>{profile.business_category || "Категория бизнеса"}</p>
-            <div className={styles.mockPills} role="tablist"><button type="button" className={previewTab === "services" ? styles.mockPillActive : styles.mockPill} onClick={() => setPreviewTab("services")}>Услуги</button><button type="button" className={previewTab === "about" ? styles.mockPillActive : styles.mockPill} onClick={() => setPreviewTab("about")}>О бизнесе</button></div>
-            <div className={styles.phoneContent}>
-              {previewTab === "services" ? activeServices.length ? activeServices.map((service) => <article key={service.id} className={styles.clientServiceCard}>{service.image_url ? <img src={service.image_url} alt="" /> : <div className={styles.clientServiceImage} />}<div className={styles.clientServiceBody}><strong>{service.discount_percent > 0 ? `Скидка ${service.discount_percent}%: ${service.name}` : service.name}</strong><p>{service.description || "Описание услуги"}</p><b>{discountedPrice(service)}</b>{service.is_subscription && <span>Доступно по подписке MySub</span>}</div><button type="button" aria-label={`Добавить ${service.name}`} className={addedServiceIds.includes(service.id) ? styles.addedButton : styles.addButton} onClick={() => setAddedServiceIds((items) => items.includes(service.id) ? items.filter((id) => id !== service.id) : [...items, service.id])}>{addedServiceIds.includes(service.id) ? "✓" : "+"}</button></article>) : <p className={styles.phoneEmpty}>Здесь появятся ваши услуги.</p> : <div className={styles.phoneAbout}><p>{profile.description || "Добавьте описание, чтобы клиентам было проще выбрать вас."}</p><strong>{profile.city || "Город"}</strong><p>{profile.address || "Адрес не указан"}</p><p>{profile.working_hours || "График работы не указан"}</p>{profile.website && <a href={profile.website} target="_blank" rel="noreferrer">Сайт</a>}{profile.instagram && <p>{profile.instagram}</p>}</div>}
-            </div>
-          </div></div>
+          <span className={styles.previewLabel}>Клиентский вид на iPhone</span>
+          <p className={styles.previewText}>Проверьте карточку и услуги так, как их увидит клиент.</p>
+          <button type="button" className={styles.openPreviewButton} onClick={() => setIsPreviewOpen(true)}>Предпросмотр</button>
         </aside>
       </div>
+      {isPreviewOpen && <div className={styles.previewOverlay} role="dialog" aria-modal="true" aria-label="Предпросмотр клиентской карточки">
+        <div className={styles.previewModal}>
+          <div className={styles.previewModalHeader}><div><strong>Предпросмотр для клиента</strong><span>Интерактивная карточка на iPhone</span></div><button type="button" className={styles.closePreviewButton} onClick={() => setIsPreviewOpen(false)} aria-label="Закрыть предпросмотр">×</button></div>
+          <div className={styles.previewPhoneStage}>{renderPhonePreview()}</div>
+        </div>
+      </div>}
     </section>
   );
 }

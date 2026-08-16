@@ -307,7 +307,89 @@
   color: #6b7280;
   font-family: var(--font-family-base);
   font-size: 11px;
-  text-align: right;
+  text-align: left;
+}
+
+.previewText {
+  margin: 8px 0 14px;
+  color: #6b7280;
+  font-family: var(--font-family-base);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.openPreviewButton {
+  width: 100%;
+  height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: #1f5f4d;
+  color: #ffffff;
+  font-family: var(--font-family-base);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.previewOverlay {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(13, 24, 19, 0.55);
+  padding: 20px;
+}
+
+.previewModal {
+  width: min(860px, 100%);
+  height: min(760px, calc(100vh - 40px));
+  border-radius: 14px;
+  background: #f5f7f6;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.32);
+  overflow: hidden;
+}
+
+.previewModalHeader {
+  height: 64px;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.previewModalHeader strong,
+.previewModalHeader span {
+  display: block;
+  font-family: var(--font-family-base);
+}
+
+.previewModalHeader strong { color: #1e1e1e; font-size: 15px; }
+.previewModalHeader span { margin-top: 2px; color: #6b7280; font-size: 12px; }
+
+.closePreviewButton {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: #edf1ef;
+  color: #314038;
+  font-size: 25px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.previewPhoneStage {
+  height: calc(100% - 64px);
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  overflow: auto;
+  background-image: linear-gradient(45deg, rgba(31, 95, 77, 0.05) 25%, transparent 25%, transparent 75%, rgba(31, 95, 77, 0.05) 75%), linear-gradient(45deg, rgba(31, 95, 77, 0.05) 25%, transparent 25%, transparent 75%, rgba(31, 95, 77, 0.05) 75%);
+  background-position: 0 0, 16px 16px;
+  background-size: 32px 32px;
 }
 
 .previewBtn {
@@ -324,23 +406,34 @@
 }
 
 .phoneMock {
-  margin: 12px auto 0;
-  width: 260px;
-  height: 540px;
-  border: 8px solid #111111;
-  border-radius: 34px;
-  background: #111111;
-  padding: 5px;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
+  width: 346px;
+  height: 706px;
+  border: 11px solid #171817;
+  border-radius: 52px;
+  background: #171817;
+  padding: 7px;
+  box-shadow: inset 0 0 0 1px #4e504e, 0 24px 44px rgba(0, 0, 0, 0.3);
 }
 
 .phoneScreen {
+  position: relative;
   width: 100%;
   height: 100%;
   overflow: hidden;
-  border-radius: 25px;
+  border-radius: 39px;
   background: #fff;
-  padding: 10px 12px 14px;
+  padding: 16px 16px 18px;
+}
+
+.dynamicIsland {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  width: 108px;
+  height: 28px;
+  transform: translateX(-50%);
+  border-radius: 18px;
+  background: #080908;
 }
 
 .phoneStatus {
@@ -348,22 +441,25 @@
   justify-content: space-between;
   color: #1e1e1e;
   font-family: var(--font-family-base);
-  font-size: 9px;
+  position: relative;
+  z-index: 1;
+  padding: 1px 8px 0;
+  font-size: 12px;
   font-weight: 600;
 }
 
 .phoneScreen h4 {
-  margin: 12px 0;
+  margin: 22px 0 16px;
   text-align: center;
   color: #1e1e1e;
   font-family: var(--font-family-base);
-  font-size: 14px;
+  font-size: 18px;
 }
 
 .mockImage {
   width: 100%;
-  height: 116px;
-  border-radius: 8px;
+  height: 152px;
+  border-radius: 12px;
   background: #f3f4f6;
   color: #6b7280;
   font-size: 12px;
@@ -385,7 +481,7 @@ img.mockImage {
 
 .mockCategory {
   color: #1f5f4d;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
 }
 
@@ -399,7 +495,7 @@ img.mockImage {
 .mockBusinessName {
   margin: 10px 0 3px;
   color: #1e1e1e;
-  font-size: 13px;
+  font-size: 17px;
   font-weight: 500;
   font-family: var(--font-family-base);
 }
@@ -416,13 +512,13 @@ img.mockImage {
 
 .mockPill,
 .mockPillActive {
-  height: 28px;
+  height: 36px;
   border: 0;
   border-radius: 9px;
   padding: 0 6px;
   display: grid;
   place-items: center;
-  font-size: 11px;
+  font-size: 13px;
   font-family: var(--font-family-base);
   cursor: pointer;
 }
@@ -438,7 +534,7 @@ img.mockImage {
 }
 
 .phoneContent {
-  height: 268px;
+  height: 344px;
   margin-top: 10px;
   overflow-y: auto;
   padding-right: 2px;
@@ -457,7 +553,7 @@ img.mockImage {
 .clientServiceImage {
   display: block;
   width: 100%;
-  height: 94px;
+  height: 128px;
   object-fit: cover;
 }
 
@@ -466,7 +562,7 @@ img.mockImage {
 }
 
 .clientServiceBody {
-  padding: 9px 38px 10px 10px;
+  padding: 12px 48px 12px 12px;
 }
 
 .clientServiceBody strong,
@@ -481,20 +577,20 @@ img.mockImage {
 .clientServiceBody strong {
   display: block;
   color: #1e1e1e;
-  font-size: 11px;
-  line-height: 15px;
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .clientServiceBody p {
   margin: 4px 0;
   color: #6b7280;
-  font-size: 10px;
-  line-height: 14px;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .clientServiceBody b {
   color: #1f5f4d;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .clientServiceBody span {
@@ -504,17 +600,17 @@ img.mockImage {
   background: #e4f2eb;
   padding: 4px 6px;
   color: #236448;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
 }
 
 .addButton,
 .addedButton {
   position: absolute;
-  right: 10px;
-  bottom: 12px;
-  width: 28px;
-  height: 28px;
+  right: 12px;
+  bottom: 15px;
+  width: 34px;
+  height: 34px;
   border: 0;
   border-radius: 50%;
   color: #ffffff;
@@ -529,7 +625,7 @@ img.mockImage {
 .phoneAbout,
 .phoneEmpty {
   color: #5e6b65;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
@@ -542,6 +638,13 @@ img.mockImage {
 
 .phoneAbout p { margin: 6px 0; }
 .phoneAbout a { color: #1f6b52; font-size: 11px; }
+
+@media (max-width: 600px) {
+  .previewOverlay { padding: 0; }
+  .previewModal { width: 100%; height: 100%; border-radius: 0; }
+  .previewPhoneStage { padding: 16px 0; }
+  .phoneMock { width: min(346px, calc(100vw - 28px)); height: min(706px, calc((100vw - 28px) * 2.04)); }
+}
 
 .mockOfferCard {
   margin-top: 14px;
