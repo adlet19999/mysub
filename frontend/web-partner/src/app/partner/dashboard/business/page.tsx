@@ -398,10 +398,8 @@ export default function PartnerBusinessPage() {
         </div>
 
         <aside className={styles.previewCard}>
-          <span className={styles.previewLabel}>Клиентский вид на iPhone</span>
-          <p className={styles.previewText}>Проверьте карточку и услуги так, как их увидит клиент.</p>
+          <button type="button" className={styles.openPreviewButton} onClick={() => setIsPreviewMode(true)}><span className={styles.previewEye} aria-hidden="true" />Предпросмотр</button>
           <div className={styles.compactPhonePreview}>{renderPhonePreview()}</div>
-          <button type="button" className={styles.openPreviewButton} onClick={() => setIsPreviewMode(true)}>Предпросмотр</button>
         </aside>
       </div>
     </section>
