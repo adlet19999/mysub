@@ -7,6 +7,28 @@
   gap: 16px;
 }
 
+.previewPage {
+  min-height: calc(100vh - 66px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: var(--dashboard-page-padding);
+  border-radius: var(--dashboard-page-radius);
+  background: #ffffff;
+}
+
+.backToBusinessButton {
+  justify-self: start;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #1e1e1e;
+  font-family: var(--font-family-base);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
 .headerRow {
   display: flex;
   align-items: flex-start;
@@ -331,6 +353,19 @@
   cursor: pointer;
 }
 
+.compactPhonePreview {
+  height: 320px;
+  margin: 4px 0 14px;
+  display: grid;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.compactPhonePreview .phoneMock {
+  transform: scale(0.44);
+  transform-origin: top center;
+}
+
 .previewOverlay {
   position: fixed;
   z-index: 100;
@@ -390,6 +425,11 @@
   background-image: linear-gradient(45deg, rgba(31, 95, 77, 0.05) 25%, transparent 25%, transparent 75%, rgba(31, 95, 77, 0.05) 75%), linear-gradient(45deg, rgba(31, 95, 77, 0.05) 25%, transparent 25%, transparent 75%, rgba(31, 95, 77, 0.05) 75%);
   background-position: 0 0, 16px 16px;
   background-size: 32px 32px;
+}
+
+.previewPage .previewPhoneStage {
+  height: auto;
+  min-height: 0;
 }
 
 .previewBtn {
@@ -644,6 +684,8 @@ img.mockImage {
   .previewModal { width: 100%; height: 100%; border-radius: 0; }
   .previewPhoneStage { padding: 16px 0; }
   .phoneMock { width: min(346px, calc(100vw - 28px)); height: min(706px, calc((100vw - 28px) * 2.04)); }
+  .previewPage { padding: 14px; }
+  .compactPhonePreview { height: 280px; }
 }
 
 .mockOfferCard {

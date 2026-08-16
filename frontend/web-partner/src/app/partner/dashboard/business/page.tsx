@@ -58,7 +58,7 @@ export default function PartnerBusinessPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [previewTab, setPreviewTab] = useState<"services" | "about">("services");
   const [addedServiceIds, setAddedServiceIds] = useState<number[]>([]);
   const profilePhotoInput = useRef<HTMLInputElement>(null);
@@ -168,6 +168,15 @@ export default function PartnerBusinessPage() {
     </div></div>;
   }
 
+  if (isPreviewMode) {
+    return (
+      <section className={styles.previewPage}>
+        <button type="button" className={styles.backToBusinessButton} onClick={() => setIsPreviewMode(false)}>← Назад в мой бизнес</button>
+        <div className={styles.previewPhoneStage}>{renderPhonePreview()}</div>
+      </section>
+    );
+  }
+
   return (
     <section className={styles.page}>
       <div className={styles.headerRow}>
@@ -217,15 +226,10 @@ export default function PartnerBusinessPage() {
         <aside className={styles.previewCard}>
           <span className={styles.previewLabel}>Клиентский вид на iPhone</span>
           <p className={styles.previewText}>Проверьте карточку и услуги так, как их увидит клиент.</p>
-          <button type="button" className={styles.openPreviewButton} onClick={() => setIsPreviewOpen(true)}>Предпросмотр</button>
+          <div className={styles.compactPhonePreview}>{renderPhonePreview()}</div>
+          <button type="button" className={styles.openPreviewButton} onClick={() => setIsPreviewMode(true)}>Предпросмотр</button>
         </aside>
       </div>
-      {isPreviewOpen && <div className={styles.previewOverlay} role="dialog" aria-modal="true" aria-label="Предпросмотр клиентской карточки">
-        <div className={styles.previewModal}>
-          <div className={styles.previewModalHeader}><div><strong>Предпросмотр для клиента</strong><span>Интерактивная карточка на iPhone</span></div><button type="button" className={styles.closePreviewButton} onClick={() => setIsPreviewOpen(false)} aria-label="Закрыть предпросмотр">×</button></div>
-          <div className={styles.previewPhoneStage}>{renderPhonePreview()}</div>
-        </div>
-      </div>}
     </section>
   );
 }
