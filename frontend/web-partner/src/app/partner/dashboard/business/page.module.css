@@ -731,7 +731,9 @@
   position: relative;
   width: 100%;
   height: 100%;
-  overflow: hidden;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
   border-radius: 37px;
   background: #fff;
   padding: 16px 16px 18px;
@@ -881,9 +883,7 @@ img.mockImage {
 }
 
 .phoneContent {
-  height: 344px;
   margin-top: 10px;
-  overflow-y: auto;
   padding-right: 2px;
 }
 
