@@ -46,6 +46,7 @@ export default function PartnerBusinessPage() {
   const [offerSubscription, setOfferSubscription] = useState(false);
   const [isSavingOffer, setIsSavingOffer] = useState(false);
   const [isOfferEditorOpen, setIsOfferEditorOpen] = useState(false);
+  const [offerError, setOfferError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -55,6 +56,7 @@ export default function PartnerBusinessPage() {
   const [addedServiceIds, setAddedServiceIds] = useState<number[]>([]);
   const profilePhotoInput = useRef<HTMLInputElement>(null);
   const offerPhotoInput = useRef<HTMLInputElement>(null);
+  const offerTitleInput = useRef<HTMLInputElement>(null);
 
   const isSaveDisabled = useMemo(() => saving || !profile.company_name.trim() || !profile.email.trim() || !profile.phone.trim(), [profile, saving]);
   const activeOffers = useMemo(() => offers.filter((offer) => offer.is_active), [offers]);
@@ -118,6 +120,7 @@ export default function PartnerBusinessPage() {
     if (!file) return;
     try {
       setOfferPhoto(await compressImageFileToDataUrl(file, { maxWidth: 1280, maxHeight: 960 }));
+      setOfferError("");
     } catch {
       setError("Не удалось обработать изображение предложения");
     } finally {
@@ -126,9 +129,19 @@ export default function PartnerBusinessPage() {
   }
 
   async function createOffer() {
-    if (!partnerEmail || !offerTitle.trim() || isSavingOffer) return;
+    if (!partnerEmail) {
+      setOfferError("Не удалось определить аккаунт партнера. Обновите страницу и войдите снова.");
+      return;
+    }
+    if (!offerTitle.trim()) {
+      setOfferError("Введите название предложения.");
+      offerTitleInput.current?.focus();
+      return;
+    }
+    if (isSavingOffer) return;
     setIsSavingOffer(true);
     setError("");
+    setOfferError("");
     try {
       const response = await api("/partner/business-offers/", { method: "POST", body: JSON.stringify({ title: offerTitle.trim(), description: offerDescription.trim(), photo_base64: offerPhoto, is_subscription: offerSubscription }) });
       const payload = (await response.json()) as BusinessOffer & { message?: string };
@@ -137,10 +150,20 @@ export default function PartnerBusinessPage() {
       setOfferTitle(""); setOfferDescription(""); setOfferPhoto(""); setOfferSubscription(false);
       setIsOfferEditorOpen(false);
     } catch (offerError) {
-      setError(offerError instanceof Error ? offerError.message : "Не удалось добавить предложение");
+      setOfferError(offerError instanceof Error ? offerError.message : "Не удалось добавить предложение");
     } finally {
       setIsSavingOffer(false);
     }
+  }
+
+  function startNewOffer() {
+    setOfferTitle("");
+    setOfferDescription("");
+    setOfferPhoto("");
+    setOfferSubscription(false);
+    setOfferError("");
+    setIsOfferEditorOpen(true);
+    requestAnimationFrame(() => offerTitleInput.current?.focus());
   }
 
   async function deleteOffer(offerId: number) {
@@ -247,15 +270,16 @@ export default function PartnerBusinessPage() {
           </section>
 
           <section className={`${styles.sectionCard} ${styles.offersSection}`}>
-            <div className={styles.offersHeader}><h3>Предложение</h3><button type="button" className={styles.addOfferButton} onClick={() => setIsOfferEditorOpen(true)}>+&nbsp; Добавить еще</button></div>
+            <div className={styles.offersHeader}><h3>Предложение</h3><button type="button" className={styles.addOfferButton} onClick={startNewOffer}>+&nbsp; Добавить еще</button></div>
             <input ref={offerPhotoInput} className={styles.fileInput} type="file" accept="image/*" onChange={(event) => void handleOfferPhotoChange(event)} />
             {(isOfferEditorOpen || offers.length === 0) && <article className={styles.offerEditorCard}>
               <button type="button" className={styles.offerPhotoButton} onClick={() => offerPhotoInput.current?.click()}>{offerPhoto ? <img src={offerPhoto} alt="Выбранное изображение предложения" /> : <span className={styles.offerPhotoPlaceholder}><b aria-hidden="true">▧</b>Добавить фото</span>}</button>
               {offerPhoto && <button type="button" className={styles.removeOfferPhotoButton} onClick={() => setOfferPhoto("")} aria-label="Удалить фото предложения">⌫</button>}
-              <label><span>Название услуги</span><input value={offerTitle} onChange={(event) => setOfferTitle(event.target.value)} placeholder="Например, дегустационное меню" /></label>
+              <label><span>Название услуги</span><input ref={offerTitleInput} value={offerTitle} onChange={(event) => setOfferTitle(event.target.value)} placeholder="Например, дегустационное меню" /></label>
               <label><span>Описание</span><textarea value={offerDescription} onChange={(event) => setOfferDescription(event.target.value)} placeholder="Расскажите клиентам о предложении" /></label>
               <label className={styles.offerSubscriptionLabel}><input type="checkbox" checked={offerSubscription} onChange={(event) => setOfferSubscription(event.target.checked)} /> <span>Доступно по подписке</span></label>
-              <div className={styles.offerEditorActions}><button type="button" className={styles.saveOfferButton} disabled={!offerTitle.trim() || isSavingOffer} onClick={() => void createOffer()}>{isSavingOffer ? "Сохраняем..." : "Сохранить услугу"}</button></div>
+              {offerError && <p className={styles.offerError}>{offerError}</p>}
+              <div className={styles.offerEditorActions}><button type="button" className={styles.saveOfferButton} disabled={isSavingOffer} onClick={() => void createOffer()}>{isSavingOffer ? "Сохраняем..." : "Сохранить услугу"}</button></div>
             </article>}
             {offers.length ? <div className={styles.savedOfferList}>{offers.map((offer) => <article key={offer.id} className={styles.savedOfferCard}>{offer.photo_url ? <img src={offer.photo_url} alt="" /> : <div className={styles.itemPlaceholder} />}<div><strong>{offer.title}</strong><p>{offer.description || "Без описания"}</p>{offer.is_subscription && <span>Доступно по подписке</span>}</div><button type="button" className={styles.deleteOfferButton} onClick={() => void deleteOffer(offer.id)}>Удалить</button></article>)}</div> : null}
           </section>
