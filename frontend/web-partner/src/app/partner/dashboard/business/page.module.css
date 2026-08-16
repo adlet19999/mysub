@@ -743,13 +743,15 @@
 }
 
 .previewCard {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
   background: #fff;
-  padding: 0;
+  padding: 16px;
   position: sticky;
   top: 86px;
   display: grid;
   justify-items: center;
-  gap: 28px;
+  gap: 24px;
 }
 
 .openPreviewButton {
@@ -769,24 +771,8 @@
   gap: 10px;
 }
 
-.previewEye {
-  width: 17px;
-  height: 12px;
-  border: 2px solid currentColor;
-  border-radius: 50% / 62%;
-  position: relative;
-}
-
-.previewEye::after {
-  content: "";
-  position: absolute;
-  inset: 3px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
 .compactPhonePreview {
-  height: 320px;
+  height: 420px;
   margin: 0;
   display: grid;
   justify-content: center;
@@ -794,7 +780,7 @@
 }
 
 .compactPhonePreview .phoneMock {
-  transform: scale(0.44);
+  transform: scale(0.58);
   transform-origin: top center;
 }
 

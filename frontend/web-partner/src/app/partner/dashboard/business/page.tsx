@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Eye } from "lucide-react";
 import { compressImageFileToDataUrl } from "../../../../lib/imageCompression";
 import { formatRuPhone } from "../../../../lib/phone";
 import styles from "./page.module.css";
@@ -398,7 +399,7 @@ export default function PartnerBusinessPage() {
         </div>
 
         <aside className={styles.previewCard}>
-          <button type="button" className={styles.openPreviewButton} onClick={() => setIsPreviewMode(true)}><span className={styles.previewEye} aria-hidden="true" />Предпросмотр</button>
+          <button type="button" className={styles.openPreviewButton} onClick={() => setIsPreviewMode(true)}><Eye size={18} strokeWidth={2} aria-hidden="true" />Предпросмотр</button>
           <div className={styles.compactPhonePreview}>{renderPhonePreview()}</div>
         </aside>
       </div>
