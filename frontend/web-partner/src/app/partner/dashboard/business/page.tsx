@@ -51,6 +51,7 @@ export default function PartnerBusinessPage() {
   const [isOfferEditorOpen, setIsOfferEditorOpen] = useState(false);
   const [editingOfferId, setEditingOfferId] = useState<number | null>(null);
   const [draggedOfferId, setDraggedOfferId] = useState<number | null>(null);
+  const [draggedBusinessPhotoIndex, setDraggedBusinessPhotoIndex] = useState<number | null>(null);
   const [offerError, setOfferError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -126,6 +127,17 @@ export default function PartnerBusinessPage() {
     } finally {
       event.target.value = "";
     }
+  }
+
+  function moveBusinessPhoto(targetIndex: number) {
+    if (draggedBusinessPhotoIndex === null || draggedBusinessPhotoIndex === targetIndex) return;
+    setProfile((previous) => {
+      const business_photo_urls = [...previous.business_photo_urls];
+      const [photo] = business_photo_urls.splice(draggedBusinessPhotoIndex, 1);
+      business_photo_urls.splice(targetIndex, 0, photo);
+      return { ...previous, business_photo_urls, business_photo_url: business_photo_urls[0] || "" };
+    });
+    setDraggedBusinessPhotoIndex(null);
   }
 
   async function handleOfferPhotoChange(event: ChangeEvent<HTMLInputElement>) {
@@ -378,7 +390,7 @@ export default function PartnerBusinessPage() {
           <section className={styles.sectionCard}>
             <div className={styles.sectionHeaderInline}><h3>Фотографии бизнеса</h3><button type="button" className={styles.ghostButton} onClick={() => profilePhotoInput.current?.click()}>+ Загрузить фото</button></div>
             <div className={styles.businessPhotoGrid}>
-              {profile.business_photo_urls.map((photo, index) => <div key={`${photo}-${index}`} className={styles.businessPhotoPreview}><img src={photo} alt={`Фотография бизнеса ${index + 1}`} /><button type="button" onClick={() => setProfile((previous) => { const business_photo_urls = previous.business_photo_urls.filter((_, photoIndex) => photoIndex !== index); return { ...previous, business_photo_urls, business_photo_url: business_photo_urls[0] || "" }; })} aria-label={`Удалить фото ${index + 1}`}><img src="/delete.svg" alt="" aria-hidden /></button></div>)}
+              {profile.business_photo_urls.map((photo, index) => <div key={`${photo}-${index}`} className={`${styles.businessPhotoPreview} ${draggedBusinessPhotoIndex === index ? styles.businessPhotoPreviewDragging : ""}`} draggable onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; setDraggedBusinessPhotoIndex(index); }} onDragEnd={() => setDraggedBusinessPhotoIndex(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => moveBusinessPhoto(index)}><img src={photo} alt={`Фотография бизнеса ${index + 1}`} />{index === 0 && <span className={styles.businessPhotoCover}>Обложка</span>}<button type="button" onClick={() => setProfile((previous) => { const business_photo_urls = previous.business_photo_urls.filter((_, photoIndex) => photoIndex !== index); return { ...previous, business_photo_urls, business_photo_url: business_photo_urls[0] || "" }; })} aria-label={`Удалить фото ${index + 1}`}><img src="/delete.svg" alt="" aria-hidden /></button></div>)}
               {profile.business_photo_urls.length < 8 && <button type="button" className={styles.addBusinessPhotoButton} onClick={() => profilePhotoInput.current?.click()}><img src="/photo.svg" alt="" aria-hidden /><span>Добавить фото</span></button>}
             </div>
             <input ref={profilePhotoInput} className={styles.fileInput} type="file" accept="image/*" multiple onChange={(event) => void handlePhotoChange(event)} />
