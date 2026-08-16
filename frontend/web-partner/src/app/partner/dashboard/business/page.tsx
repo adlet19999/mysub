@@ -21,10 +21,16 @@ type PartnerProfile = {
   business_photo_url: string;
 };
 
-type Service = { id: number; name: string; description: string; price: string | null; image_url: string; is_active: boolean };
-type BusinessTable = { id: number; name: string; description: string; photo_url: string; is_active: boolean };
-
-type TableDraft = { name: string; description: string; photo_base64: string };
+type Service = {
+  id: number;
+  name: string;
+  description: string;
+  price: string | null;
+  image_url: string;
+  discount_percent: number;
+  is_subscription: boolean;
+  is_active: boolean;
+};
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1";
 const TENANT_DEFAULT = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public";
@@ -32,26 +38,29 @@ const EMPTY_PROFILE: PartnerProfile = {
   full_name: "", email: "", phone: "", company_name: "", business_category: "", address: "",
   description: "", city: "", working_hours: "", website: "", instagram: "", business_photo_url: "",
 };
-const EMPTY_TABLE: TableDraft = { name: "", description: "", photo_base64: "" };
 
 function formatPrice(value: string | null) {
   const number = Number(value || 0);
   return Number.isFinite(number) && number > 0 ? `${new Intl.NumberFormat("ru-RU").format(number)} ₸` : "Цена не указана";
 }
 
+function discountedPrice(service: Service) {
+  const price = Number(service.price || 0);
+  if (!Number.isFinite(price) || price <= 0) return "Цена не указана";
+  return formatPrice(String(price * (1 - Math.min(100, service.discount_percent || 0) / 100)));
+}
+
 export default function PartnerBusinessPage() {
   const [partnerEmail, setPartnerEmail] = useState("");
   const [profile, setProfile] = useState<PartnerProfile>(EMPTY_PROFILE);
   const [services, setServices] = useState<Service[]>([]);
-  const [tables, setTables] = useState<BusinessTable[]>([]);
-  const [tableDraft, setTableDraft] = useState<TableDraft>(EMPTY_TABLE);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [savingTable, setSavingTable] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [previewTab, setPreviewTab] = useState<"services" | "about">("services");
+  const [addedServiceIds, setAddedServiceIds] = useState<number[]>([]);
   const profilePhotoInput = useRef<HTMLInputElement>(null);
-  const tablePhotoInput = useRef<HTMLInputElement>(null);
 
   const isSaveDisabled = useMemo(() => saving || !profile.company_name.trim() || !profile.email.trim() || !profile.phone.trim(), [profile, saving]);
   const activeServices = useMemo(() => services.filter((service) => service.is_active), [services]);
@@ -80,16 +89,14 @@ export default function PartnerBusinessPage() {
     setLoading(true);
     setError("");
     try {
-      const [profileResponse, servicesResponse, tablesResponse] = await Promise.all([
-        api("/partner/profile/"), api("/partner/services/?include_image=0"), api("/partner/business-tables/"),
+      const [profileResponse, servicesResponse] = await Promise.all([
+        api("/partner/profile/"), api("/partner/services/?include_image=0"),
       ]);
       const profilePayload = (await profileResponse.json()) as Partial<PartnerProfile> & { message?: string };
       const servicesPayload = (await servicesResponse.json()) as Service[];
-      const tablesPayload = (await tablesResponse.json()) as BusinessTable[];
       if (!profileResponse.ok) throw new Error(profilePayload.message || "Не удалось загрузить профиль");
       setProfile({ ...EMPTY_PROFILE, ...profilePayload });
       setServices(Array.isArray(servicesPayload) ? servicesPayload : []);
-      setTables(Array.isArray(tablesPayload) ? tablesPayload : []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить данные бизнеса");
     } finally {
@@ -99,13 +106,12 @@ export default function PartnerBusinessPage() {
 
   useEffect(() => { void loadBusiness(); }, [partnerEmail]);
 
-  async function handlePhotoChange(event: ChangeEvent<HTMLInputElement>, target: "business" | "table") {
+  async function handlePhotoChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
       const image = await compressImageFileToDataUrl(file, { maxWidth: 1280, maxHeight: 1280 });
-      if (target === "business") setProfile((previous) => ({ ...previous, business_photo_url: image }));
-      else setTableDraft((previous) => ({ ...previous, photo_base64: image }));
+      setProfile((previous) => ({ ...previous, business_photo_url: image }));
     } catch {
       setError("Не удалось обработать изображение");
     } finally {
@@ -139,35 +145,6 @@ export default function PartnerBusinessPage() {
       setError(saveError instanceof Error ? saveError.message : "Не удалось сохранить профиль");
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function saveTable() {
-    if (!tableDraft.name.trim() || savingTable) return;
-    setSavingTable(true);
-    setError("");
-    try {
-      const response = await api("/partner/business-tables/", { method: "POST", body: JSON.stringify(tableDraft) });
-      const payload = (await response.json()) as BusinessTable & { message?: string };
-      if (!response.ok) throw new Error(payload.message || "Не удалось сохранить стол");
-      setTables((previous) => [payload, ...previous]);
-      setTableDraft(EMPTY_TABLE);
-      setMessage("Стол добавлен");
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Не удалось сохранить стол");
-    } finally {
-      setSavingTable(false);
-    }
-  }
-
-  async function toggleTable(table: BusinessTable) {
-    try {
-      const response = await api(`/partner/business-tables/${table.id}/`, { method: "PATCH", body: JSON.stringify({ is_active: !table.is_active }) });
-      const payload = (await response.json()) as BusinessTable & { message?: string };
-      if (!response.ok) throw new Error(payload.message || "Не удалось изменить стол");
-      setTables((previous) => previous.map((item) => item.id === payload.id ? payload : item));
-    } catch (toggleError) {
-      setError(toggleError instanceof Error ? toggleError.message : "Не удалось изменить стол");
     }
   }
 
@@ -210,39 +187,29 @@ export default function PartnerBusinessPage() {
           </section>
 
           <section className={styles.sectionCard}>
-            <div className={styles.sectionHeaderInline}><h3>Предложения</h3><Link className={styles.ghostButton} href="/partner/dashboard/manage">Управлять услугами</Link></div>
+            <div className={styles.sectionHeaderInline}><div><h3>Услуги для клиентов</h3><p className={styles.sectionHint}>Эти услуги будут показаны клиентам в мобильной карточке.</p></div><Link className={styles.ghostButton} href="/partner/dashboard/manage">Управлять услугами</Link></div>
             {activeServices.length ? <div className={styles.itemList}>{activeServices.map((service) => <article key={service.id} className={styles.listItem}>{service.image_url ? <img src={service.image_url} alt="" /> : <div className={styles.itemPlaceholder} /> }<div><strong>{service.name}</strong><p>{service.description || formatPrice(service.price)}</p></div><span>{formatPrice(service.price)}</span></article>)}</div> : <p className={styles.emptyText}>Добавьте услуги в разделе «Услуги и категории».</p>}
-          </section>
-
-          <section className={styles.sectionCard}>
-            <div className={styles.sectionHeaderInline}><h3>Столы</h3><span className={styles.counter}>{tables.filter((table) => table.is_active).length}</span></div>
-            <div className={styles.tableForm}>
-              <button type="button" className={styles.uploadBox} onClick={() => tablePhotoInput.current?.click()}>{tableDraft.photo_base64 ? <img src={tableDraft.photo_base64} alt="Фото стола" /> : "Добавить фото"}</button>
-              <input ref={tablePhotoInput} className={styles.fileInput} type="file" accept="image/*" onChange={(event) => void handlePhotoChange(event, "table")} />
-              <label><span>Название стола</span><input value={tableDraft.name} onChange={(event) => setTableDraft((previous) => ({ ...previous, name: event.target.value }))} /></label>
-              <label><span>Описание</span><textarea value={tableDraft.description} onChange={(event) => setTableDraft((previous) => ({ ...previous, description: event.target.value }))} /></label>
-              <button type="button" className={styles.saveButton} disabled={!tableDraft.name.trim() || savingTable} onClick={() => void saveTable()}>{savingTable ? "Сохраняем..." : "Сохранить стол"}</button>
-            </div>
-            {tables.length ? <div className={styles.itemList}>{tables.map((table) => <article key={table.id} className={styles.listItem}>{table.photo_url ? <img src={table.photo_url} alt="" /> : <div className={styles.itemPlaceholder} />}<div><strong>{table.name}</strong><p>{table.description || "Описание не указано"}</p></div><button type="button" className={styles.archiveButton} onClick={() => void toggleTable(table)}>{table.is_active ? "Архивировать" : "Вернуть"}</button></article>)}</div> : null}
           </section>
 
           <section className={styles.sectionCard}>
             <div className={styles.sectionHeaderInline}><h3>Фотография бизнеса</h3><button type="button" className={styles.ghostButton} onClick={() => profilePhotoInput.current?.click()}>Загрузить фото</button></div>
             <button type="button" className={styles.photoBox} onClick={() => profilePhotoInput.current?.click()}>{profile.business_photo_url ? <img src={profile.business_photo_url} alt="Фотография бизнеса" /> : "Добавить фото"}</button>
-            <input ref={profilePhotoInput} className={styles.fileInput} type="file" accept="image/*" onChange={(event) => void handlePhotoChange(event, "business")} />
+            <input ref={profilePhotoInput} className={styles.fileInput} type="file" accept="image/*" onChange={(event) => void handlePhotoChange(event)} />
           </section>
         </div>
 
         <aside className={styles.previewCard}>
-          <span className={styles.previewLabel}>Предпросмотр</span>
+          <span className={styles.previewLabel}>Интерактивный предпросмотр</span>
           <div className={styles.phoneMock}><div className={styles.phoneScreen}>
+            <div className={styles.phoneStatus}><span>9:41</span><span>◒ ▰</span></div>
             <h4>Ваша карточка</h4>
-            {profile.business_photo_url ? <img className={styles.mockImage} src={profile.business_photo_url} alt="" /> : <div className={styles.mockImage}>Добавить фото</div>}
+            {profile.business_photo_url ? <img className={styles.mockImage} src={profile.business_photo_url} alt="" /> : <div className={styles.mockImage}>Добавьте фото</div>}
             <p className={styles.mockBusinessName}>{profile.company_name || "Ваш бизнес"}</p>
             <p className={styles.mockCategory}>{profile.business_category || "Категория бизнеса"}</p>
-            <p className={styles.mockDescription}>{profile.description || "Добавьте описание вашего бизнеса"}</p>
-            <div className={styles.mockPills}><span className={styles.mockPillActive}>Услуги</span><span className={styles.mockPill}>Отзывы</span></div>
-            <div className={styles.mockOfferCard}><strong>{profile.city || "Город"}</strong><p>{profile.address || "Добавьте адрес вашего бизнеса"}</p><p>{profile.working_hours || "График работы не указан"}</p></div>
+            <div className={styles.mockPills} role="tablist"><button type="button" className={previewTab === "services" ? styles.mockPillActive : styles.mockPill} onClick={() => setPreviewTab("services")}>Услуги</button><button type="button" className={previewTab === "about" ? styles.mockPillActive : styles.mockPill} onClick={() => setPreviewTab("about")}>О бизнесе</button></div>
+            <div className={styles.phoneContent}>
+              {previewTab === "services" ? activeServices.length ? activeServices.map((service) => <article key={service.id} className={styles.clientServiceCard}>{service.image_url ? <img src={service.image_url} alt="" /> : <div className={styles.clientServiceImage} />}<div className={styles.clientServiceBody}><strong>{service.discount_percent > 0 ? `Скидка ${service.discount_percent}%: ${service.name}` : service.name}</strong><p>{service.description || "Описание услуги"}</p><b>{discountedPrice(service)}</b>{service.is_subscription && <span>Доступно по подписке MySub</span>}</div><button type="button" aria-label={`Добавить ${service.name}`} className={addedServiceIds.includes(service.id) ? styles.addedButton : styles.addButton} onClick={() => setAddedServiceIds((items) => items.includes(service.id) ? items.filter((id) => id !== service.id) : [...items, service.id])}>{addedServiceIds.includes(service.id) ? "✓" : "+"}</button></article>) : <p className={styles.phoneEmpty}>Здесь появятся ваши услуги.</p> : <div className={styles.phoneAbout}><p>{profile.description || "Добавьте описание, чтобы клиентам было проще выбрать вас."}</p><strong>{profile.city || "Город"}</strong><p>{profile.address || "Адрес не указан"}</p><p>{profile.working_hours || "График работы не указан"}</p>{profile.website && <a href={profile.website} target="_blank" rel="noreferrer">Сайт</a>}{profile.instagram && <p>{profile.instagram}</p>}</div>}
+            </div>
           </div></div>
         </aside>
       </div>
