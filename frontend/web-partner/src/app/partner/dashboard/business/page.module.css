@@ -758,9 +758,15 @@
   box-sizing: border-box;
   overflow-x: hidden;
   overflow-y: auto;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
   border-radius: 37px;
   background: #fff;
   padding: 16px 16px 18px;
+}
+
+.phoneScreen::-webkit-scrollbar {
+  display: none;
 }
 
 .phoneStatus {
