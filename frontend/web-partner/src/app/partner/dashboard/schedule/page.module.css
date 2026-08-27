@@ -1231,6 +1231,11 @@
   max-width: 392px;
 }
 
+.scheduleCalendar .calendarWeekdays {
+  max-width: 392px;
+  gap: 3px;
+}
+
 .scheduleCalendarDay {
   width: 48px;
   height: 48px;
