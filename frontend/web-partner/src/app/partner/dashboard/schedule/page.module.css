@@ -1150,6 +1150,236 @@
   gap: 12px;
 }
 
+.bulkScheduleBody {
+  display: block;
+  padding: 18px 20px;
+}
+
+.scheduleSpecialistSelect {
+  display: grid;
+  gap: 6px;
+  width: 286px;
+  margin-bottom: 14px;
+  color: #24282d;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.scheduleSpecialistSelect select {
+  height: 36px;
+  border: 1px solid #dfe5e4;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: #fff;
+  color: #24282d;
+  font: inherit;
+  font-weight: 400;
+}
+
+.scheduleEditorLayout {
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) 286px;
+  gap: 14px;
+  align-items: start;
+}
+
+.scheduleCalendar,
+.scheduleDayEditor {
+  border: 1px solid #e2e8e6;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.scheduleCalendar {
+  padding: 16px 12px 12px;
+}
+
+.scheduleCalendarHeader {
+  display: grid;
+  grid-template-columns: 32px 1fr 32px;
+  align-items: center;
+  margin: 0 4px 14px;
+}
+
+.scheduleCalendarHeader strong {
+  color: #24282d;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: center;
+  text-transform: capitalize;
+}
+
+.scheduleCalendarHeader button,
+.breakTitle button,
+.breakRow button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.scheduleCalendarHeader button {
+  width: 32px;
+  height: 32px;
+  color: #1f5f4d;
+  font-size: 20px;
+}
+
+.scheduleCalendarDays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.scheduleCalendarDay {
+  aspect-ratio: 1;
+  min-height: 44px;
+  border: 1px solid #e6ebea;
+  border-radius: 6px;
+  background: #fff;
+  color: #24282d;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 4px;
+  font-family: var(--font-family-base);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.scheduleCalendarDay:hover { background: #f3f8f6; }
+.scheduleCalendarDaySelected { border-color: #1f6b52; color: #14634d; font-weight: 600; }
+.workingDayDot,
+.dayOffDot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #1f6b52;
+}
+.dayOffDot { background: #d3d8dc; }
+
+.scheduleLegend {
+  display: flex;
+  gap: 14px;
+  margin: 14px 0 0;
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.scheduleLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scheduleDayEditor {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.scheduleDayStatus {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 5px 8px;
+  align-items: center;
+  color: #24282d;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.scheduleDayStatus b { font-size: 10px; }
+.workingStatus { color: #159667; }
+.dayOffStatus { color: #c2410c; }
+
+.makeDayOffButton,
+.makeWorkingButton {
+  grid-column: 1 / -1;
+  height: 34px;
+  border: 0;
+  border-radius: 7px;
+  color: #fff;
+  font-family: var(--font-family-base);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.makeDayOffButton { background: #e52b2b; }
+.makeWorkingButton { background: #1f6b52; }
+
+.scheduleTimeSection {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #edf0f2;
+}
+
+.scheduleTimeSection h4 {
+  margin: 0;
+  color: #24282d;
+  font-size: 12px;
+  line-height: 17px;
+  font-weight: 600;
+}
+
+.scheduleTimeSection > label {
+  display: grid;
+  gap: 4px;
+  color: #4b5563;
+  font-size: 10px;
+}
+
+.scheduleTimeSection input,
+.breakRow input {
+  min-width: 0;
+  height: 32px;
+  box-sizing: border-box;
+  border: 1px solid #dfe5e4;
+  border-radius: 6px;
+  padding: 0 8px;
+  background: #fff;
+  color: #24282d;
+  font-family: var(--font-family-base);
+  font-size: 12px;
+}
+
+.breakTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.breakTitle button {
+  width: 24px;
+  height: 24px;
+  color: #1f6b52;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.breakRow {
+  display: grid;
+  grid-template-columns: 1fr 78px 78px 22px;
+  gap: 5px;
+  align-items: end;
+}
+
+.breakRow button {
+  height: 32px;
+  padding: 0;
+  color: #7b8490;
+  font-size: 18px;
+}
+
+.dayOffNotice {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid #edf0f2;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 17px;
+}
+
 @media (max-width: 1280px) {
   .headerRow {
     flex-direction: column;
@@ -1229,9 +1459,12 @@
   }
 
   .bulkScheduleBody {
-    grid-template-columns: 1fr;
     padding: 12px;
   }
+
+  .scheduleSpecialistSelect { width: 100%; }
+
+  .scheduleEditorLayout { grid-template-columns: 1fr; }
 
   .scheduleEditorRow {
     grid-template-columns: 1fr;

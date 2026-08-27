@@ -337,6 +337,9 @@ def default_working_schedule():
 				"end_time": "18:00",
 				"break_start": "13:00",
 				"break_end": "14:00",
+				"discount_start": "10:00",
+				"discount_end": "16:00",
+				"breaks": [{"name": "Обед", "start_time": "13:00", "end_time": "14:00"}],
 			}
 		)
 	return schedule
@@ -364,6 +367,9 @@ def normalize_working_schedule(raw_schedule):
 		end_time = str(raw_item.get("end_time") or "").strip()
 		break_start = str(raw_item.get("break_start") or "").strip()
 		break_end = str(raw_item.get("break_end") or "").strip()
+		discount_start = str(raw_item.get("discount_start") or "").strip()
+		discount_end = str(raw_item.get("discount_end") or "").strip()
+		raw_breaks = raw_item.get("breaks")
 
 		if not is_day_off:
 			if not TIME_RE.match(start_time):
@@ -373,18 +379,42 @@ def normalize_working_schedule(raw_schedule):
 			if start_time >= end_time:
 				return None, f"Для дня {day} start_time должен быть раньше end_time"
 
-			if bool(break_start) != bool(break_end):
-				return None, f"Для дня {day} укажите оба поля break_start и break_end"
-			if break_start and break_end:
-				if not TIME_RE.match(break_start) or not TIME_RE.match(break_end):
+			if bool(discount_start) != bool(discount_end):
+				return None, f"Для скидок в {day} укажите оба поля времени"
+			if discount_start and discount_end:
+				if not TIME_RE.match(discount_start) or not TIME_RE.match(discount_end):
+					return None, f"Время скидок для {day} должно быть в формате HH:MM"
+				if not (start_time <= discount_start < discount_end <= end_time):
+					return None, f"Время скидок для {day} должно быть внутри рабочего времени"
+
+			if raw_breaks is None:
+				raw_breaks = [] if not break_start and not break_end else [{"name": "Перерыв", "start_time": break_start, "end_time": break_end}]
+			if not isinstance(raw_breaks, list):
+				return None, f"breaks для {day} должен быть массивом"
+			breaks = []
+			for raw_break in raw_breaks:
+				if not isinstance(raw_break, dict):
+					return None, f"breaks для {day} содержит некорректный элемент"
+				item_start = str(raw_break.get("start_time") or "").strip()
+				item_end = str(raw_break.get("end_time") or "").strip()
+				if not TIME_RE.match(item_start) or not TIME_RE.match(item_end):
 					return None, f"Перерыв для дня {day} должен быть в формате HH:MM"
-				if not (start_time < break_start < break_end < end_time):
+				if not (start_time <= item_start < item_end <= end_time):
 					return None, f"Перерыв для дня {day} должен быть внутри рабочего времени"
+				breaks.append({"name": str(raw_break.get("name") or "Перерыв").strip()[:80] or "Перерыв", "start_time": item_start, "end_time": item_end})
+			breaks.sort(key=lambda item: item["start_time"])
+			if any(current["start_time"] < previous["end_time"] for previous, current in zip(breaks, breaks[1:])):
+				return None, f"Перерывы для дня {day} не должны пересекаться"
+			break_start = breaks[0]["start_time"] if breaks else ""
+			break_end = breaks[0]["end_time"] if breaks else ""
 		else:
 			start_time = ""
 			end_time = ""
 			break_start = ""
 			break_end = ""
+			discount_start = ""
+			discount_end = ""
+			breaks = []
 
 		by_day[day] = {
 			"day": day,
@@ -393,6 +423,9 @@ def normalize_working_schedule(raw_schedule):
 			"end_time": end_time,
 			"break_start": break_start,
 			"break_end": break_end,
+			"discount_start": discount_start,
+			"discount_end": discount_end,
+			"breaks": breaks,
 		}
 
 	normalized = []
@@ -409,6 +442,9 @@ def normalize_working_schedule(raw_schedule):
 					"end_time": "18:00",
 					"break_start": "13:00",
 					"break_end": "14:00",
+					"discount_start": "10:00",
+					"discount_end": "16:00",
+					"breaks": [{"name": "Обед", "start_time": "13:00", "end_time": "14:00"}],
 				}
 			)
 
@@ -457,6 +493,31 @@ def resolve_booking_duration_minutes(service_name: str, duration_map) -> int:
 	for name in names:
 		minutes += duration_map.get(name.lower(), 60)
 	return minutes if minutes > 0 else 60
+
+
+def booking_schedule_error(specialist: Specialist, starts_at, duration_minutes: int):
+	start_dt = to_aware_datetime(starts_at)
+	if start_dt is None:
+		return "Не удалось определить время записи"
+	local_start = timezone.localtime(start_dt)
+	local_end = local_start + timedelta(minutes=max(1, int(duration_minutes or 60)))
+	if local_start.date() != local_end.date():
+		return "Запись должна завершаться в тот же день"
+	weekday = WEEKDAY_ORDER[local_start.weekday()]
+	schedule, schedule_error = normalize_working_schedule(specialist.working_schedule)
+	if schedule_error:
+		return "График специалиста заполнен некорректно"
+	day = next((item for item in schedule if item["day"] == weekday), None)
+	if not day or day["is_day_off"]:
+		return "У специалиста выходной в выбранный день"
+	start_time = local_start.strftime("%H:%M")
+	end_time = local_end.strftime("%H:%M")
+	if start_time < day["start_time"] or end_time > day["end_time"]:
+		return "Время записи выходит за рабочий график специалиста"
+	for item in day["breaks"]:
+		if start_time < item["end_time"] and item["start_time"] < end_time:
+			return f"Запись пересекается с перерывом: {item['name']}"
+	return None
 
 
 def has_booking_overlap(
@@ -1661,6 +1722,13 @@ class BookingListCreateView(APIView):
 			service_name,
 			build_service_duration_map(tenant, partner_profile=partner_profile),
 		)
+		if manager_name:
+			specialist = Specialist.objects.filter(tenant_slug=tenant, partner_profile=partner_profile, full_name__iexact=manager_name, is_active=True).first()
+			if not specialist:
+				return Response({"message": "Специалист не найден"}, status=400)
+			schedule_error = booking_schedule_error(specialist, starts_at, duration_minutes)
+			if schedule_error:
+				return Response({"message": schedule_error}, status=409)
 		if manager_name and has_booking_overlap(
 			tenant,
 			manager_name,
@@ -1729,6 +1797,13 @@ class BookingDetailView(APIView):
 			item.service_name,
 			build_service_duration_map(tenant, partner_profile=partner_profile),
 		)
+		if item.manager_name:
+			specialist = Specialist.objects.filter(tenant_slug=tenant, partner_profile=partner_profile, full_name__iexact=item.manager_name, is_active=True).first()
+			if not specialist:
+				return Response({"message": "Специалист не найден"}, status=400)
+			schedule_error = booking_schedule_error(specialist, item.starts_at, duration_minutes)
+			if schedule_error:
+				return Response({"message": schedule_error}, status=409)
 		if item.manager_name and has_booking_overlap(
 			tenant,
 			item.manager_name,

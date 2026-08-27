@@ -6,6 +6,12 @@ import { formatRuPhone } from "../../../../lib/phone";
 
 type WorkingDayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 
+type ScheduleBreak = {
+  name: string;
+  start_time: string;
+  end_time: string;
+};
+
 type WorkingDaySchedule = {
   day: WorkingDayKey;
   is_day_off: boolean;
@@ -13,6 +19,9 @@ type WorkingDaySchedule = {
   end_time: string;
   break_start: string;
   break_end: string;
+  discount_start: string;
+  discount_end: string;
+  breaks: ScheduleBreak[];
 };
 
 type Specialist = {
@@ -119,6 +128,9 @@ function defaultWorkingSchedule(): WorkingDaySchedule[] {
     end_time: "18:00",
     break_start: "13:00",
     break_end: "14:00",
+    discount_start: "10:00",
+    discount_end: "16:00",
+    breaks: [{ name: "Обед", start_time: "13:00", end_time: "14:00" }],
   }));
 }
 
@@ -186,6 +198,9 @@ function normalizeWorkingSchedule(raw: unknown): WorkingDaySchedule[] {
     end_time: "18:00",
     break_start: "13:00",
     break_end: "14:00",
+    discount_start: "10:00",
+    discount_end: "16:00",
+    breaks: [{ name: "Обед", start_time: "13:00", end_time: "14:00" }],
   }));
 
   if (!Array.isArray(raw)) {
@@ -204,13 +219,29 @@ function normalizeWorkingSchedule(raw: unknown): WorkingDaySchedule[] {
       continue;
     }
 
+    const legacyBreakStart = typeof item.break_start === "string" ? item.break_start : "";
+    const legacyBreakEnd = typeof item.break_end === "string" ? item.break_end : "";
+    const breaks = Array.isArray(item.breaks)
+      ? item.breaks
+          .filter((scheduleBreak): scheduleBreak is ScheduleBreak => Boolean(scheduleBreak && typeof scheduleBreak === "object"))
+          .map((scheduleBreak) => ({
+            name: typeof scheduleBreak.name === "string" ? scheduleBreak.name : "Перерыв",
+            start_time: typeof scheduleBreak.start_time === "string" ? scheduleBreak.start_time : "",
+            end_time: typeof scheduleBreak.end_time === "string" ? scheduleBreak.end_time : "",
+          }))
+      : legacyBreakStart && legacyBreakEnd
+        ? [{ name: "Обед", start_time: legacyBreakStart, end_time: legacyBreakEnd }]
+        : [];
     byDay.set(day as WorkingDayKey, {
       day: day as WorkingDayKey,
       is_day_off: Boolean(item.is_day_off),
       start_time: typeof item.start_time === "string" ? item.start_time : "",
       end_time: typeof item.end_time === "string" ? item.end_time : "",
-      break_start: typeof item.break_start === "string" ? item.break_start : "",
-      break_end: typeof item.break_end === "string" ? item.break_end : "",
+      break_start: breaks[0]?.start_time ?? "",
+      break_end: breaks[0]?.end_time ?? "",
+      discount_start: typeof item.discount_start === "string" ? item.discount_start : "10:00",
+      discount_end: typeof item.discount_end === "string" ? item.discount_end : "16:00",
+      breaks,
     });
   }
 
@@ -262,14 +293,13 @@ function getSpecialistSlotState(day: WorkingDaySchedule | undefined, hour: numbe
 
   const slotStart = hour * 60;
   const slotEnd = (hour + 1) * 60;
-  const breakStart = toMinutes(day.break_start);
-  const breakEnd = toMinutes(day.break_end);
-
-  if (breakStart != null && breakEnd != null) {
-    const intersectsBreak = breakStart < slotEnd && breakEnd > slotStart;
-    if (intersectsBreak) {
-      return { tone: "break", label: "Перерыв" };
-    }
+  const intersectsBreak = day.breaks.some((scheduleBreak) => {
+    const breakStart = toMinutes(scheduleBreak.start_time);
+    const breakEnd = toMinutes(scheduleBreak.end_time);
+    return breakStart != null && breakEnd != null && breakStart < slotEnd && breakEnd > slotStart;
+  });
+  if (intersectsBreak) {
+    return { tone: "break", label: "Перерыв" };
   }
 
   return { tone: "working", label: "Рабочий" };
@@ -331,7 +361,7 @@ export default function SchedulePage() {
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
   const [isBulkScheduleOpen, setIsBulkScheduleOpen] = useState(false);
   const [bulkScheduleDraft, setBulkScheduleDraft] = useState<WorkingDaySchedule[]>(defaultWorkingSchedule());
-  const [bulkSelectedSpecialistIds, setBulkSelectedSpecialistIds] = useState<number[]>([]);
+  const [scheduleSpecialistId, setScheduleSpecialistId] = useState("");
   const [bulkScheduleError, setBulkScheduleError] = useState("");
   const [isSavingBulkSchedule, setIsSavingBulkSchedule] = useState(false);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
@@ -732,6 +762,29 @@ export default function SchedulePage() {
     );
   }
 
+  function getBookingScheduleError(specialist: Specialist, dateValue: string, startTime: string, durationMinutes: number) {
+    const date = new Date(`${dateValue}T12:00:00`);
+    if (Number.isNaN(date.getTime())) return "Выберите корректную дату записи";
+    const day = normalizeWorkingSchedule(specialist.working_schedule).find((item) => item.day === toWorkingDayKey(date));
+    const startMinutes = toMinutes(startTime);
+    if (!day || day.is_day_off) return "У специалиста выходной в выбранный день";
+    if (startMinutes == null) return "Выберите время начала записи";
+    const endMinutes = startMinutes + durationMinutes;
+    const workStart = toMinutes(day.start_time);
+    const workEnd = toMinutes(day.end_time);
+    if (workStart == null || workEnd == null || startMinutes < workStart || endMinutes > workEnd) {
+      return "Время записи выходит за рабочий график специалиста";
+    }
+    if (day.breaks.some((scheduleBreak) => {
+      const breakStart = toMinutes(scheduleBreak.start_time);
+      const breakEnd = toMinutes(scheduleBreak.end_time);
+      return breakStart != null && breakEnd != null && startMinutes < breakEnd && breakStart < endMinutes;
+    })) {
+      return "Запись пересекается с перерывом специалиста";
+    }
+    return "";
+  }
+
   function onSumChange(lineId: number, value: string) {
     setBookingLines((prev) => prev.map((line) => (line.id === lineId ? { ...line, sum: value } : line)));
   }
@@ -757,6 +810,17 @@ export default function SchedulePage() {
 
     if (selectedServices.some((service) => !(specialist.service_ids ?? []).includes(service.id))) {
       setModalError("Выбранный специалист не оказывает эту услугу");
+      return;
+    }
+
+    const scheduleError = getBookingScheduleError(
+      specialist,
+      bookingDate,
+      bookingStartTime,
+      selectedServices.reduce((total, service) => total + (service.duration_minutes && service.duration_minutes > 0 ? service.duration_minutes : 60), 0),
+    );
+    if (scheduleError) {
+      setModalError(scheduleError);
       return;
     }
 
@@ -827,10 +891,19 @@ export default function SchedulePage() {
   }
 
   function openBulkScheduleModal() {
-    setBulkScheduleDraft(defaultWorkingSchedule());
-    setBulkSelectedSpecialistIds(activeSpecialists.map((specialist) => specialist.id));
+    const specialist = activeSpecialists[0];
+    setScheduleSpecialistId(specialist ? String(specialist.id) : "");
+    setBulkScheduleDraft(specialist ? normalizeWorkingSchedule(specialist.working_schedule) : defaultWorkingSchedule());
     setBulkScheduleError("");
+    setCalendarMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
     setIsBulkScheduleOpen(true);
+  }
+
+  function changeScheduleSpecialist(specialistId: string) {
+    const specialist = activeSpecialists.find((item) => String(item.id) === specialistId);
+    setScheduleSpecialistId(specialistId);
+    setBulkScheduleDraft(specialist ? normalizeWorkingSchedule(specialist.working_schedule) : defaultWorkingSchedule());
+    setBulkScheduleError("");
   }
 
   function updateBulkScheduleDay(day: WorkingDayKey, patch: Partial<WorkingDaySchedule>) {
@@ -844,19 +917,23 @@ export default function SchedulePage() {
       if (!day.start_time || !day.end_time || day.start_time >= day.end_time) {
         return "Проверьте рабочее время в каждом рабочем дне";
       }
-      if (Boolean(day.break_start) !== Boolean(day.break_end)) {
-        return "Для перерыва заполните оба поля";
+      if (!day.discount_start || !day.discount_end || !(day.start_time <= day.discount_start && day.discount_start < day.discount_end && day.discount_end <= day.end_time)) {
+        return "Время скидок должно быть внутри рабочего времени";
       }
-      if (day.break_start && day.break_end && !(day.start_time < day.break_start && day.break_start < day.break_end && day.break_end < day.end_time)) {
-        return "Перерыв должен быть внутри рабочего времени";
+      if (day.breaks.some((scheduleBreak) => !scheduleBreak.start_time || !scheduleBreak.end_time || !(day.start_time <= scheduleBreak.start_time && scheduleBreak.start_time < scheduleBreak.end_time && scheduleBreak.end_time <= day.end_time))) {
+        return "Каждый перерыв должен быть внутри рабочего времени";
+      }
+      const sortedBreaks = [...day.breaks].sort((left, right) => left.start_time.localeCompare(right.start_time));
+      if (sortedBreaks.some((scheduleBreak, index) => index > 0 && scheduleBreak.start_time < sortedBreaks[index - 1].end_time)) {
+        return "Перерывы не должны пересекаться";
       }
     }
     return "";
   }
 
   async function submitBulkSchedule() {
-    if (!bulkSelectedSpecialistIds.length || !partnerEmail || isSavingBulkSchedule) {
-      setBulkScheduleError("Выберите хотя бы одного специалиста");
+    if (!scheduleSpecialistId || !partnerEmail || isSavingBulkSchedule) {
+      setBulkScheduleError("Выберите специалиста");
       return;
     }
     const validationError = validateBulkSchedule();
@@ -867,17 +944,12 @@ export default function SchedulePage() {
 
     setIsSavingBulkSchedule(true);
     try {
-      const results = await Promise.all(
-        bulkSelectedSpecialistIds.map(async (specialistId) => {
-          const response = await fetch(`${API_BASE}/partner/specialists/${specialistId}/`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json", "X-Tenant": tenant, "X-Partner-Email": partnerEmail },
-            body: JSON.stringify({ working_schedule: bulkScheduleDraft }),
-          });
-          return response.ok;
-        }),
-      );
-      if (!results.some(Boolean)) {
+      const response = await fetch(`${API_BASE}/partner/specialists/${scheduleSpecialistId}/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-Tenant": tenant, "X-Partner-Email": partnerEmail },
+        body: JSON.stringify({ working_schedule: bulkScheduleDraft }),
+      });
+      if (!response.ok) {
         setBulkScheduleError("Не удалось сохранить график");
         return;
       }
@@ -1239,37 +1311,17 @@ export default function SchedulePage() {
               <button type="button" className={styles.closeModalButton} onClick={() => setIsBulkScheduleOpen(false)} aria-label="Закрыть">×</button>
             </header>
             <div className={styles.bulkScheduleBody}>
-              <section className={styles.specialistPicker}>
-                <label className={styles.selectAllSpecialists}>
-                  <input
-                    type="checkbox"
-                    checked={bulkSelectedSpecialistIds.length > 0 && bulkSelectedSpecialistIds.length === activeSpecialists.length}
-                    onChange={(event) => setBulkSelectedSpecialistIds(event.target.checked ? activeSpecialists.map((item) => item.id) : [])}
-                  />
-                  Выбрать всех
-                </label>
-                {activeSpecialists.map((specialist) => (
-                  <label key={specialist.id} className={styles.specialistOption}>
-                    <input
-                      type="checkbox"
-                      checked={bulkSelectedSpecialistIds.includes(specialist.id)}
-                      onChange={() => setBulkSelectedSpecialistIds((previous) => previous.includes(specialist.id) ? previous.filter((id) => id !== specialist.id) : [...previous, specialist.id])}
-                    />
-                    {specialist.full_name}
-                  </label>
-                ))}
-              </section>
-              <section className={styles.scheduleEditor}>
-                {bulkScheduleError ? <p className={styles.scheduleFormError}>{bulkScheduleError}</p> : null}
-                {bulkScheduleDraft.map((day) => (
-                  <div key={day.day} className={styles.scheduleEditorRow}>
-                    <strong>{WORKING_DAYS.find((item) => item.key === day.day)?.label}</strong>
-                    <label><input type="checkbox" checked={day.is_day_off} onChange={(event) => updateBulkScheduleDay(day.day, { is_day_off: event.target.checked, start_time: event.target.checked ? "" : day.start_time || "09:00", end_time: event.target.checked ? "" : day.end_time || "18:00", break_start: event.target.checked ? "" : day.break_start || "13:00", break_end: event.target.checked ? "" : day.break_end || "14:00" })} /> Выходной</label>
-                    <div><input type="time" value={day.start_time} disabled={day.is_day_off} onChange={(event) => updateBulkScheduleDay(day.day, { start_time: event.target.value })} /><span>-</span><input type="time" value={day.end_time} disabled={day.is_day_off} onChange={(event) => updateBulkScheduleDay(day.day, { end_time: event.target.value })} /></div>
-                    <div><span>Перерыв</span><input type="time" value={day.break_start} disabled={day.is_day_off} onChange={(event) => updateBulkScheduleDay(day.day, { break_start: event.target.value })} /><span>-</span><input type="time" value={day.break_end} disabled={day.is_day_off} onChange={(event) => updateBulkScheduleDay(day.day, { break_end: event.target.value })} /></div>
-                  </div>
-                ))}
-              </section>
+              <label className={styles.scheduleSpecialistSelect}><span>Выберите специалиста</span><select value={scheduleSpecialistId} onChange={(event) => changeScheduleSpecialist(event.target.value)}>{activeSpecialists.map((specialist) => <option key={specialist.id} value={String(specialist.id)}>{specialist.full_name}</option>)}</select></label>
+              <div className={styles.scheduleEditorLayout}>
+                <section className={styles.scheduleCalendar}>
+                  <header className={styles.scheduleCalendarHeader}><button type="button" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Предыдущий месяц">‹</button><strong>{`${RUS_MONTH[calendarMonth.getMonth()]} ${calendarMonth.getFullYear()}`}</strong><button type="button" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="Следующий месяц">›</button></header>
+                  <div className={styles.calendarWeekdays}>{["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((day) => <span key={day}>{day}</span>)}</div>
+                  <div className={styles.scheduleCalendarDays}>{calendarDays.map((date) => { const day = bulkScheduleDraft.find((item) => item.day === toWorkingDayKey(date)); const isSelected = formatDateInputValue(date) === formatDateInputValue(selectedDate); return <button key={formatDateInputValue(date)} type="button" className={`${styles.scheduleCalendarDay} ${date.getMonth() === calendarMonth.getMonth() ? "" : styles.calendarDayMuted} ${isSelected ? styles.scheduleCalendarDaySelected : ""}`} onClick={() => setSelectedDate(date)}><span>{date.getDate()}</span><i className={day?.is_day_off ? styles.dayOffDot : styles.workingDayDot} /></button>; })}</div>
+                  <p className={styles.scheduleLegend}><span><i className={styles.workingDayDot} />Рабочий день</span><span><i className={styles.dayOffDot} />Выходной</span></p>
+                </section>
+                {(() => { const dayKey = toWorkingDayKey(selectedDate); const day = bulkScheduleDraft.find((item) => item.day === dayKey); if (!day) return null; return <section className={styles.scheduleDayEditor}><div className={styles.scheduleDayStatus}><span>{formatDateTitle(selectedDate)}</span><b className={day.is_day_off ? styles.dayOffStatus : styles.workingStatus}>{day.is_day_off ? "Выходной" : "Рабочий"}</b><button type="button" className={day.is_day_off ? styles.makeWorkingButton : styles.makeDayOffButton} onClick={() => updateBulkScheduleDay(dayKey, { is_day_off: !day.is_day_off, start_time: day.is_day_off ? "09:00" : "", end_time: day.is_day_off ? "18:00" : "", discount_start: day.is_day_off ? "10:00" : "", discount_end: day.is_day_off ? "16:00" : "", breaks: day.is_day_off ? [{ name: "Обед", start_time: "13:00", end_time: "14:00" }] : [] })}>{day.is_day_off ? "Сделать рабочим" : "Сделать выходным"}</button></div>
+                  {!day.is_day_off ? <><section className={styles.scheduleTimeSection}><h4>Рабочие часы</h4><label>Начало работы<input type="time" value={day.start_time} onChange={(event) => updateBulkScheduleDay(dayKey, { start_time: event.target.value })} /></label><label>Окончание работы<input type="time" value={day.end_time} onChange={(event) => updateBulkScheduleDay(dayKey, { end_time: event.target.value })} /></label></section><section className={styles.scheduleTimeSection}><h4>Доступное время для услуг со скидкой</h4><label>Начало<input type="time" value={day.discount_start} onChange={(event) => updateBulkScheduleDay(dayKey, { discount_start: event.target.value })} /></label><label>Окончание<input type="time" value={day.discount_end} onChange={(event) => updateBulkScheduleDay(dayKey, { discount_end: event.target.value })} /></label></section><section className={styles.scheduleTimeSection}><div className={styles.breakTitle}><h4>Перерывы</h4><button type="button" onClick={() => updateBulkScheduleDay(dayKey, { breaks: [...day.breaks, { name: "Перерыв", start_time: "15:00", end_time: "15:30" }] })} aria-label="Добавить перерыв">+</button></div>{day.breaks.map((scheduleBreak, index) => <div className={styles.breakRow} key={`${scheduleBreak.name}-${index}`}><input value={scheduleBreak.name} onChange={(event) => updateBulkScheduleDay(dayKey, { breaks: day.breaks.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item) })} /><input type="time" value={scheduleBreak.start_time} onChange={(event) => updateBulkScheduleDay(dayKey, { breaks: day.breaks.map((item, itemIndex) => itemIndex === index ? { ...item, start_time: event.target.value } : item) })} /><input type="time" value={scheduleBreak.end_time} onChange={(event) => updateBulkScheduleDay(dayKey, { breaks: day.breaks.map((item, itemIndex) => itemIndex === index ? { ...item, end_time: event.target.value } : item) })} /><button type="button" onClick={() => updateBulkScheduleDay(dayKey, { breaks: day.breaks.filter((_, itemIndex) => itemIndex !== index) })} aria-label="Удалить перерыв">×</button></div>)}</section></> : <p className={styles.dayOffNotice}>Для выходного дня запись недоступна.</p>}{bulkScheduleError ? <p className={styles.scheduleFormError}>{bulkScheduleError}</p> : null}</section>; })()}
+              </div>
             </div>
             <footer className={styles.bulkScheduleFooter}>
               <button type="button" className={styles.noShowButton} onClick={() => setIsBulkScheduleOpen(false)}>Отменить</button>
