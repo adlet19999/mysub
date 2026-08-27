@@ -1227,12 +1227,12 @@
 .scheduleCalendarDays {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 7px;
+  gap: 4px;
 }
 
 .scheduleCalendarDay {
   aspect-ratio: 1;
-  min-height: 44px;
+  min-height: 34px;
   border: 1px solid #e6ebea;
   border-radius: 6px;
   background: #fff;
@@ -1240,9 +1240,9 @@
   display: grid;
   place-items: center;
   align-content: center;
-  gap: 4px;
+  gap: 2px;
   font-family: var(--font-family-base);
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
 }
 
@@ -1251,8 +1251,8 @@
 .workingDayDot,
 .dayOffDot {
   display: inline-block;
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #1f6b52;
 }

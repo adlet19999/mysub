@@ -362,6 +362,7 @@ export default function SchedulePage() {
   const [isBulkScheduleOpen, setIsBulkScheduleOpen] = useState(false);
   const [bulkScheduleDraft, setBulkScheduleDraft] = useState<WorkingDaySchedule[]>(defaultWorkingSchedule());
   const [scheduleSpecialistId, setScheduleSpecialistId] = useState("");
+  const [selectedScheduleDateKeys, setSelectedScheduleDateKeys] = useState<string[]>([]);
   const [bulkScheduleError, setBulkScheduleError] = useState("");
   const [isSavingBulkSchedule, setIsSavingBulkSchedule] = useState(false);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
@@ -896,6 +897,7 @@ export default function SchedulePage() {
     setBulkScheduleDraft(specialist ? normalizeWorkingSchedule(specialist.working_schedule) : defaultWorkingSchedule());
     setBulkScheduleError("");
     setCalendarMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
+    setSelectedScheduleDateKeys([formatDateInputValue(selectedDate)]);
     setIsBulkScheduleOpen(true);
   }
 
@@ -909,6 +911,24 @@ export default function SchedulePage() {
   function updateBulkScheduleDay(day: WorkingDayKey, patch: Partial<WorkingDaySchedule>) {
     setBulkScheduleError("");
     setBulkScheduleDraft((previous) => previous.map((item) => (item.day === day ? { ...item, ...patch } : item)));
+  }
+
+  function updateSelectedScheduleDays(patch: Partial<WorkingDaySchedule>) {
+    const selectedDays = new Set(
+      selectedScheduleDateKeys.map((dateKey) => toWorkingDayKey(new Date(`${dateKey}T12:00:00`))),
+    );
+    setBulkScheduleDraft((previous) => previous.map((item) => selectedDays.has(item.day) ? { ...item, ...patch } : item));
+  }
+
+  function toggleScheduleDate(date: Date) {
+    const dateKey = formatDateInputValue(date);
+    setSelectedDate(date);
+    setSelectedScheduleDateKeys((previous) => {
+      if (previous.includes(dateKey)) {
+        return previous.length === 1 ? previous : previous.filter((item) => item !== dateKey);
+      }
+      return [...previous, dateKey];
+    });
   }
 
   function validateBulkSchedule() {
@@ -1316,11 +1336,11 @@ export default function SchedulePage() {
                 <section className={styles.scheduleCalendar}>
                   <header className={styles.scheduleCalendarHeader}><button type="button" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Предыдущий месяц">‹</button><strong>{`${RUS_MONTH[calendarMonth.getMonth()]} ${calendarMonth.getFullYear()}`}</strong><button type="button" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="Следующий месяц">›</button></header>
                   <div className={styles.calendarWeekdays}>{["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((day) => <span key={day}>{day}</span>)}</div>
-                  <div className={styles.scheduleCalendarDays}>{calendarDays.map((date) => { const day = bulkScheduleDraft.find((item) => item.day === toWorkingDayKey(date)); const isSelected = formatDateInputValue(date) === formatDateInputValue(selectedDate); return <button key={formatDateInputValue(date)} type="button" className={`${styles.scheduleCalendarDay} ${date.getMonth() === calendarMonth.getMonth() ? "" : styles.calendarDayMuted} ${isSelected ? styles.scheduleCalendarDaySelected : ""}`} onClick={() => setSelectedDate(date)}><span>{date.getDate()}</span><i className={day?.is_day_off ? styles.dayOffDot : styles.workingDayDot} /></button>; })}</div>
+                  <div className={styles.scheduleCalendarDays}>{calendarDays.map((date) => { const day = bulkScheduleDraft.find((item) => item.day === toWorkingDayKey(date)); const dateKey = formatDateInputValue(date); const isSelected = selectedScheduleDateKeys.includes(dateKey); return <button key={dateKey} type="button" className={`${styles.scheduleCalendarDay} ${date.getMonth() === calendarMonth.getMonth() ? "" : styles.calendarDayMuted} ${isSelected ? styles.scheduleCalendarDaySelected : ""}`} onClick={() => toggleScheduleDate(date)}><span>{date.getDate()}</span><i className={day?.is_day_off ? styles.dayOffDot : styles.workingDayDot} /></button>; })}</div>
                   <p className={styles.scheduleLegend}><span><i className={styles.workingDayDot} />Рабочий день</span><span><i className={styles.dayOffDot} />Выходной</span></p>
                 </section>
-                {(() => { const dayKey = toWorkingDayKey(selectedDate); const day = bulkScheduleDraft.find((item) => item.day === dayKey); if (!day) return null; return <section className={styles.scheduleDayEditor}><div className={styles.scheduleDayStatus}><span>{formatDateTitle(selectedDate)}</span><b className={day.is_day_off ? styles.dayOffStatus : styles.workingStatus}>{day.is_day_off ? "Выходной" : "Рабочий"}</b><button type="button" className={day.is_day_off ? styles.makeWorkingButton : styles.makeDayOffButton} onClick={() => updateBulkScheduleDay(dayKey, { is_day_off: !day.is_day_off, start_time: day.is_day_off ? "09:00" : "", end_time: day.is_day_off ? "18:00" : "", discount_start: day.is_day_off ? "10:00" : "", discount_end: day.is_day_off ? "16:00" : "", breaks: day.is_day_off ? [{ name: "Обед", start_time: "13:00", end_time: "14:00" }] : [] })}>{day.is_day_off ? "Сделать рабочим" : "Сделать выходным"}</button></div>
-                  {!day.is_day_off ? <><section className={styles.scheduleTimeSection}><h4>Рабочие часы</h4><label>Начало работы<input type="time" value={day.start_time} onChange={(event) => updateBulkScheduleDay(dayKey, { start_time: event.target.value })} /></label><label>Окончание работы<input type="time" value={day.end_time} onChange={(event) => updateBulkScheduleDay(dayKey, { end_time: event.target.value })} /></label></section><section className={styles.scheduleTimeSection}><h4>Доступное время для услуг со скидкой</h4><label>Начало<input type="time" value={day.discount_start} onChange={(event) => updateBulkScheduleDay(dayKey, { discount_start: event.target.value })} /></label><label>Окончание<input type="time" value={day.discount_end} onChange={(event) => updateBulkScheduleDay(dayKey, { discount_end: event.target.value })} /></label></section><section className={styles.scheduleTimeSection}><div className={styles.breakTitle}><h4>Перерывы</h4><button type="button" onClick={() => updateBulkScheduleDay(dayKey, { breaks: [...day.breaks, { name: "Перерыв", start_time: "15:00", end_time: "15:30" }] })} aria-label="Добавить перерыв">+</button></div>{day.breaks.map((scheduleBreak, index) => <div className={styles.breakRow} key={`${scheduleBreak.name}-${index}`}><input value={scheduleBreak.name} onChange={(event) => updateBulkScheduleDay(dayKey, { breaks: day.breaks.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item) })} /><input type="time" value={scheduleBreak.start_time} onChange={(event) => updateBulkScheduleDay(dayKey, { breaks: day.breaks.map((item, itemIndex) => itemIndex === index ? { ...item, start_time: event.target.value } : item) })} /><input type="time" value={scheduleBreak.end_time} onChange={(event) => updateBulkScheduleDay(dayKey, { breaks: day.breaks.map((item, itemIndex) => itemIndex === index ? { ...item, end_time: event.target.value } : item) })} /><button type="button" onClick={() => updateBulkScheduleDay(dayKey, { breaks: day.breaks.filter((_, itemIndex) => itemIndex !== index) })} aria-label="Удалить перерыв">×</button></div>)}</section></> : <p className={styles.dayOffNotice}>Для выходного дня запись недоступна.</p>}{bulkScheduleError ? <p className={styles.scheduleFormError}>{bulkScheduleError}</p> : null}</section>; })()}
+                {(() => { const dayKey = toWorkingDayKey(selectedDate); const day = bulkScheduleDraft.find((item) => item.day === dayKey); if (!day) return null; return <section className={styles.scheduleDayEditor}><div className={styles.scheduleDayStatus}><span>{selectedScheduleDateKeys.length > 1 ? `Выбрано дней: ${selectedScheduleDateKeys.length}` : formatDateTitle(selectedDate)}</span><b className={day.is_day_off ? styles.dayOffStatus : styles.workingStatus}>{day.is_day_off ? "Выходной" : "Рабочий"}</b><button type="button" className={day.is_day_off ? styles.makeWorkingButton : styles.makeDayOffButton} onClick={() => updateSelectedScheduleDays({ is_day_off: !day.is_day_off, start_time: day.is_day_off ? "09:00" : "", end_time: day.is_day_off ? "18:00" : "", discount_start: day.is_day_off ? "10:00" : "", discount_end: day.is_day_off ? "16:00" : "", breaks: day.is_day_off ? [{ name: "Обед", start_time: "13:00", end_time: "14:00" }] : [] })}>{day.is_day_off ? "Сделать рабочим" : "Сделать выходным"}</button></div>
+                  {!day.is_day_off ? <><section className={styles.scheduleTimeSection}><h4>Рабочие часы</h4><label>Начало работы<input type="time" value={day.start_time} onChange={(event) => updateSelectedScheduleDays({ start_time: event.target.value })} /></label><label>Окончание работы<input type="time" value={day.end_time} onChange={(event) => updateSelectedScheduleDays({ end_time: event.target.value })} /></label></section><section className={styles.scheduleTimeSection}><h4>Доступное время для услуг со скидкой</h4><label>Начало<input type="time" value={day.discount_start} onChange={(event) => updateSelectedScheduleDays({ discount_start: event.target.value })} /></label><label>Окончание<input type="time" value={day.discount_end} onChange={(event) => updateSelectedScheduleDays({ discount_end: event.target.value })} /></label></section><section className={styles.scheduleTimeSection}><div className={styles.breakTitle}><h4>Перерывы</h4><button type="button" onClick={() => updateSelectedScheduleDays({ breaks: [...day.breaks, { name: "Перерыв", start_time: "15:00", end_time: "15:30" }] })} aria-label="Добавить перерыв">+</button></div>{day.breaks.map((scheduleBreak, index) => <div className={styles.breakRow} key={`${scheduleBreak.name}-${index}`}><input value={scheduleBreak.name} onChange={(event) => updateSelectedScheduleDays({ breaks: day.breaks.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item) })} /><input type="time" value={scheduleBreak.start_time} onChange={(event) => updateSelectedScheduleDays({ breaks: day.breaks.map((item, itemIndex) => itemIndex === index ? { ...item, start_time: event.target.value } : item) })} /><input type="time" value={scheduleBreak.end_time} onChange={(event) => updateSelectedScheduleDays({ breaks: day.breaks.map((item, itemIndex) => itemIndex === index ? { ...item, end_time: event.target.value } : item) })} /><button type="button" onClick={() => updateSelectedScheduleDays({ breaks: day.breaks.filter((_, itemIndex) => itemIndex !== index) })} aria-label="Удалить перерыв">×</button></div>)}</section></> : <p className={styles.dayOffNotice}>Для выходного дня запись недоступна.</p>}{bulkScheduleError ? <p className={styles.scheduleFormError}>{bulkScheduleError}</p> : null}</section>; })()}
               </div>
             </div>
             <footer className={styles.bulkScheduleFooter}>
