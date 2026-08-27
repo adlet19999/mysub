@@ -2,7 +2,7 @@ import base64
 import binascii
 import re
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -352,6 +352,7 @@ def normalize_working_schedule(raw_schedule):
 		return None, "working_schedule должен быть массивом"
 
 	by_day = {}
+	by_date = {}
 	for raw_item in raw_schedule:
 		if not isinstance(raw_item, dict):
 			return None, "working_schedule содержит некорректный элемент"
@@ -359,7 +360,17 @@ def normalize_working_schedule(raw_schedule):
 		day = str(raw_item.get("day") or "").strip().lower()
 		if day not in VALID_WEEKDAY_SET:
 			return None, "working_schedule.day должен быть одним из mon..sun"
-		if day in by_day:
+		date = str(raw_item.get("date") or "").strip()
+		if date:
+			try:
+				parsed_date = datetime.strptime(date, "%Y-%m-%d").date()
+			except ValueError:
+				return None, "working_schedule.date должен быть в формате YYYY-MM-DD"
+			if WEEKDAY_ORDER[parsed_date.weekday()] != day:
+				return None, f"working_schedule.date не соответствует дню {day}"
+			if date in by_date:
+				return None, f"working_schedule содержит дубли для даты {date}"
+		elif day in by_day:
 			return None, f"working_schedule содержит дубли для дня {day}"
 
 		is_day_off = parse_bool(raw_item.get("is_day_off"), False)
@@ -416,7 +427,7 @@ def normalize_working_schedule(raw_schedule):
 			discount_end = ""
 			breaks = []
 
-		by_day[day] = {
+		normalized_item = {
 			"day": day,
 			"is_day_off": is_day_off,
 			"start_time": start_time,
@@ -427,6 +438,11 @@ def normalize_working_schedule(raw_schedule):
 			"discount_end": discount_end,
 			"breaks": breaks,
 		}
+		if date:
+			normalized_item["date"] = date
+			by_date[date] = normalized_item
+		else:
+			by_day[day] = normalized_item
 
 	normalized = []
 	for day in WEEKDAY_ORDER:
@@ -448,7 +464,7 @@ def normalize_working_schedule(raw_schedule):
 				}
 			)
 
-	return normalized, None
+	return normalized + [by_date[date] for date in sorted(by_date)], None
 
 
 def parse_service_names(raw: str):
@@ -507,7 +523,10 @@ def booking_schedule_error(specialist: Specialist, starts_at, duration_minutes: 
 	schedule, schedule_error = normalize_working_schedule(specialist.working_schedule)
 	if schedule_error:
 		return "График специалиста заполнен некорректно"
-	day = next((item for item in schedule if item["day"] == weekday), None)
+	date_key = local_start.strftime("%Y-%m-%d")
+	day = next((item for item in schedule if item.get("date") == date_key), None)
+	if day is None:
+		day = next((item for item in schedule if item["day"] == weekday and not item.get("date")), None)
 	if not day or day["is_day_off"]:
 		return "У специалиста выходной в выбранный день"
 	start_time = local_start.strftime("%H:%M")

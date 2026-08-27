@@ -14,6 +14,7 @@ type ScheduleBreak = {
 
 type WorkingDaySchedule = {
   day: WorkingDayKey;
+  date?: string;
   is_day_off: boolean;
   start_time: string;
   end_time: string;
@@ -208,6 +209,7 @@ function normalizeWorkingSchedule(raw: unknown): WorkingDaySchedule[] {
   }
 
   const byDay = new Map<WorkingDayKey, WorkingDaySchedule>();
+  const overrides: WorkingDaySchedule[] = [];
   for (const entry of raw) {
     if (!entry || typeof entry !== "object") {
       continue;
@@ -232,8 +234,9 @@ function normalizeWorkingSchedule(raw: unknown): WorkingDaySchedule[] {
       : legacyBreakStart && legacyBreakEnd
         ? [{ name: "Обед", start_time: legacyBreakStart, end_time: legacyBreakEnd }]
         : [];
-    byDay.set(day as WorkingDayKey, {
+    const normalizedItem: WorkingDaySchedule = {
       day: day as WorkingDayKey,
+      ...(typeof item.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(item.date) ? { date: item.date } : {}),
       is_day_off: Boolean(item.is_day_off),
       start_time: typeof item.start_time === "string" ? item.start_time : "",
       end_time: typeof item.end_time === "string" ? item.end_time : "",
@@ -242,15 +245,25 @@ function normalizeWorkingSchedule(raw: unknown): WorkingDaySchedule[] {
       discount_start: typeof item.discount_start === "string" ? item.discount_start : "10:00",
       discount_end: typeof item.discount_end === "string" ? item.discount_end : "16:00",
       breaks,
-    });
+    };
+    if (normalizedItem.date) {
+      overrides.push(normalizedItem);
+    } else {
+      byDay.set(day as WorkingDayKey, normalizedItem);
+    }
   }
 
-  return WEEK_DAYS.map((day) => byDay.get(day) ?? fallback.find((item) => item.day === day)!).filter(Boolean);
+  return [...WEEK_DAYS.map((day) => byDay.get(day) ?? fallback.find((item) => item.day === day)!).filter(Boolean), ...overrides];
+}
+
+function getScheduleForDate(schedule: WorkingDaySchedule[], date: Date): WorkingDaySchedule | undefined {
+  const dateKey = formatDateInputValue(date);
+    return schedule.find((item) => item.date === dateKey) ?? schedule.find((item) => item.day === toWorkingDayKey(date) && !item.date) ?? undefined;
 }
 
 function getSpecialistDayState(specialist: Specialist, selectedDay: WorkingDayKey): SpecialistDayState {
   const schedule = normalizeWorkingSchedule(specialist.working_schedule);
-  const day = schedule.find((item) => item.day === selectedDay);
+    const day = schedule.find((item) => item.day === selectedDay) ?? { is_day_off: true, start_time: "", end_time: "" };
 
   if (!day || day.is_day_off) {
     return {
@@ -466,7 +479,7 @@ export default function SchedulePage() {
   const selectedDayScheduleBySpecialist = useMemo(() => {
     const map = new Map<number, WorkingDaySchedule | undefined>();
     for (const specialist of activeSpecialists) {
-      const daySchedule = normalizeWorkingSchedule(specialist.working_schedule).find((item) => item.day === selectedDay);
+      const daySchedule = getScheduleForDate(normalizeWorkingSchedule(specialist.working_schedule), selectedDate);
       map.set(specialist.id, daySchedule);
     }
     return map;
@@ -766,7 +779,7 @@ export default function SchedulePage() {
   function getBookingScheduleError(specialist: Specialist, dateValue: string, startTime: string, durationMinutes: number) {
     const date = new Date(`${dateValue}T12:00:00`);
     if (Number.isNaN(date.getTime())) return "Выберите корректную дату записи";
-    const day = normalizeWorkingSchedule(specialist.working_schedule).find((item) => item.day === toWorkingDayKey(date));
+    const day = getScheduleForDate(normalizeWorkingSchedule(specialist.working_schedule), date);
     const startMinutes = toMinutes(startTime);
     if (!day || day.is_day_off) return "У специалиста выходной в выбранный день";
     if (startMinutes == null) return "Выберите время начала записи";
@@ -914,10 +927,15 @@ export default function SchedulePage() {
   }
 
   function updateSelectedScheduleDays(patch: Partial<WorkingDaySchedule>) {
-    const selectedDays = new Set(
-      selectedScheduleDateKeys.map((dateKey) => toWorkingDayKey(new Date(`${dateKey}T12:00:00`))),
-    );
-    setBulkScheduleDraft((previous) => previous.map((item) => selectedDays.has(item.day) ? { ...item, ...patch } : item));
+    setBulkScheduleDraft((previous) => {
+      const remaining = previous.filter((item) => !item.date || !selectedScheduleDateKeys.includes(item.date));
+      const overrides = selectedScheduleDateKeys.map((dateKey) => {
+        const date = new Date(`${dateKey}T12:00:00`);
+        const current = getScheduleForDate(previous, date) ?? defaultWorkingSchedule()[0];
+        return { ...current, ...patch, date: dateKey, day: toWorkingDayKey(date) };
+      });
+      return [...remaining, ...overrides];
+    });
   }
 
   function toggleScheduleDate(date: Date) {
@@ -1336,7 +1354,7 @@ export default function SchedulePage() {
                 <section className={styles.scheduleCalendar}>
                   <header className={styles.scheduleCalendarHeader}><button type="button" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Предыдущий месяц">‹</button><strong>{`${RUS_MONTH[calendarMonth.getMonth()]} ${calendarMonth.getFullYear()}`}</strong><button type="button" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="Следующий месяц">›</button></header>
                   <div className={styles.calendarWeekdays}>{["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((day) => <span key={day}>{day}</span>)}</div>
-                  <div className={styles.scheduleCalendarDays}>{calendarDays.map((date) => { const day = bulkScheduleDraft.find((item) => item.day === toWorkingDayKey(date)); const dateKey = formatDateInputValue(date); const isSelected = selectedScheduleDateKeys.includes(dateKey); return <button key={dateKey} type="button" className={`${styles.scheduleCalendarDay} ${date.getMonth() === calendarMonth.getMonth() ? "" : styles.calendarDayMuted} ${isSelected ? styles.scheduleCalendarDaySelected : ""}`} onClick={() => toggleScheduleDate(date)}><span>{date.getDate()}</span><i className={day?.is_day_off ? styles.dayOffDot : styles.workingDayDot} /></button>; })}</div>
+                  <div className={styles.scheduleCalendarDays}>{calendarDays.map((date) => { const day = getScheduleForDate(bulkScheduleDraft, date); const dateKey = formatDateInputValue(date); const isSelected = selectedScheduleDateKeys.includes(dateKey); return <button key={dateKey} type="button" className={`${styles.scheduleCalendarDay} ${date.getMonth() === calendarMonth.getMonth() ? "" : styles.calendarDayMuted} ${isSelected ? styles.scheduleCalendarDaySelected : ""}`} onClick={() => toggleScheduleDate(date)}><span>{date.getDate()}</span><i className={day?.is_day_off ? styles.dayOffDot : styles.workingDayDot} /></button>; })}</div>
                   <p className={styles.scheduleLegend}><span><i className={styles.workingDayDot} />Рабочий день</span><span><i className={styles.dayOffDot} />Выходной</span></p>
                 </section>
                 {(() => { const dayKey = toWorkingDayKey(selectedDate); const day = bulkScheduleDraft.find((item) => item.day === dayKey); if (!day) return null; return <section className={styles.scheduleDayEditor}><section className={styles.scheduleSettingsPanel}><div className={styles.scheduleDayStatus}><span>{selectedScheduleDateKeys.length > 1 ? `Выбрано дней: ${selectedScheduleDateKeys.length}` : formatDateTitle(selectedDate)}</span><b className={day.is_day_off ? styles.dayOffStatus : styles.workingStatus}>{day.is_day_off ? "Выходной" : "Рабочий"}</b><button type="button" className={day.is_day_off ? styles.makeWorkingButton : styles.makeDayOffButton} onClick={() => updateSelectedScheduleDays({ is_day_off: !day.is_day_off, start_time: day.is_day_off ? "09:00" : "", end_time: day.is_day_off ? "18:00" : "", discount_start: day.is_day_off ? "10:00" : "", discount_end: day.is_day_off ? "16:00" : "", breaks: day.is_day_off ? [{ name: "Обед", start_time: "13:00", end_time: "14:00" }] : [] })}>{day.is_day_off ? "Сделать рабочим" : "Сделать выходным"}</button></div></section>
