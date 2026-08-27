@@ -1191,7 +1191,7 @@
 }
 
 .scheduleCalendar {
-  padding: 16px 12px 12px;
+  padding: 14px 12px 12px;
 }
 
 .scheduleCalendarHeader {
@@ -1227,12 +1227,14 @@
 .scheduleCalendarDays {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 4px;
+  gap: 3px;
+  max-width: 392px;
 }
 
 .scheduleCalendarDay {
-  aspect-ratio: 1;
-  min-height: 34px;
+  width: 48px;
+  height: 48px;
+  min-height: 0;
   border: 1px solid #e6ebea;
   border-radius: 6px;
   background: #fff;
@@ -1336,6 +1338,10 @@
   font-size: 10px;
 }
 
+.scheduleTimeSection > label input {
+  width: 100%;
+}
+
 .scheduleTimeSection input,
 .breakRow input {
   min-width: 0;
@@ -1366,7 +1372,7 @@
 
 .breakRow {
   display: grid;
-  grid-template-columns: 1fr 78px 78px 22px;
+  grid-template-columns: minmax(0, 1fr) 82px 82px 22px;
   gap: 5px;
   align-items: end;
 }
