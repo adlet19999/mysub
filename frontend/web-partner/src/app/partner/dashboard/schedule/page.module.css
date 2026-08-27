@@ -1012,7 +1012,7 @@
 }
 
 .bulkScheduleModal {
-  width: min(1120px, calc(100vw - 32px));
+  width: min(720px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
   border-radius: 10px;
   overflow: hidden;
@@ -1178,9 +1178,10 @@
 
 .scheduleEditorLayout {
   display: grid;
-  grid-template-columns: minmax(360px, 1fr) 286px;
+  grid-template-columns: max-content 286px;
   gap: 14px;
   align-items: start;
+  justify-content: start;
 }
 
 .scheduleCalendar,
@@ -1191,6 +1192,7 @@
 }
 
 .scheduleCalendar {
+  width: fit-content;
   padding: 14px 12px 12px;
 }
 
@@ -1198,8 +1200,8 @@
   display: grid;
   grid-template-columns: 32px 1fr 32px;
   align-items: center;
-  margin: 0 4px 14px;
-  max-width: 392px;
+  width: 354px;
+  margin: 0 0 14px;
 }
 
 .scheduleCalendarHeader strong {
@@ -1227,13 +1229,12 @@
 
 .scheduleCalendarDays {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(7, 48px);
   gap: 3px;
-  max-width: 392px;
 }
 
 .scheduleCalendar .calendarWeekdays {
-  max-width: 392px;
+  grid-template-columns: repeat(7, 48px);
   gap: 3px;
 }
 
