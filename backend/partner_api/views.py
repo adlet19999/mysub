@@ -328,18 +328,17 @@ TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 def default_working_schedule():
 	schedule = []
 	for day in WEEKDAY_ORDER:
-		is_weekend = day in {"sat", "sun"}
 		schedule.append(
 			{
 				"day": day,
-				"is_day_off": is_weekend,
-				"start_time": "09:00",
-				"end_time": "18:00",
-				"break_start": "13:00",
-				"break_end": "14:00",
-				"discount_start": "10:00",
-				"discount_end": "16:00",
-				"breaks": [{"name": "Обед", "start_time": "13:00", "end_time": "14:00"}],
+				"is_day_off": True,
+				"start_time": "",
+				"end_time": "",
+				"break_start": "",
+				"break_end": "",
+				"discount_start": "",
+				"discount_end": "",
+				"breaks": [],
 			}
 		)
 	return schedule
@@ -449,18 +448,17 @@ def normalize_working_schedule(raw_schedule):
 		if day in by_day:
 			normalized.append(by_day[day])
 		else:
-			is_weekend = day in {"sat", "sun"}
 			normalized.append(
 				{
 					"day": day,
-					"is_day_off": is_weekend,
-					"start_time": "09:00",
-					"end_time": "18:00",
-					"break_start": "13:00",
-					"break_end": "14:00",
-					"discount_start": "10:00",
-					"discount_end": "16:00",
-					"breaks": [{"name": "Обед", "start_time": "13:00", "end_time": "14:00"}],
+					"is_day_off": True,
+					"start_time": "",
+					"end_time": "",
+					"break_start": "",
+					"break_end": "",
+					"discount_start": "",
+					"discount_end": "",
+					"breaks": [],
 				}
 			)
 

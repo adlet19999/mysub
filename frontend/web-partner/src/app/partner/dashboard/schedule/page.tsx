@@ -124,14 +124,14 @@ const WORKING_DAYS: { key: WorkingDayKey; label: string }[] = [
 function defaultWorkingSchedule(): WorkingDaySchedule[] {
   return WORKING_DAYS.map(({ key }) => ({
     day: key,
-    is_day_off: key === "sat" || key === "sun",
-    start_time: "09:00",
-    end_time: "18:00",
-    break_start: "13:00",
-    break_end: "14:00",
-    discount_start: "10:00",
-    discount_end: "16:00",
-    breaks: [{ name: "Обед", start_time: "13:00", end_time: "14:00" }],
+    is_day_off: true,
+    start_time: "",
+    end_time: "",
+    break_start: "",
+    break_end: "",
+    discount_start: "",
+    discount_end: "",
+    breaks: [],
   }));
 }
 
@@ -194,14 +194,14 @@ function parseServiceNames(raw: string): string[] {
 function normalizeWorkingSchedule(raw: unknown): WorkingDaySchedule[] {
   const fallback = WEEK_DAYS.map((day) => ({
     day,
-    is_day_off: day === "sat" || day === "sun",
-    start_time: "09:00",
-    end_time: "18:00",
-    break_start: "13:00",
-    break_end: "14:00",
-    discount_start: "10:00",
-    discount_end: "16:00",
-    breaks: [{ name: "Обед", start_time: "13:00", end_time: "14:00" }],
+    is_day_off: true,
+    start_time: "",
+    end_time: "",
+    break_start: "",
+    break_end: "",
+    discount_start: "",
+    discount_end: "",
+    breaks: [],
   }));
 
   if (!Array.isArray(raw)) {

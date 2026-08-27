@@ -6,13 +6,32 @@ from django.utils import timezone
 from .models import Specialist
 from .views import booking_schedule_error, default_working_schedule, normalize_working_schedule
 
+
+def weekday_working_schedule():
+	schedule = default_working_schedule()
+	for day in schedule:
+		if day["day"] in {"sat", "sun"}:
+			continue
+		day.update(
+			{
+				"is_day_off": False,
+				"start_time": "09:00",
+				"end_time": "18:00",
+				"discount_start": "10:00",
+				"discount_end": "16:00",
+				"breaks": [{"name": "Обед", "start_time": "13:00", "end_time": "14:00"}],
+			}
+		)
+	return schedule
+
+
 class BookingScheduleValidationTests(TestCase):
 	def setUp(self):
 		self.specialist = Specialist.objects.create(
 			tenant_slug="public",
 			full_name="Аружан",
 			phone="+77000000000",
-			working_schedule=default_working_schedule(),
+			working_schedule=weekday_working_schedule(),
 		)
 
 	def at(self, hour, minute=0):
@@ -28,8 +47,11 @@ class BookingScheduleValidationTests(TestCase):
 	def test_booking_inside_working_hours_is_allowed(self):
 		self.assertIsNone(booking_schedule_error(self.specialist, self.at(14), 60))
 
+	def test_default_schedule_marks_every_day_as_day_off(self):
+		self.assertTrue(all(day["is_day_off"] for day in default_working_schedule()))
+
 	def test_date_override_does_not_change_other_same_weekdays(self):
-		schedule, error = normalize_working_schedule(default_working_schedule() + [{
+		schedule, error = normalize_working_schedule(weekday_working_schedule() + [{
 			"day": "sat", "date": "2026-08-01", "is_day_off": False,
 			"start_time": "09:00", "end_time": "18:00", "discount_start": "10:00", "discount_end": "16:00",
 			"breaks": [],
