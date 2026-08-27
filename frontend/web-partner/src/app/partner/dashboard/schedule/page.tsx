@@ -455,6 +455,18 @@ export default function SchedulePage() {
     if (!detailsBooking) {
       return [];
     }
+    const startsAt = parseBookingDateTime(detailsBooking.starts_at);
+    const specialist = activeSpecialists.find(
+      (item) => item.full_name.trim().toLowerCase() === (detailsBooking.manager_name || "").trim().toLowerCase(),
+    );
+    const daySchedule =
+      startsAt && specialist
+        ? getScheduleForDate(normalizeWorkingSchedule(specialist.working_schedule), new Date(`${startsAt.dateKey}T12:00:00`))
+        : undefined;
+    const discountStart = daySchedule && !daySchedule.is_day_off ? toMinutes(daySchedule.discount_start) : null;
+    const discountEnd = daySchedule && !daySchedule.is_day_off ? toMinutes(daySchedule.discount_end) : null;
+    let minutesBefore = 0;
+
     return parseServiceNames(detailsBooking.service_name).map((serviceName) => {
       const service = services.find(
         (item) =>
@@ -462,14 +474,27 @@ export default function SchedulePage() {
           (item.kind_name || "").trim().toLowerCase() === serviceName.toLowerCase(),
       );
       const price = Number(String(service?.price || "").replace(/[^0-9.,]/g, "").replace(",", "."));
+      const durationMinutes = service?.duration_minutes && service.duration_minutes > 0 ? service.duration_minutes : 60;
+      const serviceStart = startsAt ? startsAt.hour * 60 + startsAt.minutes + minutesBefore : null;
+      const serviceEnd = serviceStart == null ? null : serviceStart + durationMinutes;
+      minutesBefore += durationMinutes;
+      // Скидка действует, только если услуга целиком попадает в скидочное окно специалиста.
+      const isDiscountTime =
+        discountStart != null &&
+        discountEnd != null &&
+        serviceStart != null &&
+        serviceEnd != null &&
+        serviceStart >= discountStart &&
+        serviceEnd <= discountEnd;
+
       return {
         name: serviceName,
         price: Number.isFinite(price) ? price : null,
-        discountPercent: Math.max(0, Math.min(100, Number(service?.discount_percent || 0))),
-        durationMinutes: service?.duration_minutes && service.duration_minutes > 0 ? service.duration_minutes : 60,
+        discountPercent: isDiscountTime ? Math.max(0, Math.min(100, Number(service?.discount_percent || 0))) : 0,
+        durationMinutes,
       };
     });
-  }, [detailsBooking, services]);
+  }, [detailsBooking, services, activeSpecialists]);
 
   const detailsSpecialist = useMemo(
     () => activeSpecialists.find((item) => item.full_name.trim().toLowerCase() === (detailsBooking?.manager_name || "").trim().toLowerCase()),
