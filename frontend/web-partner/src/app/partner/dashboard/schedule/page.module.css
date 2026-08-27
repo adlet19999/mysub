@@ -1013,7 +1013,7 @@
 
 .bulkScheduleModal {
   width: min(720px, calc(100vw - 32px));
-  height: min(680px, calc(100dvh - 32px));
+  height: min(790px, calc(100dvh - 32px));
   max-height: calc(100dvh - 32px);
   border-radius: 10px;
   overflow: hidden;
