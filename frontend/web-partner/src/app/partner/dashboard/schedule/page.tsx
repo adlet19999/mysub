@@ -832,6 +832,11 @@ export default function SchedulePage() {
     setBookingLines((prev) => [...prev, { id: Date.now() + prev.length, serviceId: "", sum: "" }]);
   }
 
+  function removeBookingLine(lineId: number) {
+    setModalError("");
+    setBookingLines((prev) => (prev.length === 1 ? prev : prev.filter((line) => line.id !== lineId)));
+  }
+
   async function submitBooking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setModalError("");
@@ -1218,6 +1223,17 @@ export default function SchedulePage() {
                     <span>Сумма</span>
                     <input value={line.sum} onChange={(event) => onSumChange(line.id, event.target.value)} inputMode="numeric" />
                   </label>
+
+                  {bookingLines.length > 1 ? (
+                    <button
+                      type="button"
+                      className={styles.removeLineButton}
+                      onClick={() => removeBookingLine(line.id)}
+                      aria-label={`Удалить услугу ${index + 1}`}
+                    >
+                      ×
+                    </button>
+                  ) : null}
                 </div>
               ))}
 
