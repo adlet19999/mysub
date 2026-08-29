@@ -1156,6 +1156,24 @@
   color: #1f6b52;
 }
 
+.totalWithDiscount {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.totalWithDiscount b {
+  color: #1f6b52;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+}
+
+.totalWithDiscount s {
+  color: #9aa3ad;
+  font-weight: 400;
+}
+
 .commentBlock {
   display: grid;
   gap: 8px;

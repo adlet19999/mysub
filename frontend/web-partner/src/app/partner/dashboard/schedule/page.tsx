@@ -1541,7 +1541,6 @@ export default function SchedulePage() {
 
                   return (
                     <section key={`${service.name}-${index}`} className={styles.detailServiceCard}>
-                      <div><span>Получатель услуги</span><strong>{detailsBooking.client_name}</strong></div>
                       <div><span>Услуга</span><strong>{service.name}</strong></div>
                       <div>
                         <span>Стоимость услуги</span>
@@ -1580,14 +1579,22 @@ export default function SchedulePage() {
 
               <div className={styles.totalRow}>
                 <span>Общая сумма</span>
-                <strong>{`${detailsServices.reduce((sum, service) => sum + (service.price || 0), 0).toLocaleString("ru-RU")} т`}</strong>
+                {(() => {
+                  const total = detailsServices.reduce((sum, service) => sum + (service.price || 0), 0);
+                  const discountedTotal = Math.round(
+                    detailsServices.reduce((sum, service) => sum + (service.price || 0) * (1 - service.discountPercent / 100), 0),
+                  );
+
+                  return discountedTotal < total ? (
+                    <strong className={styles.totalWithDiscount}>
+                      <b>{`${discountedTotal.toLocaleString("ru-RU")} т`}</b>
+                      <s>{`${total.toLocaleString("ru-RU")} т`}</s>
+                    </strong>
+                  ) : (
+                    <strong>{`${total.toLocaleString("ru-RU")} т`}</strong>
+                  );
+                })()}
               </div>
-              {detailsServices.some((service) => service.discountPercent > 0) ? (
-                <div className={`${styles.totalRow} ${styles.discountedTotalRow}`}>
-                  <span>Общая сумма со скидкой</span>
-                  <strong>{`${Math.round(detailsServices.reduce((sum, service) => sum + (service.price || 0) * (1 - service.discountPercent / 100), 0)).toLocaleString("ru-RU")} т`}</strong>
-                </div>
-              ) : null}
               <div className={styles.commentBlock}>
                 <span>Комментарий</span>
                 <p>Комментарий не добавлен</p>
