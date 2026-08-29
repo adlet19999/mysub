@@ -781,6 +781,12 @@
   padding: 0;
 }
 
+.iconInputWrap select.dateTimeInput {
+  appearance: auto;
+  background-image: none;
+  padding-right: 0;
+}
+
 .addMoreButton {
   height: 36px;
   border: 0;

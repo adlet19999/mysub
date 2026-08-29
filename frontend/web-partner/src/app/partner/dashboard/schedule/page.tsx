@@ -111,6 +111,11 @@ const RUS_MONTH: string[] = [
 
 const HOURS = Array.from({ length: 12 }, (_, index) => 9 + index);
 const SLOT_HEIGHT = 56;
+const TIME_STEP_MINUTES = 15;
+const TIME_OPTIONS = Array.from({ length: (24 * 60) / TIME_STEP_MINUTES }, (_, index) => {
+  const minutes = index * TIME_STEP_MINUTES;
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+});
 const CLOSED_BOOKING_STATUSES = ["cancelled", "canceled", "отменен", "отменена", "completed", "done", "завершен", "завершена", "no_show", "no-show", "missed", "неявка"];
 const WORKING_DAYS: { key: WorkingDayKey; label: string }[] = [
   { key: "mon", label: "Понедельник" },
@@ -723,7 +728,7 @@ export default function SchedulePage() {
     setBookingPhone("");
     setBookingSpecialistId("");
     setBookingDate(formatDateInputValue(selectedDate));
-    setBookingStartTime("16:40");
+    setBookingStartTime("10:00");
     setBookingLines([{ id: Date.now(), serviceId: "", sum: "" }]);
     setModalError("");
     setIsSubmittingBooking(false);
@@ -1435,7 +1440,20 @@ export default function SchedulePage() {
                   <span>Время начала</span>
                   <div className={styles.iconInputWrap}>
                     <img src="/schedule.svg" alt="" aria-hidden />
-                    <input type="time" value={bookingStartTime} onChange={(event) => setBookingStartTime(event.target.value)} className={styles.dateTimeInput} />
+                    <select
+                      value={bookingStartTime}
+                      onChange={(event) => setBookingStartTime(event.target.value)}
+                      className={styles.dateTimeInput}
+                    >
+                      {(TIME_OPTIONS.includes(bookingStartTime) || !bookingStartTime
+                        ? TIME_OPTIONS
+                        : [...TIME_OPTIONS, bookingStartTime].sort()
+                      ).map((time) => (
+                        <option key={time} value={time}>
+                          {time}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </label>
               </div>
