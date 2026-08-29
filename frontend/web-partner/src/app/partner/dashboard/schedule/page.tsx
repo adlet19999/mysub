@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
+import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
 import { formatRuPhone } from "../../../../lib/phone";
 
@@ -397,6 +397,22 @@ export default function SchedulePage() {
   const [isSavingBulkSchedule, setIsSavingBulkSchedule] = useState(false);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
+  const datePickerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!isDatePickerOpen) {
+      return;
+    }
+
+    function closeOnOutsideClick(event: MouseEvent) {
+      if (datePickerRef.current && !datePickerRef.current.contains(event.target as Node)) {
+        setIsDatePickerOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+  }, [isDatePickerOpen]);
 
   const activeSpecialists = useMemo(
     () => specialists.filter((specialist) => specialist.is_active).sort((a, b) => a.full_name.localeCompare(b.full_name)),
@@ -1174,7 +1190,7 @@ export default function SchedulePage() {
         </div>
       </div>
 
-      <section className={styles.dateCard}>
+      <section className={styles.dateCard} ref={datePickerRef}>
         <button type="button" className={styles.dateArrow} onClick={() => moveDate(-1)} aria-label="Предыдущий день">
           &lt;
         </button>
