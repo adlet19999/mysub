@@ -367,6 +367,9 @@ export default function SchedulePage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [detailsBooking, setDetailsBooking] = useState<Booking | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [isDetailsMenuOpen, setIsDetailsMenuOpen] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isDeletingBooking, setIsDeletingBooking] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [bookingModalMode, setBookingModalMode] = useState<"create" | "edit">("create");
@@ -725,7 +728,31 @@ export default function SchedulePage() {
   }
 
   function openDetailsModal(target: Booking) {
+    setIsDetailsMenuOpen(false);
+    setIsDeleteConfirmOpen(false);
     setDetailsBooking(target);
+  }
+
+  async function deleteBooking() {
+    if (!detailsBooking || !partnerEmail || isDeletingBooking) {
+      return;
+    }
+
+    setIsDeletingBooking(true);
+    try {
+      const response = await fetch(`/api/partner/bookings/${detailsBooking.id}/`, {
+        method: "DELETE",
+        headers: { "X-Partner-Email": partnerEmail },
+      });
+      if (!response.ok) {
+        return;
+      }
+      setIsDeleteConfirmOpen(false);
+      setDetailsBooking(null);
+      await loadDirectory();
+    } finally {
+      setIsDeletingBooking(false);
+    }
   }
 
   async function updateBookingStatus(status: "completed" | "no_show") {
@@ -1337,9 +1364,54 @@ export default function SchedulePage() {
                 <img src="/modal_icon.svg" alt="" aria-hidden />
                 <h3>Детали записи</h3>
               </div>
-              <button type="button" className={styles.closeModalButton} onClick={() => setDetailsBooking(null)} aria-label="Закрыть">
-                ×
-              </button>
+              <div className={styles.detailsHeaderActions}>
+                <button
+                  type="button"
+                  className={styles.detailsMenuButton}
+                  onClick={() => setIsDetailsMenuOpen((previous) => !previous)}
+                  aria-label="Действия с записью"
+                  aria-expanded={isDetailsMenuOpen}
+                >
+                  ⋯
+                </button>
+                {isDetailsMenuOpen ? (
+                  <div className={styles.detailsMenu} role="menu">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setIsDetailsMenuOpen(false);
+                        setDetailsBooking(null);
+                        openEditBookingModal(detailsBooking);
+                      }}
+                    >
+                      Редактировать
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={styles.detailsMenuDanger}
+                      onClick={() => {
+                        setIsDetailsMenuOpen(false);
+                        setIsDeleteConfirmOpen(true);
+                      }}
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  className={styles.closeModalButton}
+                  onClick={() => {
+                    setIsDetailsMenuOpen(false);
+                    setDetailsBooking(null);
+                  }}
+                  aria-label="Закрыть"
+                >
+                  ×
+                </button>
+              </div>
             </header>
 
             <div className={styles.detailsBody}>
@@ -1426,6 +1498,23 @@ export default function SchedulePage() {
                 {isUpdatingStatus ? "Сохранение..." : "Завершить визит"}
               </button>
             </footer>
+          </section>
+        </div>
+      ) : null}
+
+      {isDeleteConfirmOpen && detailsBooking ? (
+        <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label="Удаление записи">
+          <section className={styles.confirmModal}>
+            <h3>Удалить запись?</h3>
+            <p>Вы точно хотите удалить? Запись будет удалена полностью, восстановить её не получится.</p>
+            <div className={styles.confirmActions}>
+              <button type="button" className={styles.noShowButton} onClick={() => setIsDeleteConfirmOpen(false)} disabled={isDeletingBooking}>
+                Отменить
+              </button>
+              <button type="button" className={styles.dangerButton} onClick={() => void deleteBooking()} disabled={isDeletingBooking}>
+                {isDeletingBooking ? "Удаление..." : "Удалить"}
+              </button>
+            </div>
           </section>
         </div>
       ) : null}

@@ -61,3 +61,32 @@ export async function PATCH(request: Request, { params }: Params) {
     return NextResponse.json({ message: "Backend API недоступен" }, { status: 503 });
   }
 }
+
+export async function DELETE(request: Request, { params }: Params) {
+  const { id } = await params;
+  const partnerEmail = (request.headers.get("x-partner-email") || "").trim().toLowerCase();
+
+  try {
+    const response = await fetch(`${BACKEND_BASE_URL}/api/v1/partner/bookings/${id}/`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Tenant": TENANT,
+        ...(partnerEmail ? { "X-Partner-Email": partnerEmail } : {}),
+      },
+      cache: "no-store",
+    });
+
+    const payload = await readPayload(response);
+    if (!response.ok) {
+      return NextResponse.json(
+        { message: payload?.detail || payload?.message || "Ошибка удаления записи" },
+        { status: response.status },
+      );
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch {
+    return NextResponse.json({ message: "Backend API недоступен" }, { status: 503 });
+  }
+}

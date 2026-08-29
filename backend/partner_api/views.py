@@ -1845,6 +1845,18 @@ class BookingDetailView(APIView):
 			}
 		)
 
+	def delete(self, request, booking_id: int):
+		partner_profile, error_response = get_partner_profile(request)
+		if error_response is not None:
+			return error_response
+
+		item = Booking.objects.filter(id=booking_id, tenant_slug=tenant_from_request(request), partner_profile=partner_profile).first()
+		if not item:
+			return Response({"message": "Запись не найдена"}, status=404)
+
+		item.delete()
+		return Response({"ok": True})
+
 
 class ServiceImageUploadView(APIView):
 	def post(self, request):
