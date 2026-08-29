@@ -1602,11 +1602,11 @@ export default function SchedulePage() {
             </div>
 
             <footer className={styles.detailsFooter}>
-              <button type="button" className={styles.noShowButton} onClick={() => void updateBookingStatus("no_show")} disabled={isUpdatingStatus}>
-                Отметить неявку
+              <button type="button" className={styles.dangerButton} onClick={() => void updateBookingStatus("no_show")} disabled={isUpdatingStatus}>
+                Неявка
               </button>
               <button type="button" className={styles.completeButton} onClick={() => void updateBookingStatus("completed")} disabled={isUpdatingStatus}>
-                {isUpdatingStatus ? "Сохранение..." : "Завершить визит"}
+                {isUpdatingStatus ? "Сохранение..." : "Оплачен"}
               </button>
             </footer>
           </section>
