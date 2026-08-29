@@ -1367,10 +1367,12 @@ export default function SchedulePage() {
                 <span>Общая сумма</span>
                 <strong>{`${detailsServices.reduce((sum, service) => sum + (service.price || 0), 0).toLocaleString("ru-RU")} т`}</strong>
               </div>
-              <div className={`${styles.totalRow} ${styles.discountedTotalRow}`}>
-                <span>Общая сумма со скидкой</span>
-                <strong>{`${detailsServices.reduce((sum, service) => sum + (service.price || 0) * (1 - service.discountPercent / 100), 0).toLocaleString("ru-RU")} т`}</strong>
-              </div>
+              {detailsServices.some((service) => service.discountPercent > 0) ? (
+                <div className={`${styles.totalRow} ${styles.discountedTotalRow}`}>
+                  <span>Общая сумма со скидкой</span>
+                  <strong>{`${Math.round(detailsServices.reduce((sum, service) => sum + (service.price || 0) * (1 - service.discountPercent / 100), 0)).toLocaleString("ru-RU")} т`}</strong>
+                </div>
+              ) : null}
               <div className={styles.commentBlock}>
                 <span>Комментарий</span>
                 <p>Комментарий не добавлен</p>
