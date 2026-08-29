@@ -370,6 +370,8 @@ export default function SchedulePage() {
   const [isDetailsMenuOpen, setIsDetailsMenuOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isDeletingBooking, setIsDeletingBooking] = useState(false);
+  const [draggedLineId, setDraggedLineId] = useState<number | null>(null);
+  const [dragEnabledLineId, setDragEnabledLineId] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [bookingModalMode, setBookingModalMode] = useState<"create" | "edit">("create");
@@ -506,8 +508,48 @@ export default function SchedulePage() {
     });
   }, [detailsBooking, services, activeSpecialists]);
 
-  const detailsSpecialist = useMemo(
-    () => activeSpecialists.find((item) => item.full_name.trim().toLowerCase() === (detailsBooking?.manager_name || "").trim().toLowerCase()),
+  // Порядок услуг задаёт их время, поэтому скидка считается по накопленной длительности.
+  const bookingDiscountByLineId = useMemo(() => {
+    const result = new Map<number, { price: number; discountPercent: number }>();
+    const specialist = activeSpecialists.find((item) => String(item.id) === bookingSpecialistId);
+    const daySchedule =
+      specialist && bookingDate
+        ? getScheduleForDate(normalizeWorkingSchedule(specialist.working_schedule), new Date(`${bookingDate}T12:00:00`))
+        : undefined;
+    const discountStart = daySchedule && !daySchedule.is_day_off ? toMinutes(daySchedule.discount_start) : null;
+    const discountEnd = daySchedule && !daySchedule.is_day_off ? toMinutes(daySchedule.discount_end) : null;
+    const startMinutes = toMinutes(bookingStartTime);
+    let minutesBefore = 0;
+
+    for (const line of bookingLines) {
+      const service = bookableServices.find((item) => String(item.id) === line.serviceId);
+      if (!service) {
+        continue;
+      }
+      const durationMinutes = service.duration_minutes && service.duration_minutes > 0 ? service.duration_minutes : 60;
+      const rawPrice = String(line.sum || service.price || "").replace(/[^0-9.,]/g, "").replace(",", ".");
+      const price = Number(rawPrice);
+      const serviceStart = startMinutes == null ? null : startMinutes + minutesBefore;
+      const serviceEnd = serviceStart == null ? null : serviceStart + durationMinutes;
+      minutesBefore += durationMinutes;
+      const isDiscountTime =
+        discountStart != null &&
+        discountEnd != null &&
+        serviceStart != null &&
+        serviceEnd != null &&
+        serviceStart >= discountStart &&
+        serviceEnd <= discountEnd;
+
+      result.set(line.id, {
+        price: Number.isFinite(price) ? price : 0,
+        discountPercent: isDiscountTime ? Math.max(0, Math.min(100, Number(service.discount_percent || 0))) : 0,
+      });
+    }
+
+    return result;
+  }, [bookingLines, bookableServices, bookingSpecialistId, bookingDate, bookingStartTime, activeSpecialists]);
+
+  const detailsSpecialist = useMemo(    () => activeSpecialists.find((item) => item.full_name.trim().toLowerCase() === (detailsBooking?.manager_name || "").trim().toLowerCase()),
     [activeSpecialists, detailsBooking],
   );
 
@@ -869,6 +911,23 @@ export default function SchedulePage() {
   function removeBookingLine(lineId: number) {
     setModalError("");
     setBookingLines((prev) => (prev.length === 1 ? prev : prev.filter((line) => line.id !== lineId)));
+  }
+
+  function moveBookingLine(sourceId: number, targetId: number) {
+    if (sourceId === targetId) {
+      return;
+    }
+    setBookingLines((prev) => {
+      const sourceIndex = prev.findIndex((line) => line.id === sourceId);
+      const targetIndex = prev.findIndex((line) => line.id === targetId);
+      if (sourceIndex < 0 || targetIndex < 0) {
+        return prev;
+      }
+      const next = [...prev];
+      const [moved] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
   }
 
   async function submitBooking(event: FormEvent<HTMLFormElement>) {
@@ -1270,38 +1329,83 @@ export default function SchedulePage() {
                 />
               </label>
 
-              {bookingLines.map((line, index) => (
-                <div key={line.id} className={styles.serviceRow}>
-                  <label className={styles.fieldBlock}>
-                    <span>Услуга{index === 0 ? "" : ` ${index + 1}`}</span>
-                    <select value={line.serviceId} onChange={(event) => onServiceChange(line.id, event.target.value)}>
-                      <option value="">Выберите созданную услугу</option>
-                      {availableServicesForSpecialist.map((service) => (
-                        <option key={service.id} value={String(service.id)}>
-                          {service.name}
-                        </option>
-                      ))}
-                    </select>
-                      {availableServicesForSpecialist.length === 0 ? <span className={styles.helperError}>Нет доступных услуг для записи</span> : null}
-                  </label>
+              {bookingLines.map((line, index) => {
+                const lineDiscount = bookingDiscountByLineId.get(line.id);
 
-                  <label className={`${styles.fieldBlock} ${styles.sumField}`}>
-                    <span>Сумма</span>
-                    <input value={line.sum} onChange={(event) => onSumChange(line.id, event.target.value)} inputMode="numeric" />
-                  </label>
+                return (
+                  <div
+                    key={line.id}
+                    className={`${styles.serviceLine} ${draggedLineId === line.id ? styles.serviceLineDragging : ""}`}
+                    draggable={dragEnabledLineId === line.id}
+                    onDragStart={() => setDraggedLineId(line.id)}
+                    onDragEnd={() => {
+                      setDraggedLineId(null);
+                      setDragEnabledLineId(null);
+                    }}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      if (draggedLineId != null) {
+                        moveBookingLine(draggedLineId, line.id);
+                      }
+                      setDraggedLineId(null);
+                      setDragEnabledLineId(null);
+                    }}
+                  >
+                    <div className={styles.serviceRow}>
+                      {bookingLines.length > 1 ? (
+                        <button
+                          type="button"
+                          className={styles.dragHandle}
+                          onMouseDown={() => setDragEnabledLineId(line.id)}
+                          onMouseUp={() => setDragEnabledLineId(null)}
+                          aria-label={`Переместить услугу ${index + 1}`}
+                          title="Перетащите, чтобы изменить порядок"
+                        >
+                          ⠿
+                        </button>
+                      ) : null}
 
-                  {bookingLines.length > 1 ? (
-                    <button
-                      type="button"
-                      className={styles.removeLineButton}
-                      onClick={() => removeBookingLine(line.id)}
-                      aria-label={`Удалить услугу ${index + 1}`}
-                    >
-                      ×
-                    </button>
-                  ) : null}
-                </div>
-              ))}
+                      <label className={styles.fieldBlock}>
+                        <span>Услуга{index === 0 ? "" : ` ${index + 1}`}</span>
+                        <select value={line.serviceId} onChange={(event) => onServiceChange(line.id, event.target.value)}>
+                          <option value="">Выберите созданную услугу</option>
+                          {availableServicesForSpecialist.map((service) => (
+                            <option key={service.id} value={String(service.id)}>
+                              {service.name}
+                            </option>
+                          ))}
+                        </select>
+                        {availableServicesForSpecialist.length === 0 ? <span className={styles.helperError}>Нет доступных услуг для записи</span> : null}
+                      </label>
+
+                      <label className={`${styles.fieldBlock} ${styles.sumField}`}>
+                        <span>Сумма</span>
+                        <input value={line.sum} onChange={(event) => onSumChange(line.id, event.target.value)} inputMode="numeric" />
+                      </label>
+
+                      {bookingLines.length > 1 ? (
+                        <button
+                          type="button"
+                          className={styles.removeLineButton}
+                          onClick={() => removeBookingLine(line.id)}
+                          aria-label={`Удалить услугу ${index + 1}`}
+                        >
+                          ×
+                        </button>
+                      ) : null}
+                    </div>
+
+                    {lineDiscount && lineDiscount.discountPercent > 0 ? (
+                      <p className={styles.discountHint}>
+                        <strong>{`${Math.round(lineDiscount.price * (1 - lineDiscount.discountPercent / 100)).toLocaleString("ru-RU")} т`}</strong>
+                        <s>{`${lineDiscount.price.toLocaleString("ru-RU")} т`}</s>
+                        <span>{`скидка ${lineDiscount.discountPercent}%`}</span>
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              })}
 
               <label className={styles.fieldBlock}>
                 <span>Специалист</span>

@@ -661,6 +661,58 @@
   gap: 16px;
 }
 
+.serviceLine {
+  width: 100%;
+  display: grid;
+  gap: 6px;
+}
+
+.serviceLineDragging {
+  opacity: 0.55;
+}
+
+.dragHandle {
+  align-self: flex-end;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 40px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #8a949e;
+  font-size: 14px;
+  line-height: 1;
+  cursor: grab;
+}
+
+.dragHandle:active {
+  cursor: grabbing;
+}
+
+.discountHint {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-family-base);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.discountHint strong {
+  color: #1f6b52;
+  font-weight: 600;
+}
+
+.discountHint s {
+  color: #9aa3ad;
+}
+
+.discountHint span {
+  color: #6b7280;
+  font-size: 12px;
+}
+
 .sumField {
   width: 125px;
   flex: 0 0 125px;
@@ -1590,6 +1642,13 @@
     align-self: stretch;
     width: 100%;
     flex: 0 0 auto;
+  }
+
+  .dragHandle {
+    align-self: stretch;
+    width: 100%;
+    flex: 0 0 auto;
+    height: 32px;
   }
 
   .bookingHeader,
