@@ -397,8 +397,12 @@
   background: #f2f6fa;
 }
 
+.slotCellDiscount {
+  background: #f1f9f4;
+}
+
 .slotCellDayoff {
-  background: #f2f6fa;
+  background: #f3f4f6;
 }
 
 .slotStateText {
@@ -417,6 +421,10 @@
 
 .slotStateTextBreak {
   color: #9aacbf;
+}
+
+.slotStateTextDiscount {
+  color: #9ac4ae;
 }
 
 .slotStateTextDayoff {

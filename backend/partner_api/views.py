@@ -1810,26 +1810,27 @@ class BookingDetailView(APIView):
 		if "status" in request.data:
 			item.status = str(request.data.get("status") or "booked").strip() or "booked"
 
-		duration_minutes = resolve_booking_duration_minutes(
-			item.service_name,
-			build_service_duration_map(tenant, partner_profile=partner_profile),
-		)
-		if item.manager_name:
+		# Проверяем график только когда меняется время, услуга или специалист.
+		if any(field in request.data for field in ("service_name", "manager_name", "starts_at")) and item.manager_name:
+			duration_minutes = resolve_booking_duration_minutes(
+				item.service_name,
+				build_service_duration_map(tenant, partner_profile=partner_profile),
+			)
 			specialist = Specialist.objects.filter(tenant_slug=tenant, partner_profile=partner_profile, full_name__iexact=item.manager_name, is_active=True).first()
 			if not specialist:
 				return Response({"message": "Специалист не найден"}, status=400)
 			schedule_error = booking_schedule_error(specialist, item.starts_at, duration_minutes)
 			if schedule_error:
 				return Response({"message": schedule_error}, status=409)
-		if item.manager_name and has_booking_overlap(
-			tenant,
-			item.manager_name,
-			item.starts_at,
-			duration_minutes,
-			partner_profile=partner_profile,
-			exclude_booking_id=item.id,
-		):
-			return Response({"message": "У специалиста уже есть запись на это время"}, status=409)
+			if has_booking_overlap(
+				tenant,
+				item.manager_name,
+				item.starts_at,
+				duration_minutes,
+				partner_profile=partner_profile,
+				exclude_booking_id=item.id,
+			):
+				return Response({"message": "У специалиста уже есть запись на это время"}, status=409)
 
 		item.save()
 		return Response(
