@@ -398,11 +398,11 @@
 }
 
 .slotCellDiscount {
-  background: #f1f9f4;
+  background: #dff0e6;
 }
 
 .slotCellDayoff {
-  background: #f3f4f6;
+  background: #dfe3e8;
 }
 
 .slotStateText {
@@ -1168,12 +1168,14 @@
 }
 
 .scheduleFormError {
-  margin: 0;
+  margin: 12px 0 0;
+  max-width: 354px;
   padding: 8px 10px;
   border-radius: 6px;
   background: #fff1f2;
   color: #b42318;
   font-size: 12px;
+  line-height: 16px;
 }
 
 .bulkScheduleFooter {
