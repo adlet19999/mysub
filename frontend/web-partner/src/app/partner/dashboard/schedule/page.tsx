@@ -1328,7 +1328,21 @@ export default function SchedulePage() {
                     <section key={`${service.name}-${index}`} className={styles.detailServiceCard}>
                       <div><span>Получатель услуги</span><strong>{detailsBooking.client_name}</strong></div>
                       <div><span>Услуга</span><strong>{service.name}</strong></div>
-                      <div><span>Стоимость услуги</span><strong>{service.price == null ? "-" : `${service.price.toLocaleString("ru-RU")} т`}</strong></div>
+                      <div>
+                        <span>Стоимость услуги</span>
+                        <strong>
+                          {service.price == null ? (
+                            "-"
+                          ) : service.discountPercent > 0 ? (
+                            <>
+                              <s className={styles.oldPrice}>{`${service.price.toLocaleString("ru-RU")} т`}</s>
+                              {`${Math.round(service.price * (1 - service.discountPercent / 100)).toLocaleString("ru-RU")} т`}
+                            </>
+                          ) : (
+                            `${service.price.toLocaleString("ru-RU")} т`
+                          )}
+                        </strong>
+                      </div>
                       <div><span>Дата и время</span><strong>{`${formatDateTitle(new Date(detailsBooking.starts_at))}, ${serviceStart} - ${serviceEnd}`}</strong></div>
                       <div>
                         <span>Ресурс</span>
