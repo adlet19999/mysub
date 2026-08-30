@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { formatRuPhone } from "../../../../lib/phone";
 import styles from "./page.module.css";
 
@@ -37,6 +38,7 @@ export default function ManagersPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editingManagerId, setEditingManagerId] = useState<number | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<Manager | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState<FormState>({
     fullName: "",
     phone: "",
@@ -131,6 +133,7 @@ export default function ManagersPage() {
       role: "Менеджер",
       resetPasswordOnFirstLogin: true,
     });
+    setShowPassword(false);
     setIsModalOpen(true);
   }
 
@@ -146,6 +149,7 @@ export default function ManagersPage() {
       role: "Менеджер",
       resetPasswordOnFirstLogin: true,
     });
+    setShowPassword(false);
     setIsModalOpen(true);
   }
 
@@ -172,6 +176,7 @@ export default function ManagersPage() {
           phone: form.phone,
           email: form.email,
           ...(isEditing ? {} : { password: form.password }),
+          reset_password_on_first_login: form.resetPasswordOnFirstLogin,
           service_kind_ids: [],
           is_active: true,
         }),
@@ -338,7 +343,8 @@ export default function ManagersPage() {
                 Телефон *
                 <input
                   value={form.phone}
-                  onChange={(event) => setForm((prev) => ({ ...prev, phone: formatRuPhone(event.target.value) }))}
+                  onChange={(event) => setForm((prev) => ({ ...prev, phone: event.target.value }))}
+                  onBlur={(event) => setForm((prev) => ({ ...prev, phone: formatRuPhone(event.target.value) }))}
                   placeholder="+7 (747) 123-45-67"
                   inputMode="tel"
                   required
@@ -359,14 +365,25 @@ export default function ManagersPage() {
               {!isEditing ? (
                 <label>
                   Пароль *
-                  <input
-                    type="password"
-                    value={form.password}
-                    onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
-                    placeholder="Минимум 8 символов"
-                    required
-                    minLength={8}
-                  />
+                  <span className={styles.passwordField}>
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={form.password}
+                      onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
+                      placeholder="Минимум 8 символов"
+                      required
+                      minLength={8}
+                    />
+                    <button
+                      type="button"
+                      className={styles.eyeButton}
+                      onClick={() => setShowPassword((value) => !value)}
+                      aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
+                      title={showPassword ? "Скрыть пароль" : "Показать пароль"}
+                    >
+                      {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+                    </button>
+                  </span>
                 </label>
               ) : null}
 

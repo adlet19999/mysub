@@ -1269,6 +1269,7 @@ class ManagerListCreateView(APIView):
 			user=manager_user,
 			phone=phone,
 			user_type="manager",
+			must_change_password=parse_bool(request.data.get("reset_password_on_first_login"), False),
 			company_name=partner_profile.company_name,
 			address=partner_profile.address,
 			business_category=partner_profile.business_category,

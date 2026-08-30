@@ -110,6 +110,7 @@ class AuthLoginView(APIView):
 
 		profile = getattr(user, "partner_profile", None)
 		user_type = profile.user_type if profile else "partner"
+		must_change_password = profile.must_change_password if profile else False
 		if user_type == "manager":
 			from partner_api.models import Manager
 
@@ -132,6 +133,7 @@ class AuthLoginView(APIView):
 					"email": user.email,
 					"phone": phone,
 					"user_type": user_type,
+					"must_change_password": must_change_password,
 					"company_name": company_name,
 					"address": address,
 					"business_category": business_category,
@@ -195,6 +197,31 @@ class AuthResetPasswordView(APIView):
 
 		user.set_password(new_password)
 		user.save(update_fields=["password"])
+		return Response({"message": "Пароль обновлен"})
+
+
+class AuthInitialPasswordChangeView(APIView):
+	def post(self, request):
+		email = (request.data.get("email") or "").strip().lower()
+		current_password = request.data.get("current_password") or ""
+		new_password = request.data.get("new_password") or ""
+		user = authenticate(request, username=email, password=current_password)
+		if user is None:
+			return Response({"message": "Неверный текущий пароль"}, status=status.HTTP_400_BAD_REQUEST)
+
+		profile = getattr(user, "partner_profile", None)
+		if not profile or not profile.must_change_password:
+			return Response({"message": "Смена пароля не требуется"}, status=status.HTTP_400_BAD_REQUEST)
+
+		try:
+			validate_password(new_password, user)
+		except ValidationError as error:
+			return Response({"message": " ".join(error.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
+		user.set_password(new_password)
+		user.save(update_fields=["password"])
+		profile.must_change_password = False
+		profile.save(update_fields=["must_change_password"])
 		return Response({"message": "Пароль обновлен"})
 
 # Create your views here.

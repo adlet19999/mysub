@@ -422,6 +422,39 @@
   padding: 0 10px;
 }
 
+.passwordField {
+  position: relative;
+  display: block;
+}
+
+.passwordField input {
+  width: 100%;
+  padding-right: 44px;
+}
+
+.eyeButton {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  place-items: center;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #62748e;
+  cursor: pointer;
+}
+
+.eyeButton:hover {
+  background: #f1f5f9;
+  color: #1f5f4d;
+}
+
 .checkRow {
   height: 38px;
   display: flex !important;

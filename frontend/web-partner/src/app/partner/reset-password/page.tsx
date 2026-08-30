@@ -19,8 +19,14 @@ function ResetPasswordForm() {
   const searchParams = useSearchParams();
   const uid = (searchParams.get("uid") || "").trim();
   const token = (searchParams.get("token") || "").trim();
-  const hasTokenParams = useMemo(() => Boolean(uid && token), [uid, token]);
+  const email = (searchParams.get("email") || "").trim();
+  const isInitialPasswordChange = searchParams.get("initial") === "true";
+  const hasTokenParams = useMemo(
+    () => (isInitialPasswordChange ? Boolean(email) : Boolean(uid && token)),
+    [email, isInitialPasswordChange, token, uid],
+  );
 
+  const [currentPassword, setCurrentPassword] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -48,7 +54,11 @@ function ResetPasswordForm() {
       const response = await fetch("/api/partner/password/reset", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uid, token, newPassword: password }),
+        body: JSON.stringify(
+          isInitialPasswordChange
+            ? { email, currentPassword, newPassword: password }
+            : { uid, token, newPassword: password },
+        ),
       });
 
       const payload = (await response.json()) as { message?: string };
@@ -58,7 +68,7 @@ function ResetPasswordForm() {
       }
 
       setMessage(payload.message || "Пароль обновлен");
-      setTimeout(() => router.push("/partner"), 1200);
+      setTimeout(() => router.push(isInitialPasswordChange ? "/partner/dashboard/manage" : "/partner"), 1200);
     } catch {
       setError("Не удалось подключиться к серверу");
     } finally {
@@ -70,11 +80,25 @@ function ResetPasswordForm() {
     <div className={styles.shell}>
       <div className={styles.card}>
         <h1 className={styles.title}>Новый пароль</h1>
-        <p className={styles.subtitle}>Задайте новый пароль для вашего аккаунта.</p>
+        <p className={styles.subtitle}>
+          {isInitialPasswordChange ? "Для продолжения замените временный пароль." : "Задайте новый пароль для вашего аккаунта."}
+        </p>
 
         {!hasTokenParams ? <p className={styles.error}>Ссылка сброса некорректна</p> : null}
 
         <form className={styles.form} onSubmit={onSubmit}>
+          {isInitialPasswordChange ? (
+            <>
+              <label htmlFor="currentPassword">Текущий пароль</label>
+              <input
+                id="currentPassword"
+                type="password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                required
+              />
+            </>
+          ) : null}
           <label htmlFor="password">Новый пароль</label>
           <div className={styles.passwordField}>
             <input

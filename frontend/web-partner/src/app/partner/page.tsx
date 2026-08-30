@@ -82,6 +82,7 @@ export default function PartnerPage() {
           email: string;
           phone?: string;
           user_type?: string;
+			must_change_password?: boolean;
           company_name?: string;
           business_category?: string;
           address?: string;
@@ -96,7 +97,11 @@ export default function PartnerPage() {
         localStorage.setItem("partner_auth_user", JSON.stringify(payload.user));
       }
       if (payload.user?.user_type === "manager") {
-        router.push("/partner/dashboard/manage");
+    if (payload.user.must_change_password) {
+      router.push(`/partner/reset-password?email=${encodeURIComponent(payload.user.email)}&initial=true`);
+    } else {
+      router.push("/partner/dashboard/manage");
+    }
       } else {
         router.push("/partner/dashboard");
       }
