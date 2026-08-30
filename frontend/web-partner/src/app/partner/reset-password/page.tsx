@@ -29,6 +29,7 @@ function ResetPasswordForm() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -90,13 +91,24 @@ function ResetPasswordForm() {
           {isInitialPasswordChange ? (
             <>
               <label htmlFor="currentPassword">Текущий пароль</label>
-              <input
-                id="currentPassword"
-                type="password"
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
-                required
-              />
+              <div className={styles.passwordField}>
+                <input
+                  id="currentPassword"
+                  type={showCurrentPassword ? "text" : "password"}
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  required
+                />
+                <button
+                  className={styles.eyeButton}
+                  type="button"
+                  onClick={() => setShowCurrentPassword((value) => !value)}
+                  aria-label={showCurrentPassword ? "Скрыть пароль" : "Показать пароль"}
+                  title={showCurrentPassword ? "Скрыть пароль" : "Показать пароль"}
+                >
+                  {showCurrentPassword ? <EyeOff size={19} aria-hidden="true" /> : <Eye size={19} aria-hidden="true" />}
+                </button>
+              </div>
             </>
           ) : null}
           <label htmlFor="password">Новый пароль</label>
