@@ -36,10 +36,42 @@
 }
 
 .form input {
+  width: 100%;
   border: 1px solid #d6deea;
   border-radius: 12px;
   padding: 11px 12px;
   font-size: 15px;
+}
+
+.passwordField {
+  position: relative;
+}
+
+.passwordField input {
+  padding-right: 48px;
+}
+
+.eyeButton {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  place-items: center;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #5b6678;
+  cursor: pointer;
+}
+
+.eyeButton:hover {
+  background: #edf2f7;
+  color: #0f4c81;
 }
 
 .form button {
