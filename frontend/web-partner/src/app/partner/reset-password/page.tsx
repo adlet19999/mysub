@@ -1,19 +1,11 @@
 "use client";
 
-import { FormEvent, Suspense, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import styles from "./page.module.css";
 
 export default function ResetPasswordPage() {
-  return (
-    <Suspense fallback={<div className={styles.shell} />}>
-      <ResetPasswordForm />
-    </Suspense>
-  );
-}
-
-function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const uid = (searchParams.get("uid") || "").trim();

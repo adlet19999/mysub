@@ -22,6 +22,10 @@ __pycache__/
 .venv/
 venv/
 
+# Build artifacts
+backend/staticfiles/
+*.tsbuildinfo
+
 # Logs
 *.log
 npm-debug.log*

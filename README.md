@@ -4,6 +4,15 @@ This workspace currently contains:
 - frontend partner app: `frontend/web-partner`
 - backend API: `backend`
 
+## Local prerequisites (one-time)
+
+```powershell
+node -v
+npm -v
+```
+
+Use Node.js 20+ if versions are missing or too old.
+
 ## Start PostgreSQL (Docker)
 
 ```powershell
@@ -36,7 +45,15 @@ py -3.14 manage.py migrate
 ```powershell
 cd frontend/web-partner
 Copy-Item .env.local.example .env.local
+npm install
 npm run dev
+```
+
+If PowerShell blocks `npm` scripts (`npm.ps1` execution policy error), run:
+
+```powershell
+npm.cmd install
+npm.cmd run dev
 ```
 
 Open: `http://localhost:3000/partner`

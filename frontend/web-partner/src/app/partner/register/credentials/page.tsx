@@ -3,8 +3,55 @@
 import Image from "next/image";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { formatRuPhone, isValidRuPhone, normalizeRuPhone } from "../../../../lib/phone";
 import styles from "./page.module.css";
+
+const RU_PHONE_RE = /^\+7\d{10}$/;
+
+function normalizeRuPhone(rawPhone: string): string {
+  const digits = rawPhone.replace(/\D/g, "");
+  if (!digits) {
+    return "+7";
+  }
+
+  let normalizedDigits = digits;
+  if (normalizedDigits.startsWith("8")) {
+    normalizedDigits = `7${normalizedDigits.slice(1)}`;
+  }
+  if (!normalizedDigits.startsWith("7")) {
+    normalizedDigits = `7${normalizedDigits}`;
+  }
+
+  return `+${normalizedDigits.slice(0, 11)}`;
+}
+
+function formatRuPhone(rawPhone: string): string {
+  const normalized = normalizeRuPhone(rawPhone);
+  const digits = normalized.replace(/\D/g, "").slice(1);
+
+  const code = digits.slice(0, 3);
+  const first = digits.slice(3, 6);
+  const second = digits.slice(6, 8);
+  const third = digits.slice(8, 10);
+
+  let result = "+7";
+  if (code) {
+    result += ` (${code}`;
+    if (code.length === 3) {
+      result += ")";
+    }
+  }
+  if (first) {
+    result += ` ${first}`;
+  }
+  if (second) {
+    result += `-${second}`;
+  }
+  if (third) {
+    result += `-${third}`;
+  }
+
+  return result;
+}
 
 export default function PartnerRegisterCredentialsPage() {
   const router = useRouter();
@@ -20,7 +67,7 @@ export default function PartnerRegisterCredentialsPage() {
 
     const phoneInput = document.getElementById("phone") as HTMLInputElement | null;
     const normalizedPhone = normalizeRuPhone(phone);
-    if (!isValidRuPhone(normalizedPhone)) {
+    if (!RU_PHONE_RE.test(normalizedPhone)) {
       if (phoneInput) {
         phoneInput.setCustomValidity("Введите телефон в формате +7XXXXXXXXXX");
         phoneInput.reportValidity();
@@ -172,15 +219,7 @@ export default function PartnerRegisterCredentialsPage() {
 
             <div className={styles.formGroup}>
               <label htmlFor="work-phone">Рабочий телефон</label>
-              <input
-                id="work-phone"
-                type="tel"
-                inputMode="tel"
-                placeholder="+7 (XXX) XXX-XX-XX"
-                onChange={(event) => {
-                  event.currentTarget.value = formatRuPhone(event.currentTarget.value);
-                }}
-              />
+              <input id="work-phone" type="tel" />
             </div>
 
             <div className={styles.formGroup}>
@@ -216,6 +255,11 @@ export default function PartnerRegisterCredentialsPage() {
               <div className={styles.formGroup}>
                 <label htmlFor="kbe">КБЕ</label>
                 <input id="kbe" type="text" />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label htmlFor="knp">КНП</label>
+                <input id="knp" type="text" />
               </div>
             </div>
 
