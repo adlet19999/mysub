@@ -90,6 +90,20 @@
   cursor: not-allowed;
 }
 
+.form .eyeButton {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #5b6678;
+}
+
+.form .eyeButton:hover {
+  background: #edf2f7;
+  color: #0f4c81;
+}
+
 .error {
   margin: 6px 0 0;
   color: #b42318;
