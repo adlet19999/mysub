@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
 import { compressImageFileToDataUrl } from "../../../../lib/imageCompression";
+import { useDraggableModal } from "../../../../lib/useDraggableModal";
 
 type Service = {
   id: number;
@@ -142,6 +143,10 @@ export default function SpecialistsPage() {
     selectedServiceIds: [],
     photoBase64: "",
   });
+  const specialistModalDrag = useDraggableModal(isModalOpen);
+  const archiveModalDrag = useDraggableModal(Boolean(archiveTarget));
+  const scheduleModalDrag = useDraggableModal(Boolean(scheduleTarget));
+  const bulkScheduleModalDrag = useDraggableModal(isBulkScheduleOpen);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadingPhotoIdsRef = useRef<Set<number>>(new Set());
@@ -836,8 +841,8 @@ export default function SpecialistsPage() {
 
       {isModalOpen ? (
         <div className={styles.overlay}>
-          <form className={styles.modal} onSubmit={submitSpecialist}>
-            <header className={styles.modalHeader}>
+          <form className={styles.modal} onSubmit={submitSpecialist} style={specialistModalDrag.modalStyle}>
+            <header className={styles.modalHeader} {...specialistModalDrag.dragHandleProps}>
               <div className={styles.modalTitleWrap}>
                 <img src="/modal_icon.svg" alt="" className={styles.modalIcon} aria-hidden />
                 <h2>{modalMode === "create" ? "Добавить специалиста" : "Редактировать специалиста"}</h2>
@@ -950,7 +955,13 @@ export default function SpecialistsPage() {
 
       {archiveTarget ? (
         <div className={styles.overlay}>
-          <div className={styles.statusModal}>
+          <div className={styles.statusModal} style={archiveModalDrag.modalStyle}>
+            <header className={styles.statusModalHeader} {...archiveModalDrag.dragHandleProps}>
+              <span>Подтверждение</span>
+              <button type="button" className={styles.statusCloseButton} onClick={() => setArchiveTarget(null)} aria-label="Закрыть">
+                ×
+              </button>
+            </header>
             <div className={styles.statusBody}>
               <div className={styles.statusIconWrap}>
                 <img src="/Archieve.svg" alt="" className={styles.statusIconImage} aria-hidden />
@@ -978,8 +989,8 @@ export default function SpecialistsPage() {
 
       {scheduleTarget ? (
         <div className={styles.overlay}>
-          <div className={styles.modal}>
-            <header className={styles.modalHeader}>
+          <div className={styles.modal} style={scheduleModalDrag.modalStyle}>
+            <header className={styles.modalHeader} {...scheduleModalDrag.dragHandleProps}>
               <div className={styles.modalTitleWrap}>
                 <img src="/setting.svg" alt="" className={styles.modalIcon} aria-hidden />
                 <h2>График работы специалиста</h2>
@@ -1092,8 +1103,8 @@ export default function SpecialistsPage() {
 
       {isBulkScheduleOpen ? (
         <div className={styles.overlay}>
-          <div className={`${styles.modal} ${styles.bulkModal}`}>
-            <header className={styles.modalHeader}>
+          <div className={`${styles.modal} ${styles.bulkModal}`} style={bulkScheduleModalDrag.modalStyle}>
+            <header className={styles.modalHeader} {...bulkScheduleModalDrag.dragHandleProps}>
               <div className={styles.modalTitleWrap}>
                 <img src="/setting.svg" alt="" className={styles.modalIcon} aria-hidden />
                 <h2>Составить график работы</h2>

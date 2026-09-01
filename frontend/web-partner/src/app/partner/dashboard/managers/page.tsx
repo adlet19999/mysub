@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { formatRuPhone } from "../../../../lib/phone";
+import { useDraggableModal } from "../../../../lib/useDraggableModal";
 import styles from "./page.module.css";
 
 type Manager = {
@@ -47,6 +48,8 @@ export default function ManagersPage() {
     role: "Менеджер",
     resetPasswordOnFirstLogin: true,
   });
+  const managerModalDrag = useDraggableModal(isModalOpen);
+  const archiveModalDrag = useDraggableModal(Boolean(archiveTarget));
 
   const [toastText, setToastText] = useState("");
   const [formError, setFormError] = useState("");
@@ -317,8 +320,8 @@ export default function ManagersPage() {
 
       {isModalOpen ? (
         <div className={styles.overlay}>
-          <form className={styles.modal} onSubmit={submitManager}>
-            <header className={styles.modalHeader}>
+          <form className={styles.modal} onSubmit={submitManager} style={managerModalDrag.modalStyle}>
+            <header className={styles.modalHeader} {...managerModalDrag.dragHandleProps}>
               <div className={styles.modalTitleWrap}>
                 <img src="/modal_icon.svg" alt="" className={styles.modalIcon} aria-hidden />
                 <h2>{isEditing ? "Редактировать менеджера" : "Добавить менеджера"}</h2>
@@ -416,7 +419,13 @@ export default function ManagersPage() {
 
       {archiveTarget ? (
         <div className={styles.overlay}>
-          <div className={styles.statusModal}>
+          <div className={styles.statusModal} style={archiveModalDrag.modalStyle}>
+            <header className={styles.statusModalHeader} {...archiveModalDrag.dragHandleProps}>
+              <span>Подтверждение</span>
+              <button type="button" className={styles.statusCloseButton} onClick={() => setArchiveTarget(null)} aria-label="Закрыть">
+                ×
+              </button>
+            </header>
             <div className={styles.statusBody}>
               <div className={styles.statusIconWrap}>
                 <img src="/Archieve.svg" alt="" className={styles.statusIconImage} aria-hidden />

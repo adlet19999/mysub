@@ -431,6 +431,34 @@
   overflow-y: auto;
 }
 
+.statusModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  color: #62748e;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.statusCloseButton {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #62748e;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.statusCloseButton:hover {
+  background: #f1f5f9;
+  color: #1f5f4d;
+}
+
 .statusBody {
   display: grid;
   gap: 16px;
@@ -538,6 +566,18 @@
   padding: 0 18px;
 }
 
+.modalHeader,
+.statusModalHeader {
+  user-select: none;
+  touch-action: none;
+  cursor: grab;
+}
+
+.modalHeader:active,
+.statusModalHeader:active {
+  cursor: grabbing;
+}
+
 .modalTitleWrap {
   display: flex;
   align-items: center;
@@ -565,6 +605,9 @@
   color: #ffffff;
   font-size: 22px;
   line-height: 1;
+  position: relative;
+  z-index: 1;
+  touch-action: manipulation;
 }
 
 .modalBody {

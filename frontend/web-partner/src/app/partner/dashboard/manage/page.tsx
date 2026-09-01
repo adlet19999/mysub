@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import styles from "./page.module.css";
 import { compressImageFileToDataUrl } from "../../../../lib/imageCompression";
+import { useDraggableModal } from "../../../../lib/useDraggableModal";
 
 type Category = { id: number; name: string; is_active: boolean };
 type ServiceKind = {
@@ -124,6 +125,8 @@ export default function PartnerManagePage() {
     tableCapacity: "",
     holdMinutes: "",
   });
+  const offerModalDrag = useDraggableModal(isModalOpen && dialogMode !== "archive" && dialogMode !== "unarchive");
+  const archiveModalDrag = useDraggableModal(isModalOpen && (dialogMode === "archive" || dialogMode === "unarchive"));
 
   const canCreateService = useMemo(() => categories.length > 0, [categories.length]);
 
@@ -555,7 +558,13 @@ export default function PartnerManagePage() {
       {isModalOpen ? (
         <div className={styles.overlay}>
           {dialogMode === "archive" || dialogMode === "unarchive" ? (
-            <div className={styles.statusModal}>
+            <div className={styles.statusModal} style={archiveModalDrag.modalStyle}>
+              <header className={styles.statusModalHeader} {...archiveModalDrag.dragHandleProps}>
+                <span>Подтверждение</span>
+                <button type="button" className={styles.statusCloseButton} onClick={() => setIsModalOpen(false)} aria-label="Закрыть">
+                  ×
+                </button>
+              </header>
               <div className={styles.statusBody}>
                 <div className={styles.statusIconWrap}>
                   <img src="/Archieve.svg" alt="" className={styles.statusIconImage} aria-hidden />
@@ -579,8 +588,8 @@ export default function PartnerManagePage() {
               </div>
             </div>
           ) : (
-            <form className={styles.modal} onSubmit={submitOffer}>
-              <header className={styles.modalHeader}>
+            <form className={styles.modal} onSubmit={submitOffer} style={offerModalDrag.modalStyle}>
+              <header className={styles.modalHeader} {...offerModalDrag.dragHandleProps}>
                 <div className={styles.modalTitleWrap}>
                   <img src="/modal_icon.svg" alt="" className={styles.modalIcon} aria-hidden />
                   <h2>{dialogMode === "edit" ? "Редактировать предложение" : "Добавить предложении"}</h2>

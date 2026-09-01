@@ -569,13 +569,6 @@
   align-items: center;
   justify-content: space-between;
   padding: 30px;
-  user-select: none;
-  touch-action: none;
-  cursor: grab;
-}
-
-.bookingHeader:active {
-  cursor: grabbing;
 }
 
 .bookingTitleWrap {
@@ -993,6 +986,36 @@
   line-height: 18px;
 }
 
+.confirmHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.confirmHeader h3 {
+  margin: 0;
+}
+
+.confirmCloseButton {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #4b5563;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.confirmCloseButton:hover {
+  background: #f1f5f9;
+  color: #1f5f4d;
+}
+
 .confirmActions {
   margin-top: 6px;
   display: grid;
@@ -1262,6 +1285,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.bookingHeader,
+.detailsHeader,
+.bulkScheduleHeader,
+.confirmHeader {
+  user-select: none;
+  touch-action: none;
+  cursor: grab;
+}
+
+.bookingHeader:active,
+.detailsHeader:active,
+.bulkScheduleHeader:active,
+.confirmHeader:active {
+  cursor: grabbing;
 }
 
 .bulkScheduleBody {
