@@ -573,6 +573,43 @@ def has_booking_overlap(
 	return False
 
 
+def has_client_booking_overlap(
+	tenant: str,
+	client_phone: str,
+	starts_at,
+	duration_minutes: int,
+	partner_profile=None,
+	exclude_booking_id: int = None,
+):
+	phone = normalize_ru_phone(client_phone)
+	start_dt = to_aware_datetime(starts_at)
+	if not phone or not start_dt:
+		return False
+	end_dt = start_dt + timedelta(minutes=max(1, int(duration_minutes or 60)))
+
+	duration_map = build_service_duration_map(tenant, partner_profile=partner_profile)
+	items = Booking.objects.filter(tenant_slug=tenant)
+	if partner_profile is not None:
+		items = items.filter(partner_profile=partner_profile)
+	if exclude_booking_id is not None:
+		items = items.exclude(id=exclude_booking_id)
+
+	for existing in items:
+		if normalize_ru_phone(existing.client_phone) != phone:
+			continue
+		if existing.status.strip().lower() in {"cancelled", "canceled", "отменен", "отменена", "completed", "done", "завершен", "завершена", "no_show", "no-show", "missed", "неявка"}:
+			continue
+		existing_start = to_aware_datetime(existing.starts_at)
+		if existing_start is None:
+			continue
+		existing_duration = resolve_booking_duration_minutes(existing.service_name, duration_map)
+		existing_end = existing_start + timedelta(minutes=max(1, existing_duration))
+		if start_dt < existing_end and existing_start < end_dt:
+			return True
+
+	return False
+
+
 def serialize_partner_profile(profile: PartnerProfile):
 	business_photo_urls = [
 		normalize_profile_image_url(value)
@@ -1755,6 +1792,14 @@ class BookingListCreateView(APIView):
 			partner_profile=partner_profile,
 		):
 			return Response({"message": "У специалиста уже есть запись на это время"}, status=409)
+		if has_client_booking_overlap(
+			tenant,
+			str(request.data.get("client_phone")).strip(),
+			starts_at,
+			duration_minutes,
+			partner_profile=partner_profile,
+		):
+			return Response({"message": "Этот клиент уже записан на пересекающееся время"}, status=409)
 
 		item = Booking.objects.create(
 			tenant_slug=tenant,
@@ -1832,6 +1877,20 @@ class BookingDetailView(APIView):
 				exclude_booking_id=item.id,
 			):
 				return Response({"message": "У специалиста уже есть запись на это время"}, status=409)
+
+		duration_minutes = resolve_booking_duration_minutes(
+			item.service_name,
+			build_service_duration_map(tenant, partner_profile=partner_profile),
+		)
+		if has_client_booking_overlap(
+			tenant,
+			item.client_phone,
+			item.starts_at,
+			duration_minutes,
+			partner_profile=partner_profile,
+			exclude_booking_id=item.id,
+		):
+			return Response({"message": "Этот клиент уже записан на пересекающееся время"}, status=409)
 
 		item.save()
 		return Response(

@@ -880,7 +880,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+	user-select: none;
+	touch-action: none;
+  cursor: grab;
 }
+
+.bookingHeader:active {
+  cursor: grabbing;
 
 .detailsTitle {
   display: inline-flex;
@@ -918,6 +924,7 @@
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .detailsMenuButton:hover {

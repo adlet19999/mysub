@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, Fragment, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
 import { formatRuPhone } from "../../../../lib/phone";
 
@@ -379,6 +380,8 @@ export default function SchedulePage() {
   const [dragEnabledLineId, setDragEnabledLineId] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+    const [bookingModalPosition, setBookingModalPosition] = useState({ x: 0, y: 0 });
+    const bookingModalDrag = useRef<{ startX: number; startY: number; offsetX: number; offsetY: number } | null>(null);
   const [bookingModalMode, setBookingModalMode] = useState<"create" | "edit">("create");
   const [editingBookingId, setEditingBookingId] = useState<number | null>(null);
   const [bookingClientName, setBookingClientName] = useState("");
@@ -740,6 +743,7 @@ export default function SchedulePage() {
   }, [partnerEmail, tenant]);
 
   function openBookingModal() {
+        setBookingModalPosition({ x: 0, y: 0 });
     setBookingClientName("");
     setBookingPhone("");
     setBookingSpecialistId("");
@@ -754,6 +758,7 @@ export default function SchedulePage() {
   }
 
   function openEditBookingModal(target: Booking) {
+        setBookingModalPosition({ x: 0, y: 0 });
     const startsAt = parseBookingDateTime(target.starts_at);
     const listedNames = parseServiceNames(target.service_name);
     const matchedServices = listedNames
@@ -848,6 +853,37 @@ export default function SchedulePage() {
       return;
     }
     setIsBookingModalOpen(false);
+  }
+
+  function startBookingModalDrag(event: PointerEvent<HTMLElement>) {
+    if (event.button !== 0) {
+      return;
+    }
+    bookingModalDrag.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      offsetX: bookingModalPosition.x,
+      offsetY: bookingModalPosition.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function moveBookingModal(event: PointerEvent<HTMLElement>) {
+    const drag = bookingModalDrag.current;
+    if (!drag) {
+      return;
+    }
+    setBookingModalPosition({
+      x: Math.max(-window.innerWidth / 2 + 180, Math.min(window.innerWidth / 2 - 180, drag.offsetX + event.clientX - drag.startX)),
+      y: Math.max(-window.innerHeight / 2 + 80, Math.min(window.innerHeight / 2 - 80, drag.offsetY + event.clientY - drag.startY)),
+    });
+  }
+
+  function stopBookingModalDrag(event: PointerEvent<HTMLElement>) {
+    bookingModalDrag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
   }
 
   function onServiceChange(lineId: number, serviceId: string) {
@@ -1317,7 +1353,14 @@ export default function SchedulePage() {
 
       {isBookingModalOpen ? (
         <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label="Добавить запись">
-          <form className={styles.bookingModal} onSubmit={submitBooking}>
+          <form className={styles.bookingModal} onSubmit={submitBooking} style={{ transform: `translate(${bookingModalPosition.x}px, ${bookingModalPosition.y}px)` }}>
+            <header
+              className={styles.bookingHeader}
+              onPointerDown={startBookingModalDrag}
+              onPointerMove={moveBookingModal}
+              onPointerUp={stopBookingModalDrag}
+              onPointerCancel={stopBookingModalDrag}
+            >
             <header className={styles.bookingHeader}>
               <div className={styles.bookingTitleWrap}>
                 <img src="/modal_icon.svg" alt="" aria-hidden className={styles.bookingHeaderIcon} />

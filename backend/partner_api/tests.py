@@ -3,8 +3,8 @@ from datetime import datetime
 from django.test import TestCase
 from django.utils import timezone
 
-from .models import Specialist
-from .views import booking_schedule_error, default_working_schedule, normalize_working_schedule
+from .models import Booking, Specialist
+from .views import booking_schedule_error, default_working_schedule, has_client_booking_overlap, normalize_working_schedule
 
 
 def weekday_working_schedule():
@@ -60,3 +60,23 @@ class BookingScheduleValidationTests(TestCase):
 		self.specialist.working_schedule = schedule
 		self.assertIsNone(booking_schedule_error(self.specialist, timezone.make_aware(datetime(2026, 8, 1, 10)), 60))
 		self.assertEqual(booking_schedule_error(self.specialist, timezone.make_aware(datetime(2026, 8, 8, 10)), 60), "У специалиста выходной в выбранный день")
+
+	def test_client_may_not_have_overlapping_active_bookings(self):
+		Booking.objects.create(
+			tenant_slug="public",
+			service_name="Стрижка",
+			starts_at=self.at(10),
+			client_name="Клиент",
+			client_phone="+7 (700) 000-00-00",
+		)
+		self.assertTrue(has_client_booking_overlap("public", "+77000000000", self.at(10, 30), 60))
+
+	def test_client_may_book_after_previous_service_finishes(self):
+		Booking.objects.create(
+			tenant_slug="public",
+			service_name="Стрижка",
+			starts_at=self.at(10),
+			client_name="Клиент",
+			client_phone="+77000000000",
+		)
+		self.assertFalse(has_client_booking_overlap("public", "+77000000000", self.at(11), 60))
