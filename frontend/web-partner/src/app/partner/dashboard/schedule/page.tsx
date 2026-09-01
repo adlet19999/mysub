@@ -1,6 +1,5 @@
 "use client";
 
-import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { FormEvent, Fragment, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
 import { formatRuPhone } from "../../../../lib/phone";

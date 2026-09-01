@@ -569,6 +569,13 @@
   align-items: center;
   justify-content: space-between;
   padding: 30px;
+  user-select: none;
+  touch-action: none;
+  cursor: grab;
+}
+
+.bookingHeader:active {
+  cursor: grabbing;
 }
 
 .bookingTitleWrap {
@@ -880,13 +887,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-	user-select: none;
-	touch-action: none;
-  cursor: grab;
 }
-
-.bookingHeader:active {
-  cursor: grabbing;
 
 .detailsTitle {
   display: inline-flex;
