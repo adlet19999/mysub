@@ -1361,7 +1361,6 @@ export default function SchedulePage() {
               onPointerUp={stopBookingModalDrag}
               onPointerCancel={stopBookingModalDrag}
             >
-            <header className={styles.bookingHeader}>
               <div className={styles.bookingTitleWrap}>
                 <img src="/modal_icon.svg" alt="" aria-hidden className={styles.bookingHeaderIcon} />
                 <h3>{bookingModalMode === "edit" ? "Редактировать запись" : "Добавить запись"}</h3>
