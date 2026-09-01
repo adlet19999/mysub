@@ -18,7 +18,7 @@ type DragState = {
 
 const INTERACTIVE_TARGETS = "button, input, select, textarea, a, label, [data-modal-no-drag]";
 
-export function useDraggableModal(isOpen: boolean) {
+export function useDraggableModal(isOpen: boolean, onClose?: () => void) {
   const [position, setPosition] = useState<ModalPosition>({ x: 0, y: 0 });
   const dragRef = useRef<DragState | null>(null);
 
@@ -26,8 +26,20 @@ export function useDraggableModal(isOpen: boolean) {
     if (!isOpen) {
       dragRef.current = null;
       setPosition({ x: 0, y: 0 });
+      return;
     }
-  }, [isOpen]);
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      onClose?.();
+    }
+
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [isOpen, onClose]);
 
   function onPointerDown(event: ReactPointerEvent<HTMLElement>) {
     if (event.button !== 0 || (event.target instanceof Element && event.target.closest(INTERACTIVE_TARGETS))) {

@@ -48,8 +48,8 @@ export default function ManagersPage() {
     role: "Менеджер",
     resetPasswordOnFirstLogin: true,
   });
-  const managerModalDrag = useDraggableModal(isModalOpen);
-  const archiveModalDrag = useDraggableModal(Boolean(archiveTarget));
+  const managerModalDrag = useDraggableModal(isModalOpen, () => setIsModalOpen(false));
+  const archiveModalDrag = useDraggableModal(Boolean(archiveTarget), () => setArchiveTarget(null));
 
   const [toastText, setToastText] = useState("");
   const [formError, setFormError] = useState("");

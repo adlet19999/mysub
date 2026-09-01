@@ -125,8 +125,14 @@ export default function PartnerManagePage() {
     tableCapacity: "",
     holdMinutes: "",
   });
-  const offerModalDrag = useDraggableModal(isModalOpen && dialogMode !== "archive" && dialogMode !== "unarchive");
-  const archiveModalDrag = useDraggableModal(isModalOpen && (dialogMode === "archive" || dialogMode === "unarchive"));
+  const offerModalDrag = useDraggableModal(
+    isModalOpen && dialogMode !== "archive" && dialogMode !== "unarchive",
+    () => setIsModalOpen(false),
+  );
+  const archiveModalDrag = useDraggableModal(
+    isModalOpen && (dialogMode === "archive" || dialogMode === "unarchive"),
+    () => setIsModalOpen(false),
+  );
 
   const canCreateService = useMemo(() => categories.length > 0, [categories.length]);
 

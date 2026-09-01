@@ -399,10 +399,19 @@ export default function SchedulePage() {
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
   const datePickerRef = useRef<HTMLElement | null>(null);
-  const bookingModalDrag = useDraggableModal(isBookingModalOpen);
-  const bookingDetailsModalDrag = useDraggableModal(Boolean(detailsBooking));
-  const deleteBookingModalDrag = useDraggableModal(Boolean(isDeleteConfirmOpen && detailsBooking));
-  const bulkScheduleModalDrag = useDraggableModal(isBulkScheduleOpen);
+  const bookingModalDrag = useDraggableModal(isBookingModalOpen, closeBookingModal);
+  const bookingDetailsModalDrag = useDraggableModal(
+    Boolean(detailsBooking) && !isDeleteConfirmOpen,
+    () => {
+      setIsDetailsMenuOpen(false);
+      setDetailsBooking(null);
+    },
+  );
+  const deleteBookingModalDrag = useDraggableModal(
+    Boolean(isDeleteConfirmOpen && detailsBooking),
+    () => setIsDeleteConfirmOpen(false),
+  );
+  const bulkScheduleModalDrag = useDraggableModal(isBulkScheduleOpen, () => setIsBulkScheduleOpen(false));
 
   useEffect(() => {
     if (!isDatePickerOpen) {

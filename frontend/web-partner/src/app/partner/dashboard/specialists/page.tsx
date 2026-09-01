@@ -143,10 +143,10 @@ export default function SpecialistsPage() {
     selectedServiceIds: [],
     photoBase64: "",
   });
-  const specialistModalDrag = useDraggableModal(isModalOpen);
-  const archiveModalDrag = useDraggableModal(Boolean(archiveTarget));
-  const scheduleModalDrag = useDraggableModal(Boolean(scheduleTarget));
-  const bulkScheduleModalDrag = useDraggableModal(isBulkScheduleOpen);
+  const specialistModalDrag = useDraggableModal(isModalOpen, () => setIsModalOpen(false));
+  const archiveModalDrag = useDraggableModal(Boolean(archiveTarget), () => setArchiveTarget(null));
+  const scheduleModalDrag = useDraggableModal(Boolean(scheduleTarget), closeScheduleModal);
+  const bulkScheduleModalDrag = useDraggableModal(isBulkScheduleOpen, closeBulkScheduleModal);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadingPhotoIdsRef = useRef<Set<number>>(new Set());
