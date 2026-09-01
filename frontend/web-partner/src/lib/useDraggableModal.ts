@@ -21,11 +21,16 @@ const INTERACTIVE_TARGETS = "button, input, select, textarea, a, label, [data-mo
 export function useDraggableModal(isOpen: boolean, onClose?: () => void) {
   const [position, setPosition] = useState<ModalPosition>({ x: 0, y: 0 });
   const dragRef = useRef<DragState | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!isOpen) {
       dragRef.current = null;
-      setPosition({ x: 0, y: 0 });
+      setPosition((currentPosition) =>
+        currentPosition.x === 0 && currentPosition.y === 0 ? currentPosition : { x: 0, y: 0 },
+      );
       return;
     }
 
@@ -34,12 +39,12 @@ export function useDraggableModal(isOpen: boolean, onClose?: () => void) {
         return;
       }
       event.preventDefault();
-      onClose?.();
+      onCloseRef.current?.();
     }
 
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   function onPointerDown(event: ReactPointerEvent<HTMLElement>) {
     if (event.button !== 0 || (event.target instanceof Element && event.target.closest(INTERACTIVE_TARGETS))) {
