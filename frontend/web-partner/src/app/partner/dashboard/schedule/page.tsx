@@ -51,6 +51,9 @@ type BookingLine = {
   id: number;
   serviceId: string;
   sum: string;
+  specialistId: string;
+  date: string;
+  startTime: string;
 };
 
 type Booking = {
@@ -376,8 +379,6 @@ export default function SchedulePage() {
   const [isDetailsMenuOpen, setIsDetailsMenuOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isDeletingBooking, setIsDeletingBooking] = useState(false);
-  const [draggedLineId, setDraggedLineId] = useState<number | null>(null);
-  const [dragEnabledLineId, setDragEnabledLineId] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [bookingModalMode, setBookingModalMode] = useState<"create" | "edit">("create");
@@ -387,7 +388,9 @@ export default function SchedulePage() {
   const [bookingSpecialistId, setBookingSpecialistId] = useState("");
   const [bookingDate, setBookingDate] = useState(formatDateInputValue(new Date()));
   const [bookingStartTime, setBookingStartTime] = useState("16:40");
-  const [bookingLines, setBookingLines] = useState<BookingLine[]>([{ id: 1, serviceId: "", sum: "" }]);
+  const [bookingLines, setBookingLines] = useState<BookingLine[]>([
+    { id: 1, serviceId: "", sum: "", specialistId: "", date: formatDateInputValue(new Date()), startTime: "10:00" },
+  ]);
   const [modalError, setModalError] = useState("");
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
   const [isBulkScheduleOpen, setIsBulkScheduleOpen] = useState(false);
@@ -454,14 +457,6 @@ export default function SchedulePage() {
     return activeServices;
   }, [activeServices]);
 
-  const primarySelectedService = useMemo(() => {
-    const primaryLine = bookingLines.find((line) => line.serviceId);
-    if (!primaryLine) {
-      return null;
-    }
-    return bookableServices.find((service) => String(service.id) === primaryLine.serviceId) ?? null;
-  }, [bookingLines, bookableServices]);
-
   const selectedServicesInModal = useMemo(() => {
     return bookingLines
       .map((line) => bookableServices.find((service) => String(service.id) === line.serviceId) ?? null)
@@ -492,11 +487,14 @@ export default function SchedulePage() {
   }, [activeSpecialists, bookableServices, bookingSpecialistId]);
 
   const canSubmitBooking = useMemo(() => {
-    if (!bookingClientName.trim() || !bookingPhone.trim() || !bookingDate || !bookingStartTime || !bookingSpecialistId) {
+    if (!bookingClientName.trim() || !bookingPhone.trim()) {
       return false;
     }
-    return bookingLines.some((line) => line.serviceId);
-  }, [bookingClientName, bookingPhone, bookingDate, bookingStartTime, bookingSpecialistId, bookingLines]);
+    if (bookingModalMode === "edit") {
+      return Boolean(bookingDate && bookingStartTime && bookingSpecialistId && bookingLines.some((line) => line.serviceId));
+    }
+    return bookingLines.length > 0 && bookingLines.every((line) => line.serviceId && line.specialistId && line.date && line.startTime);
+  }, [bookingClientName, bookingPhone, bookingDate, bookingStartTime, bookingSpecialistId, bookingLines, bookingModalMode]);
 
   const detailsServices = useMemo(() => {
     if (!detailsBooking) {
@@ -543,17 +541,9 @@ export default function SchedulePage() {
     });
   }, [detailsBooking, services, activeSpecialists]);
 
-  // Порядок услуг задаёт их время, поэтому скидка считается по накопленной длительности.
   const bookingDiscountByLineId = useMemo(() => {
     const result = new Map<number, { price: number; discountPercent: number }>();
-    const specialist = activeSpecialists.find((item) => String(item.id) === bookingSpecialistId);
-    const daySchedule =
-      specialist && bookingDate
-        ? getScheduleForDate(normalizeWorkingSchedule(specialist.working_schedule), new Date(`${bookingDate}T12:00:00`))
-        : undefined;
-    const discountStart = daySchedule && !daySchedule.is_day_off ? toMinutes(daySchedule.discount_start) : null;
-    const discountEnd = daySchedule && !daySchedule.is_day_off ? toMinutes(daySchedule.discount_end) : null;
-    const startMinutes = toMinutes(bookingStartTime);
+    const isEditMode = bookingModalMode === "edit";
     let minutesBefore = 0;
 
     for (const line of bookingLines) {
@@ -564,9 +554,21 @@ export default function SchedulePage() {
       const durationMinutes = service.duration_minutes && service.duration_minutes > 0 ? service.duration_minutes : 60;
       const rawPrice = String(line.sum || service.price || "").replace(/[^0-9.,]/g, "").replace(",", ".");
       const price = Number(rawPrice);
+      const specialist = activeSpecialists.find((item) => String(item.id) === (isEditMode ? bookingSpecialistId : line.specialistId));
+      const date = isEditMode ? bookingDate : line.date;
+      const startTime = isEditMode ? bookingStartTime : line.startTime;
+      const daySchedule =
+        specialist && date
+          ? getScheduleForDate(normalizeWorkingSchedule(specialist.working_schedule), new Date(`${date}T12:00:00`))
+          : undefined;
+      const discountStart = daySchedule && !daySchedule.is_day_off ? toMinutes(daySchedule.discount_start) : null;
+      const discountEnd = daySchedule && !daySchedule.is_day_off ? toMinutes(daySchedule.discount_end) : null;
+      const startMinutes = toMinutes(startTime);
       const serviceStart = startMinutes == null ? null : startMinutes + minutesBefore;
       const serviceEnd = serviceStart == null ? null : serviceStart + durationMinutes;
-      minutesBefore += durationMinutes;
+      if (isEditMode) {
+        minutesBefore += durationMinutes;
+      }
       const isDiscountTime =
         discountStart != null &&
         discountEnd != null &&
@@ -582,7 +584,7 @@ export default function SchedulePage() {
     }
 
     return result;
-  }, [bookingLines, bookableServices, bookingSpecialistId, bookingDate, bookingStartTime, activeSpecialists]);
+  }, [bookingLines, bookableServices, bookingModalMode, bookingSpecialistId, bookingDate, bookingStartTime, activeSpecialists]);
 
   const detailsSpecialist = useMemo(    () => activeSpecialists.find((item) => item.full_name.trim().toLowerCase() === (detailsBooking?.manager_name || "").trim().toLowerCase()),
     [activeSpecialists, detailsBooking],
@@ -759,7 +761,7 @@ export default function SchedulePage() {
     setBookingSpecialistId("");
     setBookingDate(formatDateInputValue(selectedDate));
     setBookingStartTime("10:00");
-    setBookingLines([{ id: Date.now(), serviceId: "", sum: "" }]);
+    setBookingLines([createBookingLine(Date.now())]);
     setModalError("");
     setIsSubmittingBooking(false);
     setBookingModalMode("create");
@@ -794,8 +796,11 @@ export default function SchedulePage() {
             id: Date.now() + index,
             serviceId: String(service.id),
             sum: service.price ? String(service.price) : "",
+            specialistId: matchedSpecialist ? String(matchedSpecialist.id) : "",
+            date: startsAt?.dateKey ?? formatDateInputValue(selectedDate),
+            startTime: startsAt?.timeLabel ?? "10:00",
           }))
-        : [{ id: Date.now(), serviceId: "", sum: "" }],
+        : [createBookingLine(Date.now())],
     );
     setModalError("");
     setIsSubmittingBooking(false);
@@ -864,6 +869,37 @@ export default function SchedulePage() {
     setIsBookingModalOpen(false);
   }
 
+  function createBookingLine(id: number): BookingLine {
+    return {
+      id,
+      serviceId: "",
+      sum: "",
+      specialistId: "",
+      date: formatDateInputValue(selectedDate),
+      startTime: "10:00",
+    };
+  }
+
+  function getServicesForSpecialist(specialistId: string) {
+    if (!specialistId) {
+      return bookableServices;
+    }
+    const specialist = activeSpecialists.find((item) => String(item.id) === specialistId);
+    if (!specialist) {
+      return bookableServices;
+    }
+    const assignedServiceIds = specialist.service_ids ?? [];
+    return bookableServices.filter((service) => assignedServiceIds.includes(service.id));
+  }
+
+  function getSpecialistsForService(serviceId: string) {
+    if (!serviceId) {
+      return activeSpecialists;
+    }
+    const selectedServiceId = Number(serviceId);
+    return activeSpecialists.filter((specialist) => (specialist.service_ids ?? []).includes(selectedServiceId));
+  }
+
   function onServiceChange(lineId: number, serviceId: string) {
     const selectedService = bookableServices.find((item) => String(item.id) === serviceId);
     setBookingLines((prev) =>
@@ -871,15 +907,19 @@ export default function SchedulePage() {
         if (line.id !== lineId) {
           return line;
         }
+        const selectedSpecialist = activeSpecialists.find((item) => String(item.id) === line.specialistId);
+        const specialistCanProvideService =
+          !selectedService || !selectedSpecialist || (selectedSpecialist.service_ids ?? []).includes(selectedService.id);
         return {
           ...line,
           serviceId,
           sum: selectedService?.price ? String(selectedService.price) : line.sum,
+          specialistId: bookingModalMode === "create" && !specialistCanProvideService ? "" : line.specialistId,
         };
       }),
     );
 
-    if (!selectedService) {
+    if (bookingModalMode === "create" || !selectedService) {
       return;
     }
 
@@ -896,7 +936,27 @@ export default function SchedulePage() {
     });
   }
 
-  function onSpecialistChange(specialistId: string) {
+  function onSpecialistChange(specialistId: string, lineId?: number) {
+    if (lineId != null) {
+      const specialist = activeSpecialists.find((item) => String(item.id) === specialistId);
+      const assignedServiceIds = specialist?.service_ids ?? [];
+      setBookingLines((previousLines) =>
+        previousLines.map((line) => {
+          if (line.id !== lineId) {
+            return line;
+          }
+          const specialistCanProvideService = !specialistId || !line.serviceId || assignedServiceIds.includes(Number(line.serviceId));
+          return {
+            ...line,
+            specialistId,
+            serviceId: specialistCanProvideService ? line.serviceId : "",
+            sum: specialistCanProvideService ? line.sum : "",
+          };
+        }),
+      );
+      return;
+    }
+
     setBookingSpecialistId(specialistId);
     const specialist = activeSpecialists.find((item) => String(item.id) === specialistId);
     if (!specialist) {
@@ -939,8 +999,14 @@ export default function SchedulePage() {
     setBookingLines((prev) => prev.map((line) => (line.id === lineId ? { ...line, sum: value } : line)));
   }
 
+  function updateBookingLine(lineId: number, patch: Partial<BookingLine>) {
+    setBookingLines((previousLines) =>
+      previousLines.map((line) => (line.id === lineId ? { ...line, ...patch } : line)),
+    );
+  }
+
   function addBookingLine() {
-    setBookingLines((prev) => [...prev, { id: Date.now() + prev.length, serviceId: "", sum: "" }]);
+    setBookingLines((previousLines) => [...previousLines, createBookingLine(Date.now() + previousLines.length)]);
   }
 
   function removeBookingLine(lineId: number) {
@@ -948,95 +1014,163 @@ export default function SchedulePage() {
     setBookingLines((prev) => (prev.length === 1 ? prev : prev.filter((line) => line.id !== lineId)));
   }
 
-  function moveBookingLine(sourceId: number, targetId: number) {
-    if (sourceId === targetId) {
-      return;
-    }
-    setBookingLines((prev) => {
-      const sourceIndex = prev.findIndex((line) => line.id === sourceId);
-      const targetIndex = prev.findIndex((line) => line.id === targetId);
-      if (sourceIndex < 0 || targetIndex < 0) {
-        return prev;
-      }
-      const next = [...prev];
-      const [moved] = next.splice(sourceIndex, 1);
-      next.splice(targetIndex, 0, moved);
-      return next;
-    });
-  }
-
   async function submitBooking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setModalError("");
-
-    const selectedServices = bookingLines
-      .map((line) => bookableServices.find((item) => String(item.id) === line.serviceId) ?? null)
-      .filter((item): item is Service => Boolean(item));
-
-    const specialist = activeSpecialists.find((item) => String(item.id) === bookingSpecialistId);
-
-    if (!selectedServices.length || !specialist) {
-      setModalError("Заполните обязательные поля записи");
-      return;
-    }
-
-    if (selectedServices.some((service) => !(specialist.service_ids ?? []).includes(service.id))) {
-      setModalError("Выбранный специалист не оказывает эту услугу");
-      return;
-    }
-
-    const scheduleError = getBookingScheduleError(
-      specialist,
-      bookingDate,
-      bookingStartTime,
-      selectedServices.reduce((total, service) => total + (service.duration_minutes && service.duration_minutes > 0 ? service.duration_minutes : 60), 0),
-    );
-    if (scheduleError) {
-      setModalError(scheduleError);
-      return;
-    }
 
     if (!partnerEmail) {
       setModalError("Не удалось определить партнера");
       return;
     }
 
-    setIsSubmittingBooking(true);
-    try {
-      const startsAt = `${bookingDate}T${bookingStartTime}:00`;
-      const isEditMode = bookingModalMode === "edit" && editingBookingId != null;
-      const compositeServiceName = selectedServices
-        .map((service) => service.name.trim())
-        .filter(Boolean)
-        .join("\n");
-      const response = await fetch(isEditMode ? `/api/partner/bookings/${editingBookingId}/` : "/api/partner/bookings/", {
-        method: isEditMode ? "PATCH" : "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Partner-Email": partnerEmail,
-        },
-        body: JSON.stringify({
+    const isEditMode = bookingModalMode === "edit" && editingBookingId != null;
+    const requests: Array<{
+      path: string;
+      method: "POST" | "PATCH";
+      body: {
+        specialist: string;
+        service: string;
+        serviceIds: number[];
+        clientName: string;
+        clientPhone: string;
+        startTime: string;
+      };
+    }> = [];
+
+    if (isEditMode) {
+      const selectedServices = bookingLines
+        .map((line) => bookableServices.find((item) => String(item.id) === line.serviceId) ?? null)
+        .filter((item): item is Service => Boolean(item));
+      const specialist = activeSpecialists.find((item) => String(item.id) === bookingSpecialistId);
+
+      if (!selectedServices.length || !specialist) {
+        setModalError("Заполните обязательные поля записи");
+        return;
+      }
+      if (selectedServices.some((service) => !(specialist.service_ids ?? []).includes(service.id))) {
+        setModalError("Выбранный специалист не оказывает эту услугу");
+        return;
+      }
+
+      const scheduleError = getBookingScheduleError(
+        specialist,
+        bookingDate,
+        bookingStartTime,
+        selectedServices.reduce((total, service) => total + (service.duration_minutes && service.duration_minutes > 0 ? service.duration_minutes : 60), 0),
+      );
+      if (scheduleError) {
+        setModalError(scheduleError);
+        return;
+      }
+
+      requests.push({
+        path: `/api/partner/bookings/${editingBookingId}/`,
+        method: "PATCH",
+        body: {
           specialist: specialist.full_name,
-          service: compositeServiceName,
+          service: selectedServices.map((service) => service.name.trim()).filter(Boolean).join("\n"),
           serviceIds: selectedServices.map((service) => service.id),
           clientName: bookingClientName.trim(),
           clientPhone: bookingPhone.trim(),
-          startTime: startsAt,
-        }),
+          startTime: `${bookingDate}T${bookingStartTime}:00`,
+        },
       });
+    } else {
+      const newBookings: Array<{
+        service: Service;
+        specialist: Specialist;
+        startsAt: string;
+        durationMinutes: number;
+      }> = [];
 
-      if (!response.ok) {
-        let message = "Не удалось добавить запись";
-        try {
-          const payload = (await response.json()) as { message?: string };
-          if (payload?.message?.trim()) {
-            message = payload.message.trim();
-          }
-        } catch {
-          // ignore parse errors and show fallback message
+      for (const line of bookingLines) {
+        const service = bookableServices.find((item) => String(item.id) === line.serviceId);
+        const specialist = activeSpecialists.find((item) => String(item.id) === line.specialistId);
+        if (!service || !specialist || !line.date || !line.startTime) {
+          setModalError("Заполните услугу, специалиста, дату и время для каждой записи");
+          return;
         }
-        setModalError(message);
+        if (!(specialist.service_ids ?? []).includes(service.id)) {
+          setModalError("Выбранный специалист не оказывает эту услугу");
+          return;
+        }
+
+        const durationMinutes = service.duration_minutes && service.duration_minutes > 0 ? service.duration_minutes : 60;
+        const scheduleError = getBookingScheduleError(specialist, line.date, line.startTime, durationMinutes);
+        if (scheduleError) {
+          setModalError(`${service.name}: ${scheduleError}`);
+          return;
+        }
+
+        newBookings.push({
+          service,
+          specialist,
+          startsAt: `${line.date}T${line.startTime}:00`,
+          durationMinutes,
+        });
+      }
+
+      if (!newBookings.length) {
+        setModalError("Добавьте хотя бы одну услугу");
         return;
+      }
+
+      for (let firstIndex = 0; firstIndex < newBookings.length; firstIndex += 1) {
+        const firstBooking = newBookings[firstIndex];
+        const firstStart = new Date(firstBooking.startsAt).getTime();
+        const firstEnd = firstStart + firstBooking.durationMinutes * 60_000;
+        for (let secondIndex = firstIndex + 1; secondIndex < newBookings.length; secondIndex += 1) {
+          const secondBooking = newBookings[secondIndex];
+          const secondStart = new Date(secondBooking.startsAt).getTime();
+          const secondEnd = secondStart + secondBooking.durationMinutes * 60_000;
+          if (firstStart < secondEnd && secondStart < firstEnd) {
+            setModalError("Услуги одного клиента не могут пересекаться по времени");
+            return;
+          }
+        }
+      }
+
+      requests.push(
+        ...newBookings.map((booking) => ({
+          path: "/api/partner/bookings/",
+          method: "POST" as const,
+          body: {
+            specialist: booking.specialist.full_name,
+            service: booking.service.name.trim(),
+            serviceIds: [booking.service.id],
+            clientName: bookingClientName.trim(),
+            clientPhone: bookingPhone.trim(),
+            startTime: booking.startsAt,
+          },
+        })),
+      );
+    }
+
+    setIsSubmittingBooking(true);
+    try {
+      for (const request of requests) {
+        const response = await fetch(request.path, {
+          method: request.method,
+          headers: {
+            "Content-Type": "application/json",
+            "X-Partner-Email": partnerEmail,
+          },
+          body: JSON.stringify(request.body),
+        });
+
+        if (!response.ok) {
+          let message = "Не удалось добавить запись";
+          try {
+            const payload = (await response.json()) as { message?: string };
+            if (payload?.message?.trim()) {
+              message = payload.message.trim();
+            }
+          } catch {
+            // ignore parse errors and show fallback message
+          }
+          setModalError(message);
+          return;
+        }
       }
 
       setIsBookingModalOpen(false);
@@ -1366,52 +1500,23 @@ export default function SchedulePage() {
 
               {bookingLines.map((line, index) => {
                 const lineDiscount = bookingDiscountByLineId.get(line.id);
+                const availableServices = bookingModalMode === "edit" ? availableServicesForSpecialist : getServicesForSpecialist(line.specialistId);
+                const availableSpecialists = getSpecialistsForService(line.serviceId);
 
                 return (
-                  <div
-                    key={line.id}
-                    className={`${styles.serviceLine} ${draggedLineId === line.id ? styles.serviceLineDragging : ""}`}
-                    draggable={dragEnabledLineId === line.id}
-                    onDragStart={() => setDraggedLineId(line.id)}
-                    onDragEnd={() => {
-                      setDraggedLineId(null);
-                      setDragEnabledLineId(null);
-                    }}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      if (draggedLineId != null) {
-                        moveBookingLine(draggedLineId, line.id);
-                      }
-                      setDraggedLineId(null);
-                      setDragEnabledLineId(null);
-                    }}
-                  >
+                  <div key={line.id} className={`${styles.serviceLine} ${bookingModalMode === "create" ? styles.independentServiceLine : ""}`}>
                     <div className={styles.serviceRow}>
-                      {bookingLines.length > 1 ? (
-                        <button
-                          type="button"
-                          className={styles.dragHandle}
-                          onMouseDown={() => setDragEnabledLineId(line.id)}
-                          onMouseUp={() => setDragEnabledLineId(null)}
-                          aria-label={`Переместить услугу ${index + 1}`}
-                          title="Перетащите, чтобы изменить порядок"
-                        >
-                          ⠿
-                        </button>
-                      ) : null}
-
                       <label className={styles.fieldBlock}>
                         <span>Услуга{index === 0 ? "" : ` ${index + 1}`}</span>
                         <select value={line.serviceId} onChange={(event) => onServiceChange(line.id, event.target.value)}>
                           <option value="">Выберите созданную услугу</option>
-                          {availableServicesForSpecialist.map((service) => (
+                          {availableServices.map((service) => (
                             <option key={service.id} value={String(service.id)}>
                               {service.name}
                             </option>
                           ))}
                         </select>
-                        {availableServicesForSpecialist.length === 0 ? <span className={styles.helperError}>Нет доступных услуг для записи</span> : null}
+                        {availableServices.length === 0 ? <span className={styles.helperError}>Нет доступных услуг для записи</span> : null}
                       </label>
 
                       <label className={`${styles.fieldBlock} ${styles.sumField}`}>
@@ -1431,6 +1536,61 @@ export default function SchedulePage() {
                       ) : null}
                     </div>
 
+                    {bookingModalMode === "create" ? (
+                      <>
+                        <label className={styles.fieldBlock}>
+                          <span>Специалист</span>
+                          <select value={line.specialistId} onChange={(event) => onSpecialistChange(event.target.value, line.id)}>
+                            <option value="">Выберите специалиста</option>
+                            {availableSpecialists.map((specialist) => (
+                              <option key={specialist.id} value={String(specialist.id)}>
+                                {specialist.full_name}
+                              </option>
+                            ))}
+                          </select>
+                          {line.serviceId && availableSpecialists.length === 0 ? (
+                            <span className={styles.helperError}>Нет специалистов для выбранной услуги</span>
+                          ) : null}
+                        </label>
+
+                        <div className={styles.dateTimeRow}>
+                          <label className={styles.fieldBlock}>
+                            <span>Дата</span>
+                            <div className={styles.iconInputWrap}>
+                              <img src="/calendar.svg" alt="" aria-hidden />
+                              <input
+                                type="date"
+                                value={line.date}
+                                onChange={(event) => updateBookingLine(line.id, { date: event.target.value })}
+                                className={styles.dateTimeInput}
+                              />
+                            </div>
+                          </label>
+
+                          <label className={styles.fieldBlock}>
+                            <span>Время начала</span>
+                            <div className={styles.iconInputWrap}>
+                              <img src="/schedule.svg" alt="" aria-hidden />
+                              <select
+                                value={line.startTime}
+                                onChange={(event) => updateBookingLine(line.id, { startTime: event.target.value })}
+                                className={styles.dateTimeInput}
+                              >
+                                {(TIME_OPTIONS.includes(line.startTime) || !line.startTime
+                                  ? TIME_OPTIONS
+                                  : [...TIME_OPTIONS, line.startTime].sort()
+                                ).map((time) => (
+                                  <option key={time} value={time}>
+                                    {time}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </label>
+                        </div>
+                      </>
+                    ) : null}
+
                     {lineDiscount && lineDiscount.discountPercent > 0 ? (
                       <p className={styles.discountHint}>
                         <strong>{`${Math.round(lineDiscount.price * (1 - lineDiscount.discountPercent / 100)).toLocaleString("ru-RU")} т`}</strong>
@@ -1442,51 +1602,55 @@ export default function SchedulePage() {
                 );
               })}
 
-              <label className={styles.fieldBlock}>
-                <span>Специалист</span>
-                <select value={bookingSpecialistId} onChange={(event) => onSpecialistChange(event.target.value)}>
-                  <option value="">Выберите специалиста</option>
-                  {availableSpecialistsForService.map((specialist) => (
-                    <option key={specialist.id} value={String(specialist.id)}>
-                      {specialist.full_name}
-                    </option>
-                  ))}
-                </select>
-                {primarySelectedService && availableSpecialistsForService.length === 0 ? (
-                  <span className={styles.helperError}>Нет специалистов для выбранной услуги</span>
-                ) : null}
-              </label>
-
-              <div className={styles.dateTimeRow}>
-                <label className={styles.fieldBlock}>
-                  <span>Дата</span>
-                  <div className={styles.iconInputWrap}>
-                    <img src="/calendar.svg" alt="" aria-hidden />
-                    <input type="date" value={bookingDate} onChange={(event) => setBookingDate(event.target.value)} className={styles.dateTimeInput} />
-                  </div>
-                </label>
-
-                <label className={styles.fieldBlock}>
-                  <span>Время начала</span>
-                  <div className={styles.iconInputWrap}>
-                    <img src="/schedule.svg" alt="" aria-hidden />
-                    <select
-                      value={bookingStartTime}
-                      onChange={(event) => setBookingStartTime(event.target.value)}
-                      className={styles.dateTimeInput}
-                    >
-                      {(TIME_OPTIONS.includes(bookingStartTime) || !bookingStartTime
-                        ? TIME_OPTIONS
-                        : [...TIME_OPTIONS, bookingStartTime].sort()
-                      ).map((time) => (
-                        <option key={time} value={time}>
-                          {time}
+              {bookingModalMode === "edit" ? (
+                <>
+                  <label className={styles.fieldBlock}>
+                    <span>Специалист</span>
+                    <select value={bookingSpecialistId} onChange={(event) => onSpecialistChange(event.target.value)}>
+                      <option value="">Выберите специалиста</option>
+                      {availableSpecialistsForService.map((specialist) => (
+                        <option key={specialist.id} value={String(specialist.id)}>
+                          {specialist.full_name}
                         </option>
                       ))}
                     </select>
+                    {selectedServicesInModal.length > 0 && availableSpecialistsForService.length === 0 ? (
+                      <span className={styles.helperError}>Нет специалистов для выбранной услуги</span>
+                    ) : null}
+                  </label>
+
+                  <div className={styles.dateTimeRow}>
+                    <label className={styles.fieldBlock}>
+                      <span>Дата</span>
+                      <div className={styles.iconInputWrap}>
+                        <img src="/calendar.svg" alt="" aria-hidden />
+                        <input type="date" value={bookingDate} onChange={(event) => setBookingDate(event.target.value)} className={styles.dateTimeInput} />
+                      </div>
+                    </label>
+
+                    <label className={styles.fieldBlock}>
+                      <span>Время начала</span>
+                      <div className={styles.iconInputWrap}>
+                        <img src="/schedule.svg" alt="" aria-hidden />
+                        <select
+                          value={bookingStartTime}
+                          onChange={(event) => setBookingStartTime(event.target.value)}
+                          className={styles.dateTimeInput}
+                        >
+                          {(TIME_OPTIONS.includes(bookingStartTime) || !bookingStartTime
+                            ? TIME_OPTIONS
+                            : [...TIME_OPTIONS, bookingStartTime].sort()
+                          ).map((time) => (
+                            <option key={time} value={time}>
+                              {time}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </label>
                   </div>
-                </label>
-              </div>
+                </>
+              ) : null}
 
               <button type="button" className={styles.addMoreButton} onClick={addBookingLine}>
                 <span>+</span>

@@ -671,26 +671,12 @@
   gap: 6px;
 }
 
-.serviceLineDragging {
-  opacity: 0.55;
-}
-
-.dragHandle {
-  align-self: flex-end;
-  flex: 0 0 28px;
-  width: 28px;
-  height: 40px;
-  border: 1px solid #e5e7eb;
+.independentServiceLine {
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dbe8e2;
   border-radius: 8px;
-  background: #ffffff;
-  color: #8a949e;
-  font-size: 14px;
-  line-height: 1;
-  cursor: grab;
-}
-
-.dragHandle:active {
-  cursor: grabbing;
+  background: #fbfdfc;
 }
 
 .discountHint {
