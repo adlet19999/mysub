@@ -2858,6 +2858,7 @@ export default function SchedulePage() {
                       const dateKey = formatDateInputValue(date);
                       const isSelected =
                         selectedScheduleDateKeys.includes(dateKey);
+                      const hasPromotion = getPromotionWindows(day).length > 0;
                       return (
                         <button
                           key={dateKey}
@@ -2866,6 +2867,14 @@ export default function SchedulePage() {
                           onClick={() => toggleScheduleDate(date)}
                         >
                           <span>{date.getDate()}</span>
+                          {hasPromotion ? (
+                            <img
+                              src="/subs_icon.svg"
+                              alt=""
+                              className={styles.scheduleCalendarPromotionIcon}
+                              aria-hidden
+                            />
+                          ) : null}
                           <i
                             className={
                               day?.is_day_off

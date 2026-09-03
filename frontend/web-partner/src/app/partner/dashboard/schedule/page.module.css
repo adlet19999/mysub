@@ -1501,6 +1501,7 @@
 }
 
 .scheduleCalendarDay {
+  position: relative;
   width: 48px;
   height: 48px;
   min-height: 0;
@@ -1515,6 +1516,15 @@
   font-family: var(--font-family-base);
   font-size: 11px;
   cursor: pointer;
+}
+
+.scheduleCalendarPromotionIcon {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 15px;
+  height: auto;
+  pointer-events: none;
 }
 
 .scheduleCalendarDay:hover { background: #f3f8f6; }
