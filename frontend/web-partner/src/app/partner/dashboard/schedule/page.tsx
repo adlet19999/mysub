@@ -115,6 +115,7 @@ type CalendarBooking = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1";
 const TENANT_DEFAULT = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public";
+const ALL_SPECIALISTS_VALUE = "__all_specialists__";
 const WEEK_DAYS: WorkingDayKey[] = [
   "mon",
   "tue",
@@ -411,6 +412,39 @@ function getScheduleForDate(
   );
 }
 
+function applySelectedDatesToSchedule(
+  existingSchedule: WorkingDaySchedule[],
+  sourceSchedule: WorkingDaySchedule[],
+  selectedDateKeys: string[],
+): WorkingDaySchedule[] {
+  const selectedDates = new Set(selectedDateKeys);
+  const remainingSchedule = existingSchedule.filter(
+    (item) => !item.date || !selectedDates.has(item.date),
+  );
+  const selectedOverrides = selectedDateKeys.flatMap((dateKey) => {
+    const date = new Date(`${dateKey}T12:00:00`);
+    const sourceDay = getScheduleForDate(sourceSchedule, date);
+    if (!sourceDay) {
+      return [];
+    }
+    return [
+      {
+        ...sourceDay,
+        day: toWorkingDayKey(date),
+        date: dateKey,
+        discount_windows: sourceDay.discount_windows.map((window) => ({
+          ...window,
+        })),
+        breaks: sourceDay.breaks.map((scheduleBreak) => ({
+          ...scheduleBreak,
+        })),
+      },
+    ];
+  });
+
+  return [...remainingSchedule, ...selectedOverrides];
+}
+
 function getSpecialistDayState(
   specialist: Specialist,
   selectedDay: WorkingDayKey,
@@ -637,6 +671,8 @@ export default function SchedulePage() {
   const bulkScheduleModalDrag = useDraggableModal(isBulkScheduleOpen, () =>
     setIsBulkScheduleOpen(false),
   );
+  const isApplyingScheduleToAll =
+    scheduleSpecialistId === ALL_SPECIALISTS_VALUE;
 
   useEffect(() => {
     if (!isDatePickerOpen) {
@@ -1696,25 +1732,31 @@ export default function SchedulePage() {
       (item) => String(item.id) === specialistId,
     );
     setScheduleSpecialistId(specialistId);
-    setBulkScheduleDraft(
-      specialist
-        ? normalizeWorkingSchedule(specialist.working_schedule)
-        : defaultWorkingSchedule(),
-    );
+    if (specialist) {
+      setBulkScheduleDraft(normalizeWorkingSchedule(specialist.working_schedule));
+    }
     setBulkScheduleError("");
   }
 
   function hasActiveBookingsOnSelectedDates() {
-    const specialist = activeSpecialists.find(
-      (item) => String(item.id) === scheduleSpecialistId,
+    const targetSpecialists = isApplyingScheduleToAll
+      ? activeSpecialists
+      : activeSpecialists.filter(
+          (item) => String(item.id) === scheduleSpecialistId,
+        );
+    const specialistNames = new Set(
+      targetSpecialists.map((specialist) =>
+        specialist.full_name.trim().toLowerCase(),
+      ),
     );
-    if (!specialist) {
+    if (!specialistNames.size) {
       return false;
     }
-    const specialistName = specialist.full_name.trim().toLowerCase();
     return bookings.some((booking) => {
       if (
-        (booking.manager_name || "").trim().toLowerCase() !== specialistName
+        !specialistNames.has(
+          (booking.manager_name || "").trim().toLowerCase(),
+        )
       ) {
         return false;
       }
@@ -1879,8 +1921,17 @@ export default function SchedulePage() {
   }
 
   async function submitBulkSchedule() {
-    if (!scheduleSpecialistId || !partnerEmail || isSavingBulkSchedule) {
-      setBulkScheduleError("Выберите специалиста");
+    const targetSpecialists = isApplyingScheduleToAll
+      ? activeSpecialists
+      : activeSpecialists.filter(
+          (item) => String(item.id) === scheduleSpecialistId,
+        );
+    if (!partnerEmail || isSavingBulkSchedule || !targetSpecialists.length) {
+      setBulkScheduleError(
+        isApplyingScheduleToAll
+          ? "Нет активных специалистов для применения графика"
+          : "Выберите специалиста",
+      );
       return;
     }
     const validationError = validateBulkSchedule();
@@ -1891,20 +1942,45 @@ export default function SchedulePage() {
 
     setIsSavingBulkSchedule(true);
     try {
-      const response = await fetch(
-        `${API_BASE}/partner/specialists/${scheduleSpecialistId}/`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Tenant": tenant,
-            "X-Partner-Email": partnerEmail,
-          },
-          body: JSON.stringify({ working_schedule: bulkScheduleDraft }),
-        },
+      const results = await Promise.all(
+        targetSpecialists.map(async (specialist) => {
+          const workingSchedule = isApplyingScheduleToAll
+            ? applySelectedDatesToSchedule(
+                normalizeWorkingSchedule(specialist.working_schedule),
+                bulkScheduleDraft,
+                selectedScheduleDateKeys,
+              )
+            : bulkScheduleDraft;
+          try {
+            const response = await fetch(
+              `${API_BASE}/partner/specialists/${specialist.id}/`,
+              {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Tenant": tenant,
+                  "X-Partner-Email": partnerEmail,
+                },
+                body: JSON.stringify({ working_schedule: workingSchedule }),
+              },
+            );
+            return { specialist, ok: response.ok };
+          } catch {
+            return { specialist, ok: false };
+          }
+        }),
       );
-      if (!response.ok) {
-        setBulkScheduleError("Не удалось сохранить график");
+
+      const failedSpecialists = results
+        .filter((result) => !result.ok)
+        .map((result) => result.specialist.full_name);
+      if (failedSpecialists.length) {
+        setBulkScheduleError(
+          failedSpecialists.length === targetSpecialists.length
+            ? "Не удалось сохранить график"
+            : `График не удалось сохранить у: ${failedSpecialists.join(", ")}`,
+        );
+        await loadDirectory();
         return;
       }
       setIsBulkScheduleOpen(false);
@@ -2796,13 +2872,20 @@ export default function SchedulePage() {
             </header>
             <div className={styles.bulkScheduleBody}>
               <label className={styles.scheduleSpecialistSelect}>
-                <span>Выберите специалиста</span>
+                <span>
+                  {isApplyingScheduleToAll
+                    ? "График для всех специалистов"
+                    : "Выберите специалиста"}
+                </span>
                 <select
                   value={scheduleSpecialistId}
                   onChange={(event) =>
                     changeScheduleSpecialist(event.target.value)
                   }
                 >
+                  <option value={ALL_SPECIALISTS_VALUE}>
+                    Все специалисты
+                  </option>
                   {activeSpecialists.map((specialist) => (
                     <option key={specialist.id} value={String(specialist.id)}>
                       {specialist.full_name}
@@ -3186,7 +3269,11 @@ export default function SchedulePage() {
                 onClick={() => void submitBulkSchedule()}
                 disabled={isSavingBulkSchedule}
               >
-                {isSavingBulkSchedule ? "Сохранение..." : "Применить график"}
+                {isSavingBulkSchedule
+                  ? "Сохранение..."
+                  : isApplyingScheduleToAll
+                    ? "Применить всем"
+                    : "Применить график"}
               </button>
             </footer>
           </section>

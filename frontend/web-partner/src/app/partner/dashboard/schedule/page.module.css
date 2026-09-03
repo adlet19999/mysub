@@ -1438,21 +1438,6 @@
   font-weight: 400;
 }
 
-.scheduleEditorLayout {
-  display: grid;
-  grid-template-columns: max-content 286px;
-  gap: 14px;
-  align-items: start;
-  justify-content: start;
-}
-
-.scheduleCalendar,
-.scheduleDayEditor {
-  border: 1px solid #e2e8e6;
-  border-radius: 7px;
-  background: #fff;
-}
-
 .scheduleCalendar {
   width: fit-content;
   padding: 14px 12px 12px;
