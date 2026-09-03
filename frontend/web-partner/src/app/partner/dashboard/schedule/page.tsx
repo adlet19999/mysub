@@ -149,6 +149,20 @@ const RUS_MONTH: string[] = [
   "ноября",
   "декабря",
 ];
+const RUS_MONTH_SHORT: string[] = [
+  "янв.",
+  "фев.",
+  "мар.",
+  "апр.",
+  "мая",
+  "июн.",
+  "июл.",
+  "авг.",
+  "сент.",
+  "окт.",
+  "нояб.",
+  "дек.",
+];
 
 const DEFAULT_SCHEDULE_START_HOUR = 9;
 const DEFAULT_SCHEDULE_END_HOUR = 20;
@@ -213,6 +227,38 @@ function toWorkingDayKey(date: Date): WorkingDayKey {
 
 function formatDateTitle(date: Date) {
   return `${date.getDate()} ${RUS_MONTH[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+function getWeekDates(date: Date): Date[] {
+  const weekStart = new Date(date);
+  weekStart.setHours(12, 0, 0, 0);
+  weekStart.setDate(
+    weekStart.getDate() - ((weekStart.getDay() + 6) % WEEK_DAYS.length),
+  );
+
+  return Array.from({ length: WEEK_DAYS.length }, (_, index) => {
+    const weekDate = new Date(weekStart);
+    weekDate.setDate(weekStart.getDate() + index);
+    return weekDate;
+  });
+}
+
+function formatWeekTitle(weekDates: Date[]): string {
+  const weekStart = weekDates[0];
+  const weekEnd = weekDates[weekDates.length - 1];
+  if (!weekStart || !weekEnd) {
+    return "Неделя";
+  }
+  if (
+    weekStart.getFullYear() === weekEnd.getFullYear() &&
+    weekStart.getMonth() === weekEnd.getMonth()
+  ) {
+    return `${weekStart.getDate()}-${weekEnd.getDate()} ${RUS_MONTH[weekStart.getMonth()]} ${weekStart.getFullYear()}`;
+  }
+  if (weekStart.getFullYear() === weekEnd.getFullYear()) {
+    return `${weekStart.getDate()} ${RUS_MONTH_SHORT[weekStart.getMonth()]} - ${weekEnd.getDate()} ${RUS_MONTH_SHORT[weekEnd.getMonth()]} ${weekStart.getFullYear()}`;
+  }
+  return `${weekStart.getDate()} ${RUS_MONTH_SHORT[weekStart.getMonth()]} ${weekStart.getFullYear()} - ${weekEnd.getDate()} ${RUS_MONTH_SHORT[weekEnd.getMonth()]} ${weekEnd.getFullYear()}`;
 }
 
 function formatDateInputValue(date: Date) {
@@ -627,6 +673,9 @@ export default function SchedulePage() {
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isDeletingBooking, setIsDeletingBooking] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [scheduleViewSpecialistId, setScheduleViewSpecialistId] = useState(
+    ALL_SPECIALISTS_VALUE,
+  );
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [bookingModalMode, setBookingModalMode] = useState<"create" | "edit">(
     "create",
@@ -712,6 +761,17 @@ export default function SchedulePage() {
         .sort((a, b) => a.full_name.localeCompare(b.full_name)),
     [specialists],
   );
+
+  const selectedScheduleSpecialist = useMemo(
+    () =>
+      activeSpecialists.find(
+        (specialist) =>
+          String(specialist.id) === scheduleViewSpecialistId,
+      ) ?? null,
+    [activeSpecialists, scheduleViewSpecialistId],
+  );
+  const isWeeklyScheduleView = Boolean(selectedScheduleSpecialist);
+  const weekDates = useMemo(() => getWeekDates(selectedDate), [selectedDate]);
 
   const selectedDay = toWorkingDayKey(selectedDate);
 
@@ -963,23 +1023,46 @@ export default function SchedulePage() {
     [activeSpecialists, detailsBooking],
   );
 
-  const selectedDayScheduleBySpecialist = useMemo(() => {
-    const map = new Map<number, WorkingDaySchedule | undefined>();
-    for (const specialist of activeSpecialists) {
+  const scheduleColumns = useMemo(() => {
+    if (isWeeklyScheduleView && selectedScheduleSpecialist) {
+      return weekDates.map((date) => ({
+        key: `${selectedScheduleSpecialist.id}-${formatDateInputValue(date)}`,
+        specialist: selectedScheduleSpecialist,
+        date,
+      }));
+    }
+
+    const dateKey = formatDateInputValue(selectedDate);
+    return activeSpecialists.map((specialist) => ({
+      key: `${specialist.id}-${dateKey}`,
+      specialist,
+      date: selectedDate,
+    }));
+  }, [
+    activeSpecialists,
+    isWeeklyScheduleView,
+    selectedDate,
+    selectedScheduleSpecialist,
+    weekDates,
+  ]);
+
+  const scheduleDayByColumnKey = useMemo(() => {
+    const map = new Map<string, WorkingDaySchedule | undefined>();
+    for (const column of scheduleColumns) {
       const daySchedule = getScheduleForDate(
-        normalizeWorkingSchedule(specialist.working_schedule),
-        selectedDate,
+        normalizeWorkingSchedule(column.specialist.working_schedule),
+        column.date,
       );
-      map.set(specialist.id, daySchedule);
+      map.set(column.key, daySchedule);
     }
     return map;
-  }, [activeSpecialists, selectedDay]);
+  }, [scheduleColumns]);
 
   const scheduleHours = useMemo(() => {
     let earliestWorkStart: number | null = null;
     let latestWorkEnd: number | null = null;
 
-    for (const daySchedule of selectedDayScheduleBySpecialist.values()) {
+    for (const daySchedule of scheduleDayByColumnKey.values()) {
       if (!daySchedule || daySchedule.is_day_off) {
         continue;
       }
@@ -1022,11 +1105,10 @@ export default function SchedulePage() {
       ),
       endHour,
     };
-  }, [selectedDayScheduleBySpecialist]);
+  }, [scheduleDayByColumnKey]);
 
   const bookingsBySlot = useMemo(() => {
     const map = new Map<string, CalendarBooking[]>();
-    const selectedDateKey = formatDateInputValue(selectedDate);
     const serviceDurationByName = new Map<string, number>();
     for (const service of services) {
       const duration =
@@ -1058,13 +1140,17 @@ export default function SchedulePage() {
         specialist,
       );
     }
+    const columnKeyBySpecialistAndDate = new Map<string, string>();
+    for (const column of scheduleColumns) {
+      columnKeyBySpecialistAndDate.set(
+        `${column.specialist.id}-${formatDateInputValue(column.date)}`,
+        column.key,
+      );
+    }
 
     for (const booking of bookings) {
       const parsedStartsAt = parseBookingDateTime(booking.starts_at);
       if (!parsedStartsAt) {
-        continue;
-      }
-      if (parsedStartsAt.dateKey !== selectedDateKey) {
         continue;
       }
 
@@ -1075,7 +1161,12 @@ export default function SchedulePage() {
       if (!specialist) {
         continue;
       }
-      const slotOwner = String(specialist.id);
+      const columnKey = columnKeyBySpecialistAndDate.get(
+        `${specialist.id}-${parsedStartsAt.dateKey}`,
+      );
+      if (!columnKey) {
+        continue;
+      }
 
       const hour = parsedStartsAt.hour;
       const minutes = parsedStartsAt.minutes;
@@ -1083,7 +1174,7 @@ export default function SchedulePage() {
         continue;
       }
 
-      const key = `${hour}-${slotOwner}`;
+      const key = `${hour}-${columnKey}`;
       const list = map.get(key) ?? [];
       const listedNames = parseServiceNames(booking.service_name);
       const durationMinutes = listedNames.length
@@ -1100,7 +1191,13 @@ export default function SchedulePage() {
     }
 
     return map;
-  }, [bookings, selectedDate, activeSpecialists, scheduleHours]);
+  }, [
+    bookings,
+    services,
+    activeSpecialists,
+    scheduleColumns,
+    scheduleHours,
+  ]);
 
   function formatBookingTime(value: string) {
     const parsed = parseBookingDateTime(value);
@@ -2061,6 +2158,21 @@ export default function SchedulePage() {
         </div>
 
         <div className={styles.actions}>
+          <select
+            className={styles.scheduleViewFilter}
+            value={scheduleViewSpecialistId}
+            onChange={(event) =>
+              setScheduleViewSpecialistId(event.target.value)
+            }
+            aria-label="Отображение расписания"
+          >
+            <option value={ALL_SPECIALISTS_VALUE}>Все специалисты</option>
+            {activeSpecialists.map((specialist) => (
+              <option key={specialist.id} value={String(specialist.id)}>
+                {specialist.full_name}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
             className={styles.settingsButton}
@@ -2085,8 +2197,10 @@ export default function SchedulePage() {
         <button
           type="button"
           className={styles.dateArrow}
-          onClick={() => moveDate(-1)}
-          aria-label="Предыдущий день"
+          onClick={() => moveDate(isWeeklyScheduleView ? -7 : -1)}
+          aria-label={
+            isWeeklyScheduleView ? "Предыдущая неделя" : "Предыдущий день"
+          }
         >
           &lt;
         </button>
@@ -2096,14 +2210,24 @@ export default function SchedulePage() {
           onClick={openDatePicker}
           aria-label="Выбрать дату"
         >
-          <p className={styles.dateTitle}>{formatDateTitle(selectedDate)}</p>
-          <p className={styles.dateWeekday}>{RUS_WEEKDAY[selectedDay]}</p>
+          <p className={styles.dateTitle}>
+            {isWeeklyScheduleView
+              ? formatWeekTitle(weekDates)
+              : formatDateTitle(selectedDate)}
+          </p>
+          <p className={styles.dateWeekday}>
+            {isWeeklyScheduleView
+              ? "Понедельник - Воскресенье"
+              : RUS_WEEKDAY[selectedDay]}
+          </p>
         </button>
         <button
           type="button"
           className={styles.dateArrow}
-          onClick={() => moveDate(1)}
-          aria-label="Следующий день"
+          onClick={() => moveDate(isWeeklyScheduleView ? 7 : 1)}
+          aria-label={
+            isWeeklyScheduleView ? "Следующая неделя" : "Следующий день"
+          }
         >
           &gt;
         </button>
@@ -2193,30 +2317,41 @@ export default function SchedulePage() {
           </div>
         </div>
 
-        <div className={styles.gridSurface}>
+        <div
+          className={`${styles.gridSurface} ${isWeeklyScheduleView ? styles.weeklyGridSurface : ""}`}
+        >
           <div
             className={styles.grid}
             style={{
-              gridTemplateColumns: `repeat(${Math.max(activeSpecialists.length, 1)}, minmax(180px, 1fr))`,
+              gridTemplateColumns: `repeat(${Math.max(scheduleColumns.length, 1)}, minmax(${isWeeklyScheduleView ? 96 : 180}px, 1fr))`,
             }}
           >
-            {activeSpecialists.map((specialist) => (
+            {scheduleColumns.map((column) => (
               <div
-                key={specialist.id}
+                key={`header-${column.key}`}
                 className={`${styles.headerCell} ${styles.sticky}`}
               >
-                <strong>{specialist.full_name}</strong>
+                {isWeeklyScheduleView ? (
+                  <>
+                    <strong>{RUS_WEEKDAY[toWorkingDayKey(column.date)]}</strong>
+                    <span className={styles.weekColumnDate}>
+                      {`${column.date.getDate()} ${RUS_MONTH_SHORT[column.date.getMonth()]}`}
+                    </span>
+                  </>
+                ) : (
+                  <strong>{column.specialist.full_name}</strong>
+                )}
               </div>
             ))}
 
             {scheduleHours.hours.map((hour) => {
               return (
                 <Fragment key={`row-${hour}`}>
-                  {activeSpecialists.map((specialist) => {
+                  {scheduleColumns.map((column) => {
                     const slotEntries =
-                      bookingsBySlot.get(`${hour}-${specialist.id}`) || [];
-                    const daySchedule = selectedDayScheduleBySpecialist.get(
-                      specialist.id,
+                      bookingsBySlot.get(`${hour}-${column.key}`) || [];
+                    const daySchedule = scheduleDayByColumnKey.get(
+                      column.key,
                     );
                     const slotState = getSpecialistSlotState(daySchedule, hour);
                     const slotStateClass =
@@ -2230,7 +2365,7 @@ export default function SchedulePage() {
 
                     return (
                       <div
-                        key={`slot-${hour}-${specialist.id}`}
+                        key={`slot-${hour}-${column.key}`}
                         className={`${styles.slotCell} ${slotStateClass} ${slotEntries.length ? styles.slotCellWithBooking : ""}`}
                       >
                         {!slotEntries.length && slotState.tone === "break" ? (

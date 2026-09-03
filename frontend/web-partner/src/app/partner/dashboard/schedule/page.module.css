@@ -38,6 +38,30 @@
   gap: 12px;
 }
 
+.scheduleViewFilter {
+  height: 36px;
+  min-width: 190px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  appearance: none;
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  color: #1e1e1e;
+  font-family: var(--font-family-base);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  padding: 0 34px 0 12px;
+  cursor: pointer;
+}
+
+.scheduleViewFilter:focus-visible {
+  outline: 2px solid #6da893;
+  outline-offset: 2px;
+}
+
 .settingsButton,
 .addButton {
   height: 36px;
@@ -298,6 +322,11 @@
   overflow: hidden;
 }
 
+.weeklyGridSurface {
+  min-width: 0;
+  overflow: visible;
+}
+
 .grid {
   min-width: 100%;
   display: grid;
@@ -333,6 +362,14 @@
   font-size: 11px;
   line-height: 16px;
   font-weight: 500;
+}
+
+.weekColumnDate {
+  color: #6b7280;
+  font-family: var(--font-family-base);
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 400;
 }
 
 .specialistDescription {
@@ -1812,6 +1849,7 @@
     justify-content: stretch;
   }
 
+  .scheduleViewFilter,
   .settingsButton,
   .addButton {
     width: 100%;
