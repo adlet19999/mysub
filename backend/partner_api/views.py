@@ -24,6 +24,22 @@ from common_api.views import normalize_ru_phone, PHONE_RU_RE
 from .models import Booking, BusinessOffer, Category, Manager, Service, ServiceKind, Specialist, SpecialistService
 
 
+CLOSED_BOOKING_STATUSES = {
+	"cancelled",
+	"canceled",
+	"отменен",
+	"отменена",
+	"completed",
+	"done",
+	"завершен",
+	"завершена",
+	"no_show",
+	"no-show",
+	"missed",
+	"неявка",
+}
+
+
 def tenant_from_request(request) -> str:
 	return (request.headers.get("X-Tenant") or "public").strip() or "public"
 
@@ -763,7 +779,7 @@ def has_client_booking_overlap(
 	for existing in items:
 		if normalize_ru_phone(existing.client_phone) != phone:
 			continue
-		if existing.status.strip().lower() in {"cancelled", "canceled", "отменен", "отменена", "completed", "done", "завершен", "завершена", "no_show", "no-show", "missed", "неявка"}:
+		if existing.status.strip().lower() in CLOSED_BOOKING_STATUSES:
 			continue
 		existing_start = to_aware_datetime(existing.starts_at)
 		if existing_start is None:
@@ -774,6 +790,25 @@ def has_client_booking_overlap(
 			return True
 
 	return False
+
+
+def has_active_bookings_for_specialist(
+	tenant: str,
+	specialist_name: str,
+	partner_profile=None,
+):
+	name = str(specialist_name or "").strip()
+	if not name:
+		return False
+
+	items = Booking.objects.filter(tenant_slug=tenant, manager_name__iexact=name)
+	if partner_profile is not None:
+		items = items.filter(partner_profile=partner_profile)
+
+	return any(
+		(item.status or "").strip().lower() not in CLOSED_BOOKING_STATUSES
+		for item in items.only("status")
+	)
 
 
 def serialize_partner_profile(profile: PartnerProfile):
@@ -1581,7 +1616,6 @@ class ManagerDetailView(APIView):
 			item.photo_url = photo_url
 			item.photo_base64 = ""
 
-		is_active = request.data.get("is_active")
 		if is_active is not None:
 			item.is_active = parse_bool(is_active, item.is_active)
 			manager_user = User.objects.filter(Q(username__iexact=item.email) | Q(email__iexact=item.email)).first()
@@ -1768,6 +1802,23 @@ class SpecialistDetailView(APIView):
 		if not item:
 			return Response({"message": "Специалист не найден"}, status=404)
 
+		is_active = request.data.get("is_active")
+		requested_is_active = parse_bool(is_active, item.is_active)
+		if (
+			is_active is not None
+			and item.is_active
+			and not requested_is_active
+			and has_active_bookings_for_specialist(
+				tenant,
+				item.full_name,
+				partner_profile=partner_profile,
+			)
+		):
+			return Response(
+				{"message": "Нельзя архивировать специалиста: у него есть незавершенные записи"},
+				status=409,
+			)
+
 		full_name = request.data.get("full_name")
 		if full_name is not None:
 			value = str(full_name).strip()
@@ -1805,9 +1856,8 @@ class SpecialistDetailView(APIView):
 				return Response({"message": schedule_error}, status=400)
 			item.working_schedule = normalized_schedule
 
-		is_active = request.data.get("is_active")
 		if is_active is not None:
-			item.is_active = parse_bool(is_active, item.is_active)
+			item.is_active = requested_is_active
 
 		item.save()
 		if item.photo_url != previous_photo_url:

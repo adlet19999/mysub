@@ -270,3 +270,71 @@ class BookingPricingApiTests(TestCase):
 		self.assertEqual(updated.data["final_price"], "1000.00")
 		booking = Booking.objects.get(id=created.data["id"])
 		self.assertEqual(booking.final_price, Decimal("1000.00"))
+
+
+class SpecialistArchivingApiTests(TestCase):
+	def setUp(self):
+		user = User.objects.create_user(
+			username="partner@example.com",
+			email="partner@example.com",
+		)
+		self.partner_profile = PartnerProfile.objects.create(
+			user=user,
+			phone="+77000000000",
+			user_type="partner",
+		)
+		self.specialist = Specialist.objects.create(
+			tenant_slug="public",
+			partner_profile=self.partner_profile,
+			full_name="Аружан",
+			phone="+77000000001",
+		)
+		self.client = APIClient()
+		self.headers = {
+			"HTTP_X_TENANT": "public",
+			"HTTP_X_PARTNER_EMAIL": "partner@example.com",
+		}
+
+	def create_booking(self, status="booked"):
+		return Booking.objects.create(
+			tenant_slug="public",
+			partner_profile=self.partner_profile,
+			service_name="Стрижка",
+			manager_name=self.specialist.full_name,
+			starts_at=timezone.make_aware(datetime(2026, 4, 20, 10)),
+			client_name="Клиент",
+			client_phone="+77000000000",
+			status=status,
+		)
+
+	def test_specialist_with_active_booking_may_not_be_archived(self):
+		self.create_booking()
+
+		response = self.client.patch(
+			f"/api/v1/partner/specialists/{self.specialist.id}/",
+			{"is_active": False},
+			format="json",
+			**self.headers,
+		)
+
+		self.assertEqual(response.status_code, 409)
+		self.assertEqual(
+			response.data["message"],
+			"Нельзя архивировать специалиста: у него есть незавершенные записи",
+		)
+		self.specialist.refresh_from_db()
+		self.assertTrue(self.specialist.is_active)
+
+	def test_specialist_with_completed_booking_may_be_archived(self):
+		self.create_booking(status="completed")
+
+		response = self.client.patch(
+			f"/api/v1/partner/specialists/{self.specialist.id}/",
+			{"is_active": False},
+			format="json",
+			**self.headers,
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.specialist.refresh_from_db()
+		self.assertFalse(self.specialist.is_active)

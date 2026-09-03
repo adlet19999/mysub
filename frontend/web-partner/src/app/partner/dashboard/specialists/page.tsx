@@ -658,6 +658,8 @@ export default function SpecialistsPage() {
       body: JSON.stringify({ is_active: !archiveTarget.is_active }),
     });
     if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+      showToast(payload?.message || "Не удалось изменить статус специалиста", "error");
       return;
     }
 
