@@ -2409,7 +2409,7 @@ export default function SchedulePage() {
                       </label>
 
                       <label
-                        className={`${styles.fieldBlock} ${styles.durationField}`}
+                        className={`${styles.fieldBlock} ${styles.durationField} ${bookingLines.length > 1 ? styles.expandedDurationField : ""}`}
                       >
                         <span>Длительность</span>
                         <input
@@ -2420,13 +2420,6 @@ export default function SchedulePage() {
                           readOnly
                         />
                       </label>
-
-                      {bookingLines.length > 1 ? (
-                        <span
-                          className={styles.removeLineSpacer}
-                          aria-hidden
-                        />
-                      ) : null}
                     </div>
 
                     <div className={styles.dateTimeRow}>
