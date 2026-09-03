@@ -231,8 +231,10 @@
 
 .tableWrap {
   position: relative;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
   min-width: 0;
+  padding-bottom: 7px;
   display: flex;
   align-items: flex-start;
   gap: 0;
