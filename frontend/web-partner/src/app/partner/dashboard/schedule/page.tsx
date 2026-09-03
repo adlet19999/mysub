@@ -2233,7 +2233,11 @@ export default function SchedulePage() {
           className={styles.modalOverlay}
           role="dialog"
           aria-modal="true"
-          aria-label="Добавить запись"
+          aria-label={
+            bookingModalMode === "edit"
+              ? "Редактировать запись"
+              : "Добавить запись"
+          }
         >
           <form
             className={styles.bookingModal}
@@ -2308,11 +2312,25 @@ export default function SchedulePage() {
                 const availableSpecialists = getSpecialistsForService(
                   line.serviceId,
                 );
+                const lineSpecialists =
+                  bookingModalMode === "edit"
+                    ? availableSpecialistsForService
+                    : availableSpecialists;
+                const lineSpecialistId =
+                  bookingModalMode === "edit"
+                    ? bookingSpecialistId
+                    : line.specialistId;
+                const lineDate =
+                  bookingModalMode === "edit" ? bookingDate : line.date;
+                const lineStartTime =
+                  bookingModalMode === "edit"
+                    ? bookingStartTime
+                    : line.startTime;
 
                 return (
                   <div
                     key={line.id}
-                    className={`${styles.serviceLine} ${bookingModalMode === "create" ? styles.independentServiceLine : ""}`}
+                    className={`${styles.serviceLine} ${styles.independentServiceLine}`}
                   >
                     <div className={styles.serviceRow}>
                       <label className={styles.fieldBlock}>
@@ -2362,102 +2380,103 @@ export default function SchedulePage() {
                       ) : null}
                     </div>
 
-                    {bookingModalMode === "create" ? (
-                      <>
-                        <div className={styles.specialistRow}>
-                          <label className={styles.fieldBlock}>
-                            <span>Специалист</span>
-                            <select
-                              value={line.specialistId}
-                              onChange={(event) =>
-                                onSpecialistChange(event.target.value, line.id)
-                              }
+                    <div className={styles.specialistRow}>
+                      <label className={styles.fieldBlock}>
+                        <span>Специалист</span>
+                        <select
+                          value={lineSpecialistId}
+                          onChange={(event) =>
+                            bookingModalMode === "edit"
+                              ? onSpecialistChange(event.target.value)
+                              : onSpecialistChange(event.target.value, line.id)
+                          }
+                        >
+                          <option value="">Выберите специалиста</option>
+                          {lineSpecialists.map((specialist) => (
+                            <option
+                              key={specialist.id}
+                              value={String(specialist.id)}
                             >
-                              <option value="">Выберите специалиста</option>
-                              {availableSpecialists.map((specialist) => (
-                                <option
-                                  key={specialist.id}
-                                  value={String(specialist.id)}
-                                >
-                                  {specialist.full_name}
-                                </option>
-                              ))}
-                            </select>
-                            {line.serviceId &&
-                            availableSpecialists.length === 0 ? (
-                              <span className={styles.helperError}>
-                                Нет специалистов для выбранной услуги
-                              </span>
-                            ) : null}
-                          </label>
+                              {specialist.full_name}
+                            </option>
+                          ))}
+                        </select>
+                        {line.serviceId && lineSpecialists.length === 0 ? (
+                          <span className={styles.helperError}>
+                            Нет специалистов для выбранной услуги
+                          </span>
+                        ) : null}
+                      </label>
 
-                          <label
-                            className={`${styles.fieldBlock} ${styles.durationField}`}
-                          >
-                            <span>Длительность</span>
-                            <input
-                              value={
-                                selectedService ? `${durationMinutes} мин` : ""
-                              }
-                              placeholder="-- мин"
-                              readOnly
-                            />
-                          </label>
+                      <label
+                        className={`${styles.fieldBlock} ${styles.durationField}`}
+                      >
+                        <span>Длительность</span>
+                        <input
+                          value={
+                            selectedService ? `${durationMinutes} мин` : ""
+                          }
+                          placeholder="-- мин"
+                          readOnly
+                        />
+                      </label>
 
-                          {bookingLines.length > 1 ? (
-                            <span
-                              className={styles.removeLineSpacer}
-                              aria-hidden
-                            />
-                          ) : null}
-                        </div>
+                      {bookingLines.length > 1 ? (
+                        <span
+                          className={styles.removeLineSpacer}
+                          aria-hidden
+                        />
+                      ) : null}
+                    </div>
 
-                        <div className={styles.dateTimeRow}>
-                          <label className={styles.fieldBlock}>
-                            <span>Дата</span>
-                            <div className={styles.iconInputWrap}>
-                              <img src="/calendar.svg" alt="" aria-hidden />
-                              <input
-                                type="date"
-                                value={line.date}
-                                onChange={(event) =>
-                                  updateBookingLine(line.id, {
+                    <div className={styles.dateTimeRow}>
+                      <label className={styles.fieldBlock}>
+                        <span>Дата</span>
+                        <div className={styles.iconInputWrap}>
+                          <img src="/calendar.svg" alt="" aria-hidden />
+                          <input
+                            type="date"
+                            value={lineDate}
+                            onChange={(event) =>
+                              bookingModalMode === "edit"
+                                ? setBookingDate(event.target.value)
+                                : updateBookingLine(line.id, {
                                     date: event.target.value,
                                   })
-                                }
-                                className={styles.dateTimeInput}
-                              />
-                            </div>
-                          </label>
+                            }
+                            className={styles.dateTimeInput}
+                          />
+                        </div>
+                      </label>
 
-                          <label className={styles.fieldBlock}>
-                            <span>Время начала</span>
-                            <div className={styles.iconInputWrap}>
-                              <img src="/schedule.svg" alt="" aria-hidden />
-                              <select
-                                value={line.startTime}
-                                onChange={(event) =>
-                                  updateBookingLine(line.id, {
+                      <label className={styles.fieldBlock}>
+                        <span>Время начала</span>
+                        <div className={styles.iconInputWrap}>
+                          <img src="/schedule.svg" alt="" aria-hidden />
+                          <select
+                            value={lineStartTime}
+                            onChange={(event) =>
+                              bookingModalMode === "edit"
+                                ? setBookingStartTime(event.target.value)
+                                : updateBookingLine(line.id, {
                                     startTime: event.target.value,
                                   })
-                                }
-                                className={styles.dateTimeInput}
-                              >
-                                {(TIME_OPTIONS.includes(line.startTime) ||
-                                !line.startTime
-                                  ? TIME_OPTIONS
-                                  : [...TIME_OPTIONS, line.startTime].sort()
-                                ).map((time) => (
-                                  <option key={time} value={time}>
-                                    {time}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          </label>
+                            }
+                            className={styles.dateTimeInput}
+                          >
+                            {(TIME_OPTIONS.includes(lineStartTime) ||
+                            !lineStartTime
+                              ? TIME_OPTIONS
+                              : [...TIME_OPTIONS, lineStartTime].sort()
+                            ).map((time) => (
+                              <option key={time} value={time}>
+                                {time}
+                              </option>
+                            ))}
+                          </select>
                         </div>
-                      </>
-                    ) : null}
+                      </label>
+                    </div>
 
                     {lineDiscount && lineDiscount.discountPercent > 0 ? (
                       <p className={styles.discountHint}>
@@ -2469,77 +2488,6 @@ export default function SchedulePage() {
                   </div>
                 );
               })}
-
-              {bookingModalMode === "edit" ? (
-                <>
-                  <label className={styles.fieldBlock}>
-                    <span>Специалист</span>
-                    <select
-                      value={bookingSpecialistId}
-                      onChange={(event) =>
-                        onSpecialistChange(event.target.value)
-                      }
-                    >
-                      <option value="">Выберите специалиста</option>
-                      {availableSpecialistsForService.map((specialist) => (
-                        <option
-                          key={specialist.id}
-                          value={String(specialist.id)}
-                        >
-                          {specialist.full_name}
-                        </option>
-                      ))}
-                    </select>
-                    {selectedServicesInModal.length > 0 &&
-                    availableSpecialistsForService.length === 0 ? (
-                      <span className={styles.helperError}>
-                        Нет специалистов для выбранной услуги
-                      </span>
-                    ) : null}
-                  </label>
-
-                  <div className={styles.dateTimeRow}>
-                    <label className={styles.fieldBlock}>
-                      <span>Дата</span>
-                      <div className={styles.iconInputWrap}>
-                        <img src="/calendar.svg" alt="" aria-hidden />
-                        <input
-                          type="date"
-                          value={bookingDate}
-                          onChange={(event) =>
-                            setBookingDate(event.target.value)
-                          }
-                          className={styles.dateTimeInput}
-                        />
-                      </div>
-                    </label>
-
-                    <label className={styles.fieldBlock}>
-                      <span>Время начала</span>
-                      <div className={styles.iconInputWrap}>
-                        <img src="/schedule.svg" alt="" aria-hidden />
-                        <select
-                          value={bookingStartTime}
-                          onChange={(event) =>
-                            setBookingStartTime(event.target.value)
-                          }
-                          className={styles.dateTimeInput}
-                        >
-                          {(TIME_OPTIONS.includes(bookingStartTime) ||
-                          !bookingStartTime
-                            ? TIME_OPTIONS
-                            : [...TIME_OPTIONS, bookingStartTime].sort()
-                          ).map((time) => (
-                            <option key={time} value={time}>
-                              {time}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </label>
-                  </div>
-                </>
-              ) : null}
 
               <button
                 type="button"
