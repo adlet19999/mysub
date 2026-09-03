@@ -1519,6 +1519,12 @@
 
 .scheduleCalendarDay:hover { background: #f3f8f6; }
 .scheduleCalendarDaySelected { border-color: #1f6b52; color: #14634d; font-weight: 600; }
+.scheduleCalendarDay .workingDayDot,
+.scheduleCalendarDay .dayOffDot {
+  width: 8px;
+  height: 8px;
+}
+
 .workingDayDot,
 .dayOffDot {
   display: inline-block;
