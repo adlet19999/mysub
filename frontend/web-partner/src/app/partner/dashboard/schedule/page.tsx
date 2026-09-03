@@ -1,6 +1,14 @@
 "use client";
 
-import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Plus, Trash2 } from "lucide-react";
 import styles from "./page.module.css";
 import { formatRuPhone } from "../../../../lib/phone";
 import { useDraggableModal } from "../../../../lib/useDraggableModal";
@@ -9,6 +17,11 @@ type WorkingDayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 
 type ScheduleBreak = {
   name: string;
+  start_time: string;
+  end_time: string;
+};
+
+type PromotionWindow = {
   start_time: string;
   end_time: string;
 };
@@ -23,6 +36,7 @@ type WorkingDaySchedule = {
   break_end: string;
   discount_start: string;
   discount_end: string;
+  discount_windows: PromotionWindow[];
   breaks: ScheduleBreak[];
 };
 
@@ -64,6 +78,20 @@ type Booking = {
   client_name: string;
   client_phone: string;
   status: string;
+  base_price?: string;
+  discount_amount?: string;
+  final_price?: string;
+  pricing_details?: BookingPricingDetail[];
+};
+
+type BookingPricingDetail = {
+  service_id: number;
+  service_name: string;
+  base_price: string;
+  discount_percent: number;
+  discount_amount: string;
+  final_price: string;
+  discount_window: PromotionWindow | null;
 };
 
 type BookingStatusTone = "success" | "warning" | "danger" | "muted";
@@ -87,7 +115,15 @@ type CalendarBooking = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1";
 const TENANT_DEFAULT = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public";
-const WEEK_DAYS: WorkingDayKey[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+const WEEK_DAYS: WorkingDayKey[] = [
+  "mon",
+  "tue",
+  "wed",
+  "thu",
+  "fri",
+  "sat",
+  "sun",
+];
 
 const RUS_WEEKDAY: Record<WorkingDayKey, string> = {
   mon: "понедельник",
@@ -116,11 +152,27 @@ const RUS_MONTH: string[] = [
 const HOURS = Array.from({ length: 12 }, (_, index) => 9 + index);
 const SLOT_HEIGHT = 56;
 const TIME_STEP_MINUTES = 15;
-const TIME_OPTIONS = Array.from({ length: (24 * 60) / TIME_STEP_MINUTES }, (_, index) => {
-  const minutes = index * TIME_STEP_MINUTES;
-  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
-});
-const CLOSED_BOOKING_STATUSES = ["cancelled", "canceled", "отменен", "отменена", "completed", "done", "завершен", "завершена", "no_show", "no-show", "missed", "неявка"];
+const TIME_OPTIONS = Array.from(
+  { length: (24 * 60) / TIME_STEP_MINUTES },
+  (_, index) => {
+    const minutes = index * TIME_STEP_MINUTES;
+    return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  },
+);
+const CLOSED_BOOKING_STATUSES = [
+  "cancelled",
+  "canceled",
+  "отменен",
+  "отменена",
+  "completed",
+  "done",
+  "завершен",
+  "завершена",
+  "no_show",
+  "no-show",
+  "missed",
+  "неявка",
+];
 const WORKING_DAYS: { key: WorkingDayKey; label: string }[] = [
   { key: "mon", label: "Понедельник" },
   { key: "tue", label: "Вторник" },
@@ -141,6 +193,7 @@ function defaultWorkingSchedule(): WorkingDaySchedule[] {
     break_end: "",
     discount_start: "",
     discount_end: "",
+    discount_windows: [],
     breaks: [],
   }));
 }
@@ -201,6 +254,49 @@ function parseServiceNames(raw: string): string[] {
     .filter(Boolean);
 }
 
+function normalizePromotionWindows(
+  raw: unknown,
+  legacyStart: string,
+  legacyEnd: string,
+): PromotionWindow[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .filter((window): window is PromotionWindow => Boolean(window && typeof window === "object"))
+      .map((window) => ({
+        start_time: typeof window.start_time === "string" ? window.start_time : "",
+        end_time: typeof window.end_time === "string" ? window.end_time : "",
+      }));
+  }
+  return legacyStart && legacyEnd ? [{ start_time: legacyStart, end_time: legacyEnd }] : [];
+}
+
+function getPromotionWindows(day: WorkingDaySchedule | undefined): PromotionWindow[] {
+  if (!day || day.is_day_off) {
+    return [];
+  }
+  if (day.discount_windows.length) {
+    return day.discount_windows;
+  }
+  return day.discount_start && day.discount_end
+    ? [{ start_time: day.discount_start, end_time: day.discount_end }]
+    : [];
+}
+
+function isWithinPromotionWindow(
+  day: WorkingDaySchedule | undefined,
+  serviceStart: number | null,
+  serviceEnd: number | null,
+): boolean {
+  if (serviceStart == null || serviceEnd == null) {
+    return false;
+  }
+  return getPromotionWindows(day).some((window) => {
+    const windowStart = toMinutes(window.start_time);
+    const windowEnd = toMinutes(window.end_time);
+    return windowStart != null && windowEnd != null && serviceStart >= windowStart && serviceEnd <= windowEnd;
+  });
+}
+
 function normalizeWorkingSchedule(raw: unknown): WorkingDaySchedule[] {
   const fallback = WEEK_DAYS.map((day) => ({
     day,
@@ -211,6 +307,7 @@ function normalizeWorkingSchedule(raw: unknown): WorkingDaySchedule[] {
     break_end: "",
     discount_start: "",
     discount_end: "",
+    discount_windows: [],
     breaks: [],
   }));
 
@@ -231,29 +328,60 @@ function normalizeWorkingSchedule(raw: unknown): WorkingDaySchedule[] {
       continue;
     }
 
-    const legacyBreakStart = typeof item.break_start === "string" ? item.break_start : "";
-    const legacyBreakEnd = typeof item.break_end === "string" ? item.break_end : "";
+    const legacyBreakStart =
+      typeof item.break_start === "string" ? item.break_start : "";
+    const legacyBreakEnd =
+      typeof item.break_end === "string" ? item.break_end : "";
+    const legacyDiscountStart =
+      typeof item.discount_start === "string" ? item.discount_start : "";
+    const legacyDiscountEnd =
+      typeof item.discount_end === "string" ? item.discount_end : "";
+    const discountWindows = normalizePromotionWindows(
+      item.discount_windows,
+      legacyDiscountStart,
+      legacyDiscountEnd,
+    );
     const breaks = Array.isArray(item.breaks)
       ? item.breaks
-          .filter((scheduleBreak): scheduleBreak is ScheduleBreak => Boolean(scheduleBreak && typeof scheduleBreak === "object"))
+          .filter((scheduleBreak): scheduleBreak is ScheduleBreak =>
+            Boolean(scheduleBreak && typeof scheduleBreak === "object"),
+          )
           .map((scheduleBreak) => ({
-            name: typeof scheduleBreak.name === "string" ? scheduleBreak.name : "Перерыв",
-            start_time: typeof scheduleBreak.start_time === "string" ? scheduleBreak.start_time : "",
-            end_time: typeof scheduleBreak.end_time === "string" ? scheduleBreak.end_time : "",
+            name:
+              typeof scheduleBreak.name === "string"
+                ? scheduleBreak.name
+                : "Перерыв",
+            start_time:
+              typeof scheduleBreak.start_time === "string"
+                ? scheduleBreak.start_time
+                : "",
+            end_time:
+              typeof scheduleBreak.end_time === "string"
+                ? scheduleBreak.end_time
+                : "",
           }))
       : legacyBreakStart && legacyBreakEnd
-        ? [{ name: "Обед", start_time: legacyBreakStart, end_time: legacyBreakEnd }]
+        ? [
+            {
+              name: "Обед",
+              start_time: legacyBreakStart,
+              end_time: legacyBreakEnd,
+            },
+          ]
         : [];
     const normalizedItem: WorkingDaySchedule = {
       day: day as WorkingDayKey,
-      ...(typeof item.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(item.date) ? { date: item.date } : {}),
+      ...(typeof item.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(item.date)
+        ? { date: item.date }
+        : {}),
       is_day_off: Boolean(item.is_day_off),
       start_time: typeof item.start_time === "string" ? item.start_time : "",
       end_time: typeof item.end_time === "string" ? item.end_time : "",
       break_start: breaks[0]?.start_time ?? "",
       break_end: breaks[0]?.end_time ?? "",
-      discount_start: typeof item.discount_start === "string" ? item.discount_start : "10:00",
-      discount_end: typeof item.discount_end === "string" ? item.discount_end : "16:00",
+      discount_start: discountWindows[0]?.start_time ?? "",
+      discount_end: discountWindows[0]?.end_time ?? "",
+      discount_windows: discountWindows,
       breaks,
     };
     if (normalizedItem.date) {
@@ -263,17 +391,36 @@ function normalizeWorkingSchedule(raw: unknown): WorkingDaySchedule[] {
     }
   }
 
-  return [...WEEK_DAYS.map((day) => byDay.get(day) ?? fallback.find((item) => item.day === day)!).filter(Boolean), ...overrides];
+  return [
+    ...WEEK_DAYS.map(
+      (day) => byDay.get(day) ?? fallback.find((item) => item.day === day)!,
+    ).filter(Boolean),
+    ...overrides,
+  ];
 }
 
-function getScheduleForDate(schedule: WorkingDaySchedule[], date: Date): WorkingDaySchedule | undefined {
+function getScheduleForDate(
+  schedule: WorkingDaySchedule[],
+  date: Date,
+): WorkingDaySchedule | undefined {
   const dateKey = formatDateInputValue(date);
-    return schedule.find((item) => item.date === dateKey) ?? schedule.find((item) => item.day === toWorkingDayKey(date) && !item.date) ?? undefined;
+  return (
+    schedule.find((item) => item.date === dateKey) ??
+    schedule.find((item) => item.day === toWorkingDayKey(date) && !item.date) ??
+    undefined
+  );
 }
 
-function getSpecialistDayState(specialist: Specialist, selectedDay: WorkingDayKey): SpecialistDayState {
+function getSpecialistDayState(
+  specialist: Specialist,
+  selectedDay: WorkingDayKey,
+): SpecialistDayState {
   const schedule = normalizeWorkingSchedule(specialist.working_schedule);
-    const day = schedule.find((item) => item.day === selectedDay) ?? { is_day_off: true, start_time: "", end_time: "" };
+  const day = schedule.find((item) => item.day === selectedDay) ?? {
+    is_day_off: true,
+    start_time: "",
+    end_time: "",
+  };
 
   if (!day || day.is_day_off) {
     return {
@@ -283,7 +430,10 @@ function getSpecialistDayState(specialist: Specialist, selectedDay: WorkingDayKe
     };
   }
 
-  const workLabel = day.start_time && day.end_time ? `${day.start_time}-${day.end_time}` : "Время не задано";
+  const workLabel =
+    day.start_time && day.end_time
+      ? `${day.start_time}-${day.end_time}`
+      : "Время не задано";
   if (day.break_start && day.break_end) {
     return {
       tone: "break",
@@ -309,7 +459,49 @@ function toMinutes(value: string): number | null {
   return hours * 60 + minutes;
 }
 
-function getSpecialistSlotState(day: WorkingDaySchedule | undefined, hour: number): SpecialistSlotState {
+function minutesToTime(value: number): string {
+  return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+}
+
+function findNextPromotionWindow(
+  day: WorkingDaySchedule,
+): PromotionWindow | null {
+  const workStart = toMinutes(day.start_time);
+  const workEnd = toMinutes(day.end_time);
+  if (workStart == null || workEnd == null || workStart >= workEnd) {
+    return null;
+  }
+
+  let candidateStart = workStart;
+  for (const window of [...getPromotionWindows(day)].sort((left, right) =>
+    left.start_time.localeCompare(right.start_time),
+  )) {
+    const windowStart = toMinutes(window.start_time);
+    const windowEnd = toMinutes(window.end_time);
+    if (windowStart == null || windowEnd == null) {
+      continue;
+    }
+    if (candidateStart < windowStart) {
+      return {
+        start_time: minutesToTime(candidateStart),
+        end_time: minutesToTime(Math.min(candidateStart + 60, windowStart)),
+      };
+    }
+    candidateStart = Math.max(candidateStart, windowEnd);
+  }
+  if (candidateStart >= workEnd) {
+    return null;
+  }
+  return {
+    start_time: minutesToTime(candidateStart),
+    end_time: minutesToTime(Math.min(candidateStart + 60, workEnd)),
+  };
+}
+
+function getSpecialistSlotState(
+  day: WorkingDaySchedule | undefined,
+  hour: number,
+): SpecialistSlotState {
   if (!day || day.is_day_off) {
     return { tone: "dayoff", label: "Выходной" };
   }
@@ -319,15 +511,23 @@ function getSpecialistSlotState(day: WorkingDaySchedule | undefined, hour: numbe
   const intersectsBreak = day.breaks.some((scheduleBreak) => {
     const breakStart = toMinutes(scheduleBreak.start_time);
     const breakEnd = toMinutes(scheduleBreak.end_time);
-    return breakStart != null && breakEnd != null && breakStart < slotEnd && breakEnd > slotStart;
+    return (
+      breakStart != null &&
+      breakEnd != null &&
+      breakStart < slotEnd &&
+      breakEnd > slotStart
+    );
   });
   if (intersectsBreak) {
     return { tone: "break", label: "Перерыв" };
   }
 
-  const discountStart = toMinutes(day.discount_start);
-  const discountEnd = toMinutes(day.discount_end);
-  if (discountStart != null && discountEnd != null && discountStart < slotEnd && discountEnd > slotStart) {
+  const intersectsPromotion = getPromotionWindows(day).some((window) => {
+    const promotionStart = toMinutes(window.start_time);
+    const promotionEnd = toMinutes(window.end_time);
+    return promotionStart != null && promotionEnd != null && promotionStart < slotEnd && promotionEnd > slotStart;
+  });
+  if (intersectsPromotion) {
     return { tone: "discount", label: "Время скидки" };
   }
 
@@ -381,28 +581,48 @@ export default function SchedulePage() {
   const [isDeletingBooking, setIsDeletingBooking] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
-  const [bookingModalMode, setBookingModalMode] = useState<"create" | "edit">("create");
+  const [bookingModalMode, setBookingModalMode] = useState<"create" | "edit">(
+    "create",
+  );
   const [editingBookingId, setEditingBookingId] = useState<number | null>(null);
   const [bookingClientName, setBookingClientName] = useState("");
   const [bookingPhone, setBookingPhone] = useState("");
   const [bookingSpecialistId, setBookingSpecialistId] = useState("");
-  const [bookingDate, setBookingDate] = useState(formatDateInputValue(new Date()));
+  const [bookingDate, setBookingDate] = useState(
+    formatDateInputValue(new Date()),
+  );
   const [bookingStartTime, setBookingStartTime] = useState("16:40");
   const [bookingLines, setBookingLines] = useState<BookingLine[]>([
-    { id: 1, serviceId: "", sum: "", specialistId: "", date: formatDateInputValue(new Date()), startTime: "10:00" },
+    {
+      id: 1,
+      serviceId: "",
+      sum: "",
+      specialistId: "",
+      date: formatDateInputValue(new Date()),
+      startTime: "10:00",
+    },
   ]);
   const [modalError, setModalError] = useState("");
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
   const [isBulkScheduleOpen, setIsBulkScheduleOpen] = useState(false);
-  const [bulkScheduleDraft, setBulkScheduleDraft] = useState<WorkingDaySchedule[]>(defaultWorkingSchedule());
+  const [bulkScheduleDraft, setBulkScheduleDraft] = useState<
+    WorkingDaySchedule[]
+  >(defaultWorkingSchedule());
   const [scheduleSpecialistId, setScheduleSpecialistId] = useState("");
-  const [selectedScheduleDateKeys, setSelectedScheduleDateKeys] = useState<string[]>([]);
+  const [selectedScheduleDateKeys, setSelectedScheduleDateKeys] = useState<
+    string[]
+  >([]);
   const [bulkScheduleError, setBulkScheduleError] = useState("");
   const [isSavingBulkSchedule, setIsSavingBulkSchedule] = useState(false);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
-  const [calendarMonth, setCalendarMonth] = useState(() => new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
+  const [calendarMonth, setCalendarMonth] = useState(
+    () => new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1),
+  );
   const datePickerRef = useRef<HTMLElement | null>(null);
-  const bookingModalDrag = useDraggableModal(isBookingModalOpen, closeBookingModal);
+  const bookingModalDrag = useDraggableModal(
+    isBookingModalOpen,
+    closeBookingModal,
+  );
   const bookingDetailsModalDrag = useDraggableModal(
     Boolean(detailsBooking) && !isDeleteConfirmOpen,
     () => {
@@ -414,7 +634,9 @@ export default function SchedulePage() {
     Boolean(isDeleteConfirmOpen && detailsBooking),
     () => setIsDeleteConfirmOpen(false),
   );
-  const bulkScheduleModalDrag = useDraggableModal(isBulkScheduleOpen, () => setIsBulkScheduleOpen(false));
+  const bulkScheduleModalDrag = useDraggableModal(isBulkScheduleOpen, () =>
+    setIsBulkScheduleOpen(false),
+  );
 
   useEffect(() => {
     if (!isDatePickerOpen) {
@@ -422,7 +644,10 @@ export default function SchedulePage() {
     }
 
     function closeOnOutsideClick(event: MouseEvent) {
-      if (datePickerRef.current && !datePickerRef.current.contains(event.target as Node)) {
+      if (
+        datePickerRef.current &&
+        !datePickerRef.current.contains(event.target as Node)
+      ) {
         setIsDatePickerOpen(false);
       }
     }
@@ -432,14 +657,21 @@ export default function SchedulePage() {
   }, [isDatePickerOpen]);
 
   const activeSpecialists = useMemo(
-    () => specialists.filter((specialist) => specialist.is_active).sort((a, b) => a.full_name.localeCompare(b.full_name)),
+    () =>
+      specialists
+        .filter((specialist) => specialist.is_active)
+        .sort((a, b) => a.full_name.localeCompare(b.full_name)),
     [specialists],
   );
 
   const selectedDay = toWorkingDayKey(selectedDate);
 
   const calendarDays = useMemo(() => {
-    const monthStart = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
+    const monthStart = new Date(
+      calendarMonth.getFullYear(),
+      calendarMonth.getMonth(),
+      1,
+    );
     const gridStart = new Date(monthStart);
     gridStart.setDate(monthStart.getDate() - ((monthStart.getDay() + 6) % 7));
     return Array.from({ length: 42 }, (_, index) => {
@@ -450,7 +682,9 @@ export default function SchedulePage() {
   }, [calendarMonth]);
 
   const activeServices = useMemo(() => {
-    return services.filter((service) => service.is_active).sort((a, b) => a.name.localeCompare(b.name));
+    return services
+      .filter((service) => service.is_active)
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [services]);
 
   const bookableServices = useMemo(() => {
@@ -459,18 +693,27 @@ export default function SchedulePage() {
 
   const selectedServicesInModal = useMemo(() => {
     return bookingLines
-      .map((line) => bookableServices.find((service) => String(service.id) === line.serviceId) ?? null)
+      .map(
+        (line) =>
+          bookableServices.find(
+            (service) => String(service.id) === line.serviceId,
+          ) ?? null,
+      )
       .filter((item): item is Service => Boolean(item));
   }, [bookingLines, bookableServices]);
 
   const availableSpecialistsForService = useMemo(() => {
-    const selectedServiceIds = selectedServicesInModal.map((service) => service.id);
+    const selectedServiceIds = selectedServicesInModal.map(
+      (service) => service.id,
+    );
     if (!selectedServiceIds.length) {
       return activeSpecialists;
     }
     return activeSpecialists.filter((specialist) => {
       const assignedServiceIds = specialist.service_ids ?? [];
-      return selectedServiceIds.every((serviceId) => assignedServiceIds.includes(serviceId));
+      return selectedServiceIds.every((serviceId) =>
+        assignedServiceIds.includes(serviceId),
+      );
     });
   }, [activeSpecialists, selectedServicesInModal]);
 
@@ -478,12 +721,16 @@ export default function SchedulePage() {
     if (!bookingSpecialistId) {
       return bookableServices;
     }
-    const specialist = activeSpecialists.find((item) => String(item.id) === bookingSpecialistId);
+    const specialist = activeSpecialists.find(
+      (item) => String(item.id) === bookingSpecialistId,
+    );
     if (!specialist) {
       return bookableServices;
     }
     const assignedServiceIds = specialist.service_ids ?? [];
-    return bookableServices.filter((service) => assignedServiceIds.includes(service.id));
+    return bookableServices.filter((service) =>
+      assignedServiceIds.includes(service.id),
+    );
   }, [activeSpecialists, bookableServices, bookingSpecialistId]);
 
   const canSubmitBooking = useMemo(() => {
@@ -491,10 +738,29 @@ export default function SchedulePage() {
       return false;
     }
     if (bookingModalMode === "edit") {
-      return Boolean(bookingDate && bookingStartTime && bookingSpecialistId && bookingLines.some((line) => line.serviceId));
+      return Boolean(
+        bookingDate &&
+          bookingStartTime &&
+          bookingSpecialistId &&
+          bookingLines.some((line) => line.serviceId),
+      );
     }
-    return bookingLines.length > 0 && bookingLines.every((line) => line.serviceId && line.specialistId && line.date && line.startTime);
-  }, [bookingClientName, bookingPhone, bookingDate, bookingStartTime, bookingSpecialistId, bookingLines, bookingModalMode]);
+    return (
+      bookingLines.length > 0 &&
+      bookingLines.every(
+        (line) =>
+          line.serviceId && line.specialistId && line.date && line.startTime,
+      )
+    );
+  }, [
+    bookingClientName,
+    bookingPhone,
+    bookingDate,
+    bookingStartTime,
+    bookingSpecialistId,
+    bookingLines,
+    bookingModalMode,
+  ]);
 
   const detailsServices = useMemo(() => {
     if (!detailsBooking) {
@@ -502,98 +768,159 @@ export default function SchedulePage() {
     }
     const startsAt = parseBookingDateTime(detailsBooking.starts_at);
     const specialist = activeSpecialists.find(
-      (item) => item.full_name.trim().toLowerCase() === (detailsBooking.manager_name || "").trim().toLowerCase(),
+      (item) =>
+        item.full_name.trim().toLowerCase() ===
+        (detailsBooking.manager_name || "").trim().toLowerCase(),
     );
     const daySchedule =
       startsAt && specialist
-        ? getScheduleForDate(normalizeWorkingSchedule(specialist.working_schedule), new Date(`${startsAt.dateKey}T12:00:00`))
+        ? getScheduleForDate(
+            normalizeWorkingSchedule(specialist.working_schedule),
+            new Date(`${startsAt.dateKey}T12:00:00`),
+          )
         : undefined;
-    const discountStart = daySchedule && !daySchedule.is_day_off ? toMinutes(daySchedule.discount_start) : null;
-    const discountEnd = daySchedule && !daySchedule.is_day_off ? toMinutes(daySchedule.discount_end) : null;
     let minutesBefore = 0;
 
-    return parseServiceNames(detailsBooking.service_name).map((serviceName) => {
+    return parseServiceNames(detailsBooking.service_name).map((serviceName, index) => {
       const service = services.find(
         (item) =>
           item.name.trim().toLowerCase() === serviceName.toLowerCase() ||
-          (item.kind_name || "").trim().toLowerCase() === serviceName.toLowerCase(),
+          (item.kind_name || "").trim().toLowerCase() ===
+            serviceName.toLowerCase(),
       );
-      const price = Number(String(service?.price || "").replace(/[^0-9.,]/g, "").replace(",", "."));
-      const durationMinutes = service?.duration_minutes && service.duration_minutes > 0 ? service.duration_minutes : 60;
-      const serviceStart = startsAt ? startsAt.hour * 60 + startsAt.minutes + minutesBefore : null;
-      const serviceEnd = serviceStart == null ? null : serviceStart + durationMinutes;
+      const pricingDetail = detailsBooking.pricing_details?.[index];
+      const currentPrice = Number(
+        String(service?.price || "")
+          .replace(/[^0-9.,]/g, "")
+          .replace(",", "."),
+      );
+      const snapshotBasePrice = Number(pricingDetail?.base_price);
+      const snapshotFinalPrice = Number(pricingDetail?.final_price);
+      const hasPriceSnapshot =
+        Boolean(pricingDetail) &&
+        Number.isFinite(snapshotBasePrice) &&
+        Number.isFinite(snapshotFinalPrice);
+      const durationMinutes =
+        service?.duration_minutes && service.duration_minutes > 0
+          ? service.duration_minutes
+          : 60;
+      const serviceStart = startsAt
+        ? startsAt.hour * 60 + startsAt.minutes + minutesBefore
+        : null;
+      const serviceEnd =
+        serviceStart == null ? null : serviceStart + durationMinutes;
       minutesBefore += durationMinutes;
-      // Скидка действует, только если услуга целиком попадает в скидочное окно специалиста.
-      const isDiscountTime =
-        discountStart != null &&
-        discountEnd != null &&
-        serviceStart != null &&
-        serviceEnd != null &&
-        serviceStart >= discountStart &&
-        serviceEnd <= discountEnd;
+      const isDiscountTime = isWithinPromotionWindow(
+        daySchedule,
+        serviceStart,
+        serviceEnd,
+      );
 
       return {
         name: serviceName,
-        price: Number.isFinite(price) ? price : null,
-        discountPercent: isDiscountTime ? Math.max(0, Math.min(100, Number(service?.discount_percent || 0))) : 0,
+        price: hasPriceSnapshot
+          ? snapshotBasePrice
+          : Number.isFinite(currentPrice)
+            ? currentPrice
+            : null,
+        finalPrice: hasPriceSnapshot ? snapshotFinalPrice : null,
+        discountPercent: hasPriceSnapshot
+          ? Math.max(0, Math.min(100, Number(pricingDetail?.discount_percent || 0)))
+          : isDiscountTime
+            ? Math.max(0, Math.min(100, Number(service?.discount_percent || 0)))
+            : 0,
         durationMinutes,
       };
     });
   }, [detailsBooking, services, activeSpecialists]);
 
   const bookingDiscountByLineId = useMemo(() => {
-    const result = new Map<number, { price: number; discountPercent: number }>();
+    const result = new Map<
+      number,
+      { price: number; discountPercent: number }
+    >();
     const isEditMode = bookingModalMode === "edit";
     let minutesBefore = 0;
 
     for (const line of bookingLines) {
-      const service = bookableServices.find((item) => String(item.id) === line.serviceId);
+      const service = bookableServices.find(
+        (item) => String(item.id) === line.serviceId,
+      );
       if (!service) {
         continue;
       }
-      const durationMinutes = service.duration_minutes && service.duration_minutes > 0 ? service.duration_minutes : 60;
-      const rawPrice = String(line.sum || service.price || "").replace(/[^0-9.,]/g, "").replace(",", ".");
+      const durationMinutes =
+        service.duration_minutes && service.duration_minutes > 0
+          ? service.duration_minutes
+          : 60;
+      const rawPrice = String(line.sum || service.price || "")
+        .replace(/[^0-9.,]/g, "")
+        .replace(",", ".");
       const price = Number(rawPrice);
-      const specialist = activeSpecialists.find((item) => String(item.id) === (isEditMode ? bookingSpecialistId : line.specialistId));
+      const specialist = activeSpecialists.find(
+        (item) =>
+          String(item.id) ===
+          (isEditMode ? bookingSpecialistId : line.specialistId),
+      );
       const date = isEditMode ? bookingDate : line.date;
       const startTime = isEditMode ? bookingStartTime : line.startTime;
       const daySchedule =
         specialist && date
-          ? getScheduleForDate(normalizeWorkingSchedule(specialist.working_schedule), new Date(`${date}T12:00:00`))
+          ? getScheduleForDate(
+              normalizeWorkingSchedule(specialist.working_schedule),
+              new Date(`${date}T12:00:00`),
+            )
           : undefined;
-      const discountStart = daySchedule && !daySchedule.is_day_off ? toMinutes(daySchedule.discount_start) : null;
-      const discountEnd = daySchedule && !daySchedule.is_day_off ? toMinutes(daySchedule.discount_end) : null;
       const startMinutes = toMinutes(startTime);
-      const serviceStart = startMinutes == null ? null : startMinutes + minutesBefore;
-      const serviceEnd = serviceStart == null ? null : serviceStart + durationMinutes;
+      const serviceStart =
+        startMinutes == null ? null : startMinutes + minutesBefore;
+      const serviceEnd =
+        serviceStart == null ? null : serviceStart + durationMinutes;
       if (isEditMode) {
         minutesBefore += durationMinutes;
       }
-      const isDiscountTime =
-        discountStart != null &&
-        discountEnd != null &&
-        serviceStart != null &&
-        serviceEnd != null &&
-        serviceStart >= discountStart &&
-        serviceEnd <= discountEnd;
+      const isDiscountTime = isWithinPromotionWindow(
+        daySchedule,
+        serviceStart,
+        serviceEnd,
+      );
 
       result.set(line.id, {
         price: Number.isFinite(price) ? price : 0,
-        discountPercent: isDiscountTime ? Math.max(0, Math.min(100, Number(service.discount_percent || 0))) : 0,
+        discountPercent: isDiscountTime
+          ? Math.max(0, Math.min(100, Number(service.discount_percent || 0)))
+          : 0,
       });
     }
 
     return result;
-  }, [bookingLines, bookableServices, bookingModalMode, bookingSpecialistId, bookingDate, bookingStartTime, activeSpecialists]);
+  }, [
+    bookingLines,
+    bookableServices,
+    bookingModalMode,
+    bookingSpecialistId,
+    bookingDate,
+    bookingStartTime,
+    activeSpecialists,
+  ]);
 
-  const detailsSpecialist = useMemo(    () => activeSpecialists.find((item) => item.full_name.trim().toLowerCase() === (detailsBooking?.manager_name || "").trim().toLowerCase()),
+  const detailsSpecialist = useMemo(
+    () =>
+      activeSpecialists.find(
+        (item) =>
+          item.full_name.trim().toLowerCase() ===
+          (detailsBooking?.manager_name || "").trim().toLowerCase(),
+      ),
     [activeSpecialists, detailsBooking],
   );
 
   const selectedDayScheduleBySpecialist = useMemo(() => {
     const map = new Map<number, WorkingDaySchedule | undefined>();
     for (const specialist of activeSpecialists) {
-      const daySchedule = getScheduleForDate(normalizeWorkingSchedule(specialist.working_schedule), selectedDate);
+      const daySchedule = getScheduleForDate(
+        normalizeWorkingSchedule(specialist.working_schedule),
+        selectedDate,
+      );
       map.set(specialist.id, daySchedule);
     }
     return map;
@@ -604,21 +931,34 @@ export default function SchedulePage() {
     const selectedDateKey = formatDateInputValue(selectedDate);
     const serviceDurationByName = new Map<string, number>();
     for (const service of services) {
-      const duration = typeof service.duration_minutes === "number" && service.duration_minutes > 0 ? service.duration_minutes : 60;
+      const duration =
+        typeof service.duration_minutes === "number" &&
+        service.duration_minutes > 0
+          ? service.duration_minutes
+          : 60;
       const byName = service.name.trim().toLowerCase();
       if (byName) {
         const prev = serviceDurationByName.get(byName);
-        serviceDurationByName.set(byName, prev == null ? duration : Math.min(prev, duration));
+        serviceDurationByName.set(
+          byName,
+          prev == null ? duration : Math.min(prev, duration),
+        );
       }
       const byKindName = (service.kind_name || "").trim().toLowerCase();
       if (byKindName) {
         const prev = serviceDurationByName.get(byKindName);
-        serviceDurationByName.set(byKindName, prev == null ? duration : Math.min(prev, duration));
+        serviceDurationByName.set(
+          byKindName,
+          prev == null ? duration : Math.min(prev, duration),
+        );
       }
     }
     const specialistByName = new Map<string, Specialist>();
     for (const specialist of activeSpecialists) {
-      specialistByName.set(specialist.full_name.trim().toLowerCase(), specialist);
+      specialistByName.set(
+        specialist.full_name.trim().toLowerCase(),
+        specialist,
+      );
     }
 
     for (const booking of bookings) {
@@ -630,7 +970,9 @@ export default function SchedulePage() {
         continue;
       }
 
-      const bookingManagerName = (booking.manager_name || "").trim().toLowerCase();
+      const bookingManagerName = (booking.manager_name || "")
+        .trim()
+        .toLowerCase();
       const specialist = specialistByName.get(bookingManagerName);
       if (!specialist) {
         continue;
@@ -647,8 +989,14 @@ export default function SchedulePage() {
       const list = map.get(key) ?? [];
       const listedNames = parseServiceNames(booking.service_name);
       const durationMinutes = listedNames.length
-        ? listedNames.reduce((sum, name) => sum + (serviceDurationByName.get(name.toLowerCase()) ?? 60), 0)
-        : serviceDurationByName.get(booking.service_name.trim().toLowerCase()) ?? 60;
+        ? listedNames.reduce(
+            (sum, name) =>
+              sum + (serviceDurationByName.get(name.toLowerCase()) ?? 60),
+            0,
+          )
+        : (serviceDurationByName.get(
+            booking.service_name.trim().toLowerCase(),
+          ) ?? 60);
       list.push({ booking, minutes, durationMinutes });
       map.set(key, list);
     }
@@ -683,7 +1031,9 @@ export default function SchedulePage() {
     }
     try {
       const parsed = JSON.parse(raw) as { email?: string; username?: string };
-      const email = (parsed.email || parsed.username || "").trim().toLowerCase();
+      const email = (parsed.email || parsed.username || "")
+        .trim()
+        .toLowerCase();
       if (email) {
         setPartnerEmail(email);
       }
@@ -703,30 +1053,37 @@ export default function SchedulePage() {
         "X-Tenant": tenant,
         "X-Partner-Email": partnerEmail,
       };
-      const [specialistsResponse, servicesResponse, bookingsResponse] = await Promise.all([
-        fetch(`${API_BASE}/partner/specialists/`, {
-          headers,
-          cache: "no-store",
-        }),
-        fetch(`${API_BASE}/partner/services/`, {
-          headers,
-          cache: "no-store",
-        }),
-        fetch("/api/partner/bookings/", {
-          headers: {
-            "X-Partner-Email": partnerEmail,
-          },
-          cache: "no-store",
-        }),
-      ]);
+      const [specialistsResponse, servicesResponse, bookingsResponse] =
+        await Promise.all([
+          fetch(`${API_BASE}/partner/specialists/`, {
+            headers,
+            cache: "no-store",
+          }),
+          fetch(`${API_BASE}/partner/services/`, {
+            headers,
+            cache: "no-store",
+          }),
+          fetch("/api/partner/bookings/", {
+            headers: {
+              "X-Partner-Email": partnerEmail,
+            },
+            cache: "no-store",
+          }),
+        ]);
 
       if (!specialistsResponse.ok) {
         setSpecialists([]);
       } else {
-        const specialistsPayload = (await specialistsResponse.json()) as Specialist[];
+        const specialistsPayload =
+          (await specialistsResponse.json()) as Specialist[];
         setSpecialists(
           Array.isArray(specialistsPayload)
-            ? specialistsPayload.map((item) => ({ ...item, working_schedule: normalizeWorkingSchedule(item.working_schedule) }))
+            ? specialistsPayload.map((item) => ({
+                ...item,
+                working_schedule: normalizeWorkingSchedule(
+                  item.working_schedule,
+                ),
+              }))
             : [],
         );
       }
@@ -741,8 +1098,12 @@ export default function SchedulePage() {
       if (!bookingsResponse.ok) {
         setBookings([]);
       } else {
-        const bookingsPayload = (await bookingsResponse.json()) as { items?: Booking[] };
-        setBookings(Array.isArray(bookingsPayload?.items) ? bookingsPayload.items : []);
+        const bookingsPayload = (await bookingsResponse.json()) as {
+          items?: Booking[];
+        };
+        setBookings(
+          Array.isArray(bookingsPayload?.items) ? bookingsPayload.items : [],
+        );
       }
     } catch {
       setSpecialists([]);
@@ -773,21 +1134,27 @@ export default function SchedulePage() {
     const startsAt = parseBookingDateTime(target.starts_at);
     const listedNames = parseServiceNames(target.service_name);
     const matchedServices = listedNames
-      .map((listedName) =>
-        bookableServices.find(
-          (item) =>
-            item.name.trim().toLowerCase() === listedName.toLowerCase() ||
-            (item.kind_name || "").trim().toLowerCase() === listedName.toLowerCase(),
-        ) ?? null,
+      .map(
+        (listedName) =>
+          bookableServices.find(
+            (item) =>
+              item.name.trim().toLowerCase() === listedName.toLowerCase() ||
+              (item.kind_name || "").trim().toLowerCase() ===
+                listedName.toLowerCase(),
+          ) ?? null,
       )
       .filter((item): item is Service => Boolean(item));
     const matchedSpecialist = activeSpecialists.find(
-      (item) => item.full_name.trim().toLowerCase() === (target.manager_name || "").trim().toLowerCase(),
+      (item) =>
+        item.full_name.trim().toLowerCase() ===
+        (target.manager_name || "").trim().toLowerCase(),
     );
 
     setBookingClientName(target.client_name || "");
     setBookingPhone(target.client_phone || "");
-    setBookingSpecialistId(matchedSpecialist ? String(matchedSpecialist.id) : "");
+    setBookingSpecialistId(
+      matchedSpecialist ? String(matchedSpecialist.id) : "",
+    );
     setBookingDate(startsAt?.dateKey ?? formatDateInputValue(selectedDate));
     setBookingStartTime(startsAt?.timeLabel ?? "10:00");
     setBookingLines(
@@ -822,10 +1189,13 @@ export default function SchedulePage() {
 
     setIsDeletingBooking(true);
     try {
-      const response = await fetch(`/api/partner/bookings/${detailsBooking.id}/`, {
-        method: "DELETE",
-        headers: { "X-Partner-Email": partnerEmail },
-      });
+      const response = await fetch(
+        `/api/partner/bookings/${detailsBooking.id}/`,
+        {
+          method: "DELETE",
+          headers: { "X-Partner-Email": partnerEmail },
+        },
+      );
       if (!response.ok) {
         return;
       }
@@ -844,14 +1214,17 @@ export default function SchedulePage() {
 
     setIsUpdatingStatus(true);
     try {
-      const response = await fetch(`/api/partner/bookings/${detailsBooking.id}/`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Partner-Email": partnerEmail,
+      const response = await fetch(
+        `/api/partner/bookings/${detailsBooking.id}/`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Partner-Email": partnerEmail,
+          },
+          body: JSON.stringify({ status }),
         },
-        body: JSON.stringify({ status }),
-      });
+      );
       if (!response.ok) {
         return;
       }
@@ -884,12 +1257,16 @@ export default function SchedulePage() {
     if (!specialistId) {
       return bookableServices;
     }
-    const specialist = activeSpecialists.find((item) => String(item.id) === specialistId);
+    const specialist = activeSpecialists.find(
+      (item) => String(item.id) === specialistId,
+    );
     if (!specialist) {
       return bookableServices;
     }
     const assignedServiceIds = specialist.service_ids ?? [];
-    return bookableServices.filter((service) => assignedServiceIds.includes(service.id));
+    return bookableServices.filter((service) =>
+      assignedServiceIds.includes(service.id),
+    );
   }
 
   function getSpecialistsForService(serviceId: string) {
@@ -897,24 +1274,37 @@ export default function SchedulePage() {
       return activeSpecialists;
     }
     const selectedServiceId = Number(serviceId);
-    return activeSpecialists.filter((specialist) => (specialist.service_ids ?? []).includes(selectedServiceId));
+    return activeSpecialists.filter((specialist) =>
+      (specialist.service_ids ?? []).includes(selectedServiceId),
+    );
   }
 
   function onServiceChange(lineId: number, serviceId: string) {
-    const selectedService = bookableServices.find((item) => String(item.id) === serviceId);
+    const selectedService = bookableServices.find(
+      (item) => String(item.id) === serviceId,
+    );
     setBookingLines((prev) =>
       prev.map((line) => {
         if (line.id !== lineId) {
           return line;
         }
-        const selectedSpecialist = activeSpecialists.find((item) => String(item.id) === line.specialistId);
+        const selectedSpecialist = activeSpecialists.find(
+          (item) => String(item.id) === line.specialistId,
+        );
         const specialistCanProvideService =
-          !selectedService || !selectedSpecialist || (selectedSpecialist.service_ids ?? []).includes(selectedService.id);
+          !selectedService ||
+          !selectedSpecialist ||
+          (selectedSpecialist.service_ids ?? []).includes(selectedService.id);
         return {
           ...line,
           serviceId,
-          sum: selectedService?.price ? String(selectedService.price) : line.sum,
-          specialistId: bookingModalMode === "create" && !specialistCanProvideService ? "" : line.specialistId,
+          sum: selectedService?.price
+            ? String(selectedService.price)
+            : line.sum,
+          specialistId:
+            bookingModalMode === "create" && !specialistCanProvideService
+              ? ""
+              : line.specialistId,
         };
       }),
     );
@@ -927,25 +1317,34 @@ export default function SchedulePage() {
       if (!prev) {
         return prev;
       }
-      const currentSpecialist = activeSpecialists.find((item) => String(item.id) === prev);
+      const currentSpecialist = activeSpecialists.find(
+        (item) => String(item.id) === prev,
+      );
       if (!currentSpecialist) {
         return "";
       }
-      const canProvideService = (currentSpecialist.service_ids ?? []).includes(selectedService.id);
+      const canProvideService = (currentSpecialist.service_ids ?? []).includes(
+        selectedService.id,
+      );
       return canProvideService ? prev : "";
     });
   }
 
   function onSpecialistChange(specialistId: string, lineId?: number) {
     if (lineId != null) {
-      const specialist = activeSpecialists.find((item) => String(item.id) === specialistId);
+      const specialist = activeSpecialists.find(
+        (item) => String(item.id) === specialistId,
+      );
       const assignedServiceIds = specialist?.service_ids ?? [];
       setBookingLines((previousLines) =>
         previousLines.map((line) => {
           if (line.id !== lineId) {
             return line;
           }
-          const specialistCanProvideService = !specialistId || !line.serviceId || assignedServiceIds.includes(Number(line.serviceId));
+          const specialistCanProvideService =
+            !specialistId ||
+            !line.serviceId ||
+            assignedServiceIds.includes(Number(line.serviceId));
           return {
             ...line,
             specialistId,
@@ -958,7 +1357,9 @@ export default function SchedulePage() {
     }
 
     setBookingSpecialistId(specialistId);
-    const specialist = activeSpecialists.find((item) => String(item.id) === specialistId);
+    const specialist = activeSpecialists.find(
+      (item) => String(item.id) === specialistId,
+    );
     if (!specialist) {
       return;
     }
@@ -972,46 +1373,76 @@ export default function SchedulePage() {
     );
   }
 
-  function getBookingScheduleError(specialist: Specialist, dateValue: string, startTime: string, durationMinutes: number) {
+  function getBookingScheduleError(
+    specialist: Specialist,
+    dateValue: string,
+    startTime: string,
+    durationMinutes: number,
+  ) {
     const date = new Date(`${dateValue}T12:00:00`);
     if (Number.isNaN(date.getTime())) return "Выберите корректную дату записи";
-    const day = getScheduleForDate(normalizeWorkingSchedule(specialist.working_schedule), date);
+    const day = getScheduleForDate(
+      normalizeWorkingSchedule(specialist.working_schedule),
+      date,
+    );
     const startMinutes = toMinutes(startTime);
-    if (!day || day.is_day_off) return "У специалиста выходной в выбранный день";
+    if (!day || day.is_day_off)
+      return "У специалиста выходной в выбранный день";
     if (startMinutes == null) return "Выберите время начала записи";
     const endMinutes = startMinutes + durationMinutes;
     const workStart = toMinutes(day.start_time);
     const workEnd = toMinutes(day.end_time);
-    if (workStart == null || workEnd == null || startMinutes < workStart || endMinutes > workEnd) {
+    if (
+      workStart == null ||
+      workEnd == null ||
+      startMinutes < workStart ||
+      endMinutes > workEnd
+    ) {
       return "Время записи выходит за рабочий график специалиста";
     }
-    if (day.breaks.some((scheduleBreak) => {
-      const breakStart = toMinutes(scheduleBreak.start_time);
-      const breakEnd = toMinutes(scheduleBreak.end_time);
-      return breakStart != null && breakEnd != null && startMinutes < breakEnd && breakStart < endMinutes;
-    })) {
+    if (
+      day.breaks.some((scheduleBreak) => {
+        const breakStart = toMinutes(scheduleBreak.start_time);
+        const breakEnd = toMinutes(scheduleBreak.end_time);
+        return (
+          breakStart != null &&
+          breakEnd != null &&
+          startMinutes < breakEnd &&
+          breakStart < endMinutes
+        );
+      })
+    ) {
       return "Запись пересекается с перерывом специалиста";
     }
     return "";
   }
 
   function onSumChange(lineId: number, value: string) {
-    setBookingLines((prev) => prev.map((line) => (line.id === lineId ? { ...line, sum: value } : line)));
+    setBookingLines((prev) =>
+      prev.map((line) => (line.id === lineId ? { ...line, sum: value } : line)),
+    );
   }
 
   function updateBookingLine(lineId: number, patch: Partial<BookingLine>) {
     setBookingLines((previousLines) =>
-      previousLines.map((line) => (line.id === lineId ? { ...line, ...patch } : line)),
+      previousLines.map((line) =>
+        line.id === lineId ? { ...line, ...patch } : line,
+      ),
     );
   }
 
   function addBookingLine() {
-    setBookingLines((previousLines) => [...previousLines, createBookingLine(Date.now() + previousLines.length)]);
+    setBookingLines((previousLines) => [
+      ...previousLines,
+      createBookingLine(Date.now() + previousLines.length),
+    ]);
   }
 
   function removeBookingLine(lineId: number) {
     setModalError("");
-    setBookingLines((prev) => (prev.length === 1 ? prev : prev.filter((line) => line.id !== lineId)));
+    setBookingLines((prev) =>
+      prev.length === 1 ? prev : prev.filter((line) => line.id !== lineId),
+    );
   }
 
   async function submitBooking(event: FormEvent<HTMLFormElement>) {
@@ -1039,15 +1470,26 @@ export default function SchedulePage() {
 
     if (isEditMode) {
       const selectedServices = bookingLines
-        .map((line) => bookableServices.find((item) => String(item.id) === line.serviceId) ?? null)
+        .map(
+          (line) =>
+            bookableServices.find(
+              (item) => String(item.id) === line.serviceId,
+            ) ?? null,
+        )
         .filter((item): item is Service => Boolean(item));
-      const specialist = activeSpecialists.find((item) => String(item.id) === bookingSpecialistId);
+      const specialist = activeSpecialists.find(
+        (item) => String(item.id) === bookingSpecialistId,
+      );
 
       if (!selectedServices.length || !specialist) {
         setModalError("Заполните обязательные поля записи");
         return;
       }
-      if (selectedServices.some((service) => !(specialist.service_ids ?? []).includes(service.id))) {
+      if (
+        selectedServices.some(
+          (service) => !(specialist.service_ids ?? []).includes(service.id),
+        )
+      ) {
         setModalError("Выбранный специалист не оказывает эту услугу");
         return;
       }
@@ -1056,7 +1498,14 @@ export default function SchedulePage() {
         specialist,
         bookingDate,
         bookingStartTime,
-        selectedServices.reduce((total, service) => total + (service.duration_minutes && service.duration_minutes > 0 ? service.duration_minutes : 60), 0),
+        selectedServices.reduce(
+          (total, service) =>
+            total +
+            (service.duration_minutes && service.duration_minutes > 0
+              ? service.duration_minutes
+              : 60),
+          0,
+        ),
       );
       if (scheduleError) {
         setModalError(scheduleError);
@@ -1068,7 +1517,10 @@ export default function SchedulePage() {
         method: "PATCH",
         body: {
           specialist: specialist.full_name,
-          service: selectedServices.map((service) => service.name.trim()).filter(Boolean).join("\n"),
+          service: selectedServices
+            .map((service) => service.name.trim())
+            .filter(Boolean)
+            .join("\n"),
           serviceIds: selectedServices.map((service) => service.id),
           clientName: bookingClientName.trim(),
           clientPhone: bookingPhone.trim(),
@@ -1084,10 +1536,16 @@ export default function SchedulePage() {
       }> = [];
 
       for (const line of bookingLines) {
-        const service = bookableServices.find((item) => String(item.id) === line.serviceId);
-        const specialist = activeSpecialists.find((item) => String(item.id) === line.specialistId);
+        const service = bookableServices.find(
+          (item) => String(item.id) === line.serviceId,
+        );
+        const specialist = activeSpecialists.find(
+          (item) => String(item.id) === line.specialistId,
+        );
         if (!service || !specialist || !line.date || !line.startTime) {
-          setModalError("Заполните услугу, специалиста, дату и время для каждой записи");
+          setModalError(
+            "Заполните услугу, специалиста, дату и время для каждой записи",
+          );
           return;
         }
         if (!(specialist.service_ids ?? []).includes(service.id)) {
@@ -1095,8 +1553,16 @@ export default function SchedulePage() {
           return;
         }
 
-        const durationMinutes = service.duration_minutes && service.duration_minutes > 0 ? service.duration_minutes : 60;
-        const scheduleError = getBookingScheduleError(specialist, line.date, line.startTime, durationMinutes);
+        const durationMinutes =
+          service.duration_minutes && service.duration_minutes > 0
+            ? service.duration_minutes
+            : 60;
+        const scheduleError = getBookingScheduleError(
+          specialist,
+          line.date,
+          line.startTime,
+          durationMinutes,
+        );
         if (scheduleError) {
           setModalError(`${service.name}: ${scheduleError}`);
           return;
@@ -1115,16 +1581,27 @@ export default function SchedulePage() {
         return;
       }
 
-      for (let firstIndex = 0; firstIndex < newBookings.length; firstIndex += 1) {
+      for (
+        let firstIndex = 0;
+        firstIndex < newBookings.length;
+        firstIndex += 1
+      ) {
         const firstBooking = newBookings[firstIndex];
         const firstStart = new Date(firstBooking.startsAt).getTime();
         const firstEnd = firstStart + firstBooking.durationMinutes * 60_000;
-        for (let secondIndex = firstIndex + 1; secondIndex < newBookings.length; secondIndex += 1) {
+        for (
+          let secondIndex = firstIndex + 1;
+          secondIndex < newBookings.length;
+          secondIndex += 1
+        ) {
           const secondBooking = newBookings[secondIndex];
           const secondStart = new Date(secondBooking.startsAt).getTime();
-          const secondEnd = secondStart + secondBooking.durationMinutes * 60_000;
+          const secondEnd =
+            secondStart + secondBooking.durationMinutes * 60_000;
           if (firstStart < secondEnd && secondStart < firstEnd) {
-            setModalError("Услуги одного клиента не могут пересекаться по времени");
+            setModalError(
+              "Услуги одного клиента не могут пересекаться по времени",
+            );
             return;
           }
         }
@@ -1192,78 +1669,148 @@ export default function SchedulePage() {
   }
 
   function openDatePicker() {
-    setCalendarMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
+    setCalendarMonth(
+      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1),
+    );
     setIsDatePickerOpen((previous) => !previous);
   }
 
   function openBulkScheduleModal() {
     const specialist = activeSpecialists[0];
     setScheduleSpecialistId(specialist ? String(specialist.id) : "");
-    setBulkScheduleDraft(specialist ? normalizeWorkingSchedule(specialist.working_schedule) : defaultWorkingSchedule());
+    setBulkScheduleDraft(
+      specialist
+        ? normalizeWorkingSchedule(specialist.working_schedule)
+        : defaultWorkingSchedule(),
+    );
     setBulkScheduleError("");
-    setCalendarMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
+    setCalendarMonth(
+      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1),
+    );
     setSelectedScheduleDateKeys([formatDateInputValue(selectedDate)]);
     setIsBulkScheduleOpen(true);
   }
 
   function changeScheduleSpecialist(specialistId: string) {
-    const specialist = activeSpecialists.find((item) => String(item.id) === specialistId);
+    const specialist = activeSpecialists.find(
+      (item) => String(item.id) === specialistId,
+    );
     setScheduleSpecialistId(specialistId);
-    setBulkScheduleDraft(specialist ? normalizeWorkingSchedule(specialist.working_schedule) : defaultWorkingSchedule());
+    setBulkScheduleDraft(
+      specialist
+        ? normalizeWorkingSchedule(specialist.working_schedule)
+        : defaultWorkingSchedule(),
+    );
     setBulkScheduleError("");
   }
 
   function hasActiveBookingsOnSelectedDates() {
-    const specialist = activeSpecialists.find((item) => String(item.id) === scheduleSpecialistId);
+    const specialist = activeSpecialists.find(
+      (item) => String(item.id) === scheduleSpecialistId,
+    );
     if (!specialist) {
       return false;
     }
     const specialistName = specialist.full_name.trim().toLowerCase();
     return bookings.some((booking) => {
-      if ((booking.manager_name || "").trim().toLowerCase() !== specialistName) {
+      if (
+        (booking.manager_name || "").trim().toLowerCase() !== specialistName
+      ) {
         return false;
       }
       const parsed = parseBookingDateTime(booking.starts_at);
       if (!parsed || !selectedScheduleDateKeys.includes(parsed.dateKey)) {
         return false;
       }
-      return !CLOSED_BOOKING_STATUSES.includes(booking.status.trim().toLowerCase());
+      return !CLOSED_BOOKING_STATUSES.includes(
+        booking.status.trim().toLowerCase(),
+      );
     });
   }
 
   function toggleSelectedDayOff(day: WorkingDaySchedule) {
     if (!day.is_day_off && hasActiveBookingsOnSelectedDates()) {
-      setBulkScheduleError("В расписании на этот день присутствуют активные записи. День нельзя сделать нерабочим с активными записями");
+      setBulkScheduleError(
+        "В расписании на этот день присутствуют активные записи. День нельзя сделать нерабочим с активными записями",
+      );
       return;
     }
     updateSelectedScheduleDays({
       is_day_off: !day.is_day_off,
       start_time: day.is_day_off ? "09:00" : "",
       end_time: day.is_day_off ? "18:00" : "",
-      discount_start: day.is_day_off ? "10:00" : "",
-      discount_end: day.is_day_off ? "16:00" : "",
-      breaks: day.is_day_off ? [{ name: "Обед", start_time: "13:00", end_time: "14:00" }] : [],
+      discount_start: "",
+      discount_end: "",
+      discount_windows: [],
+      breaks: day.is_day_off
+        ? [{ name: "Обед", start_time: "13:00", end_time: "14:00" }]
+        : [],
     });
   }
 
   function updateSelectedScheduleDays(patch: Partial<WorkingDaySchedule>) {
     setBulkScheduleError("");
     setBulkScheduleDraft((previous) => {
-      const remaining = previous.filter((item) => !item.date || !selectedScheduleDateKeys.includes(item.date));
+      const remaining = previous.filter(
+        (item) => !item.date || !selectedScheduleDateKeys.includes(item.date),
+      );
       const overrides = selectedScheduleDateKeys.map((dateKey) => {
         const date = new Date(`${dateKey}T12:00:00`);
-        const current = getScheduleForDate(previous, date) ?? defaultWorkingSchedule()[0];
-        return { ...current, ...patch, date: dateKey, day: toWorkingDayKey(date) };
+        const current =
+          getScheduleForDate(previous, date) ?? defaultWorkingSchedule()[0];
+        return {
+          ...current,
+          ...patch,
+          date: dateKey,
+          day: toWorkingDayKey(date),
+        };
       });
       return [...remaining, ...overrides];
     });
   }
 
-  function toggleScheduleDate(date: Date) {    const dateKey = formatDateInputValue(date);
+  function updatePromotionWindows(windows: PromotionWindow[]) {
+    const normalizedWindows = [...windows].sort((left, right) =>
+      left.start_time.localeCompare(right.start_time),
+    );
+    updateSelectedScheduleDays({
+      discount_windows: normalizedWindows,
+      discount_start: normalizedWindows[0]?.start_time ?? "",
+      discount_end: normalizedWindows[0]?.end_time ?? "",
+    });
+  }
+
+  function togglePromotion(day: WorkingDaySchedule) {
+    const windows = getPromotionWindows(day);
+    if (windows.length) {
+      updatePromotionWindows([]);
+      return;
+    }
+    updatePromotionWindows([
+      {
+        start_time: day.start_time,
+        end_time: day.end_time,
+      },
+    ]);
+  }
+
+  function addPromotionWindow(day: WorkingDaySchedule) {
+    const window = findNextPromotionWindow(day);
+    if (!window) {
+      setBulkScheduleError("Нет свободного времени для еще одного интервала акции");
+      return;
+    }
+    updatePromotionWindows([...getPromotionWindows(day), window]);
+  }
+
+  function toggleScheduleDate(date: Date) {
+    const dateKey = formatDateInputValue(date);
     setSelectedDate(date);
     setSelectedScheduleDateKeys((previous) => {
       if (previous.includes(dateKey)) {
-        return previous.length === 1 ? previous : previous.filter((item) => item !== dateKey);
+        return previous.length === 1
+          ? previous
+          : previous.filter((item) => item !== dateKey);
       }
       return [...previous, dateKey];
     });
@@ -1275,14 +1822,56 @@ export default function SchedulePage() {
       if (!day.start_time || !day.end_time || day.start_time >= day.end_time) {
         return "Проверьте рабочее время в каждом рабочем дне";
       }
-      if (!day.discount_start || !day.discount_end || !(day.start_time <= day.discount_start && day.discount_start < day.discount_end && day.discount_end <= day.end_time)) {
-        return "Время скидок должно быть внутри рабочего времени";
+      const promotionWindows = getPromotionWindows(day);
+      if (
+        promotionWindows.some(
+          (window) =>
+            !window.start_time ||
+            !window.end_time ||
+            !(
+              day.start_time <= window.start_time &&
+              window.start_time < window.end_time &&
+              window.end_time <= day.end_time
+            ),
+        )
+      ) {
+        return "Каждый интервал акции должен быть внутри рабочего времени";
       }
-      if (day.breaks.some((scheduleBreak) => !scheduleBreak.start_time || !scheduleBreak.end_time || !(day.start_time <= scheduleBreak.start_time && scheduleBreak.start_time < scheduleBreak.end_time && scheduleBreak.end_time <= day.end_time))) {
+      const sortedPromotionWindows = [...promotionWindows].sort((left, right) =>
+        left.start_time.localeCompare(right.start_time),
+      );
+      if (
+        sortedPromotionWindows.some(
+          (window, index) =>
+            index > 0 && window.start_time < sortedPromotionWindows[index - 1].end_time,
+        )
+      ) {
+        return "Интервалы акции не должны пересекаться";
+      }
+      if (
+        day.breaks.some(
+          (scheduleBreak) =>
+            !scheduleBreak.start_time ||
+            !scheduleBreak.end_time ||
+            !(
+              day.start_time <= scheduleBreak.start_time &&
+              scheduleBreak.start_time < scheduleBreak.end_time &&
+              scheduleBreak.end_time <= day.end_time
+            ),
+        )
+      ) {
         return "Каждый перерыв должен быть внутри рабочего времени";
       }
-      const sortedBreaks = [...day.breaks].sort((left, right) => left.start_time.localeCompare(right.start_time));
-      if (sortedBreaks.some((scheduleBreak, index) => index > 0 && scheduleBreak.start_time < sortedBreaks[index - 1].end_time)) {
+      const sortedBreaks = [...day.breaks].sort((left, right) =>
+        left.start_time.localeCompare(right.start_time),
+      );
+      if (
+        sortedBreaks.some(
+          (scheduleBreak, index) =>
+            index > 0 &&
+            scheduleBreak.start_time < sortedBreaks[index - 1].end_time,
+        )
+      ) {
         return "Перерывы не должны пересекаться";
       }
     }
@@ -1302,11 +1891,18 @@ export default function SchedulePage() {
 
     setIsSavingBulkSchedule(true);
     try {
-      const response = await fetch(`${API_BASE}/partner/specialists/${scheduleSpecialistId}/`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", "X-Tenant": tenant, "X-Partner-Email": partnerEmail },
-        body: JSON.stringify({ working_schedule: bulkScheduleDraft }),
-      });
+      const response = await fetch(
+        `${API_BASE}/partner/specialists/${scheduleSpecialistId}/`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Tenant": tenant,
+            "X-Partner-Email": partnerEmail,
+          },
+          body: JSON.stringify({ working_schedule: bulkScheduleDraft }),
+        },
+      );
       if (!response.ok) {
         setBulkScheduleError("Не удалось сохранить график");
         return;
@@ -1327,11 +1923,20 @@ export default function SchedulePage() {
         </div>
 
         <div className={styles.actions}>
-          <button type="button" className={styles.settingsButton} onClick={openBulkScheduleModal} disabled={!partnerEmail || !activeSpecialists.length}>
+          <button
+            type="button"
+            className={styles.settingsButton}
+            onClick={openBulkScheduleModal}
+            disabled={!partnerEmail || !activeSpecialists.length}
+          >
             <img src="/setting.svg" alt="" aria-hidden />
             <span>Составить график работы</span>
           </button>
-          <button type="button" className={styles.addButton} onClick={openBookingModal}>
+          <button
+            type="button"
+            className={styles.addButton}
+            onClick={openBookingModal}
+          >
             <span className={styles.plus}>+</span>
             <span>Добавить запись</span>
           </button>
@@ -1339,28 +1944,76 @@ export default function SchedulePage() {
       </div>
 
       <section className={styles.dateCard} ref={datePickerRef}>
-        <button type="button" className={styles.dateArrow} onClick={() => moveDate(-1)} aria-label="Предыдущий день">
+        <button
+          type="button"
+          className={styles.dateArrow}
+          onClick={() => moveDate(-1)}
+          aria-label="Предыдущий день"
+        >
           &lt;
         </button>
-        <button type="button" className={styles.dateBody} onClick={openDatePicker} aria-label="Выбрать дату">
+        <button
+          type="button"
+          className={styles.dateBody}
+          onClick={openDatePicker}
+          aria-label="Выбрать дату"
+        >
           <p className={styles.dateTitle}>{formatDateTitle(selectedDate)}</p>
           <p className={styles.dateWeekday}>{RUS_WEEKDAY[selectedDay]}</p>
         </button>
-        <button type="button" className={styles.dateArrow} onClick={() => moveDate(1)} aria-label="Следующий день">
+        <button
+          type="button"
+          className={styles.dateArrow}
+          onClick={() => moveDate(1)}
+          aria-label="Следующий день"
+        >
           &gt;
         </button>
         {isDatePickerOpen ? (
-          <div className={styles.calendarPopover} role="dialog" aria-label="Выбор даты">
+          <div
+            className={styles.calendarPopover}
+            role="dialog"
+            aria-label="Выбор даты"
+          >
             <header className={styles.calendarHeader}>
-              <button type="button" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Предыдущий месяц">‹</button>
+              <button
+                type="button"
+                onClick={() =>
+                  setCalendarMonth(
+                    (month) =>
+                      new Date(month.getFullYear(), month.getMonth() - 1, 1),
+                  )
+                }
+                aria-label="Предыдущий месяц"
+              >
+                ‹
+              </button>
               <strong>{`${RUS_MONTH[calendarMonth.getMonth()]} ${calendarMonth.getFullYear()}`}</strong>
-              <button type="button" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="Следующий месяц">›</button>
+              <button
+                type="button"
+                onClick={() =>
+                  setCalendarMonth(
+                    (month) =>
+                      new Date(month.getFullYear(), month.getMonth() + 1, 1),
+                  )
+                }
+                aria-label="Следующий месяц"
+              >
+                ›
+              </button>
             </header>
-            <div className={styles.calendarWeekdays}>{["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((day) => <span key={day}>{day}</span>)}</div>
+            <div className={styles.calendarWeekdays}>
+              {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((day) => (
+                <span key={day}>{day}</span>
+              ))}
+            </div>
             <div className={styles.calendarDays}>
               {calendarDays.map((date) => {
-                const isCurrentMonth = date.getMonth() === calendarMonth.getMonth();
-                const isSelected = formatDateInputValue(date) === formatDateInputValue(selectedDate);
+                const isCurrentMonth =
+                  date.getMonth() === calendarMonth.getMonth();
+                const isSelected =
+                  formatDateInputValue(date) ===
+                  formatDateInputValue(selectedDate);
                 return (
                   <button
                     key={formatDateInputValue(date)}
@@ -1368,7 +2021,9 @@ export default function SchedulePage() {
                     className={`${styles.calendarDay} ${isCurrentMonth ? "" : styles.calendarDayMuted} ${isSelected ? styles.calendarDaySelected : ""}`}
                     onClick={() => {
                       setSelectedDate(date);
-                      setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+                      setCalendarMonth(
+                        new Date(date.getFullYear(), date.getMonth(), 1),
+                      );
                       setIsDatePickerOpen(false);
                     }}
                   >
@@ -1383,10 +2038,14 @@ export default function SchedulePage() {
 
       <section className={styles.tableWrap}>
         <div className={styles.timeRail}>
-          <div className={`${styles.timeRailHeader} ${styles.sticky}`}>Время</div>
+          <div className={`${styles.timeRailHeader} ${styles.sticky}`}>
+            Время
+          </div>
           {HOURS.map((hour) => (
             <div key={`time-${hour}`} className={styles.timeMark}>
-              <span className={styles.timeMarkLabel}>{`${String(hour).padStart(2, "0")}:00`}</span>
+              <span
+                className={styles.timeMarkLabel}
+              >{`${String(hour).padStart(2, "0")}:00`}</span>
             </div>
           ))}
         </div>
@@ -1394,10 +2053,15 @@ export default function SchedulePage() {
         <div className={styles.gridSurface}>
           <div
             className={styles.grid}
-            style={{ gridTemplateColumns: `repeat(${Math.max(activeSpecialists.length, 1)}, minmax(180px, 1fr))` }}
+            style={{
+              gridTemplateColumns: `repeat(${Math.max(activeSpecialists.length, 1)}, minmax(180px, 1fr))`,
+            }}
           >
             {activeSpecialists.map((specialist) => (
-              <div key={specialist.id} className={`${styles.headerCell} ${styles.sticky}`}>
+              <div
+                key={specialist.id}
+                className={`${styles.headerCell} ${styles.sticky}`}
+              >
                 <strong>{specialist.full_name}</strong>
               </div>
             ))}
@@ -1406,11 +2070,20 @@ export default function SchedulePage() {
               return (
                 <Fragment key={`row-${hour}`}>
                   {activeSpecialists.map((specialist) => {
-                    const slotEntries = bookingsBySlot.get(`${hour}-${specialist.id}`) || [];
-                    const daySchedule = selectedDayScheduleBySpecialist.get(specialist.id);
+                    const slotEntries =
+                      bookingsBySlot.get(`${hour}-${specialist.id}`) || [];
+                    const daySchedule = selectedDayScheduleBySpecialist.get(
+                      specialist.id,
+                    );
                     const slotState = getSpecialistSlotState(daySchedule, hour);
-                    const slotStateClass = styles[`slotCell${slotState.tone.charAt(0).toUpperCase()}${slotState.tone.slice(1)}`];
-                    const slotStateTextClass = styles[`slotStateText${slotState.tone.charAt(0).toUpperCase()}${slotState.tone.slice(1)}`];
+                    const slotStateClass =
+                      styles[
+                        `slotCell${slotState.tone.charAt(0).toUpperCase()}${slotState.tone.slice(1)}`
+                      ];
+                    const slotStateTextClass =
+                      styles[
+                        `slotStateText${slotState.tone.charAt(0).toUpperCase()}${slotState.tone.slice(1)}`
+                      ];
 
                     return (
                       <div
@@ -1418,7 +2091,11 @@ export default function SchedulePage() {
                         className={`${styles.slotCell} ${slotStateClass} ${slotEntries.length ? styles.slotCellWithBooking : ""}`}
                       >
                         {!slotEntries.length && slotState.tone === "break" ? (
-                          <p className={`${styles.slotStateText} ${slotStateTextClass}`}>Тех. перерыв</p>
+                          <p
+                            className={`${styles.slotStateText} ${slotStateTextClass}`}
+                          >
+                            Тех. перерыв
+                          </p>
                         ) : null}
                         {slotEntries.map((entry) => (
                           <article
@@ -1441,11 +2118,21 @@ export default function SchedulePage() {
                             >
                               <img src="/change.svg" alt="" aria-hidden />
                             </button>
-                            <p className={styles.bookingStatus}>{getStatusLabel(entry.booking.status)}</p>
-                            <p className={styles.bookingService}>{entry.booking.service_name}</p>
-                            <p className={styles.bookingClient}>{entry.booking.client_name}</p>
+                            <p className={styles.bookingStatus}>
+                              {getStatusLabel(entry.booking.status)}
+                            </p>
+                            <p className={styles.bookingService}>
+                              {entry.booking.service_name}
+                            </p>
+                            <p className={styles.bookingClient}>
+                              {entry.booking.client_name}
+                            </p>
                             <p className={styles.bookingTime}>
-                              {formatBookingTime(entry.booking.starts_at)} - {addMinutesToTimeLabel(entry.booking.starts_at, entry.durationMinutes)}
+                              {formatBookingTime(entry.booking.starts_at)} -{" "}
+                              {addMinutesToTimeLabel(
+                                entry.booking.starts_at,
+                                entry.durationMinutes,
+                              )}
                             </p>
                           </article>
                         ))}
@@ -1459,19 +2146,47 @@ export default function SchedulePage() {
         </div>
 
         {activeSpecialists.length === 0 ? (
-          <div className={styles.emptyState}>Нет активных специалистов для отображения графика.</div>
+          <div className={styles.emptyState}>
+            Нет активных специалистов для отображения графика.
+          </div>
         ) : null}
       </section>
 
       {isBookingModalOpen ? (
-        <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label="Добавить запись">
-          <form className={styles.bookingModal} onSubmit={submitBooking} style={bookingModalDrag.modalStyle}>
-            <header className={styles.bookingHeader} {...bookingModalDrag.dragHandleProps}>
+        <div
+          className={styles.modalOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Добавить запись"
+        >
+          <form
+            className={styles.bookingModal}
+            onSubmit={submitBooking}
+            style={bookingModalDrag.modalStyle}
+          >
+            <header
+              className={styles.bookingHeader}
+              {...bookingModalDrag.dragHandleProps}
+            >
               <div className={styles.bookingTitleWrap}>
-                <img src="/modal_icon.svg" alt="" aria-hidden className={styles.bookingHeaderIcon} />
-                <h3>{bookingModalMode === "edit" ? "Редактировать запись" : "Добавить запись"}</h3>
+                <img
+                  src="/modal_icon.svg"
+                  alt=""
+                  aria-hidden
+                  className={styles.bookingHeaderIcon}
+                />
+                <h3>
+                  {bookingModalMode === "edit"
+                    ? "Редактировать запись"
+                    : "Добавить запись"}
+                </h3>
               </div>
-              <button type="button" className={styles.closeModalButton} onClick={closeBookingModal} aria-label="Закрыть">
+              <button
+                type="button"
+                className={styles.closeModalButton}
+                onClick={closeBookingModal}
+                aria-label="Закрыть"
+              >
                 ×
               </button>
             </header>
@@ -1491,7 +2206,9 @@ export default function SchedulePage() {
                 <span>Телефон *</span>
                 <input
                   value={bookingPhone}
-                  onChange={(event) => setBookingPhone(formatRuPhone(event.target.value))}
+                  onChange={(event) =>
+                    setBookingPhone(formatRuPhone(event.target.value))
+                  }
                   required
                   maxLength={24}
                   inputMode="tel"
@@ -1500,15 +2217,28 @@ export default function SchedulePage() {
 
               {bookingLines.map((line, index) => {
                 const lineDiscount = bookingDiscountByLineId.get(line.id);
-                const availableServices = bookingModalMode === "edit" ? availableServicesForSpecialist : getServicesForSpecialist(line.specialistId);
-                const availableSpecialists = getSpecialistsForService(line.serviceId);
+                const availableServices =
+                  bookingModalMode === "edit"
+                    ? availableServicesForSpecialist
+                    : getServicesForSpecialist(line.specialistId);
+                const availableSpecialists = getSpecialistsForService(
+                  line.serviceId,
+                );
 
                 return (
-                  <div key={line.id} className={`${styles.serviceLine} ${bookingModalMode === "create" ? styles.independentServiceLine : ""}`}>
+                  <div
+                    key={line.id}
+                    className={`${styles.serviceLine} ${bookingModalMode === "create" ? styles.independentServiceLine : ""}`}
+                  >
                     <div className={styles.serviceRow}>
                       <label className={styles.fieldBlock}>
                         <span>Услуга{index === 0 ? "" : ` ${index + 1}`}</span>
-                        <select value={line.serviceId} onChange={(event) => onServiceChange(line.id, event.target.value)}>
+                        <select
+                          value={line.serviceId}
+                          onChange={(event) =>
+                            onServiceChange(line.id, event.target.value)
+                          }
+                        >
                           <option value="">Выберите созданную услугу</option>
                           {availableServices.map((service) => (
                             <option key={service.id} value={String(service.id)}>
@@ -1516,12 +2246,24 @@ export default function SchedulePage() {
                             </option>
                           ))}
                         </select>
-                        {availableServices.length === 0 ? <span className={styles.helperError}>Нет доступных услуг для записи</span> : null}
+                        {availableServices.length === 0 ? (
+                          <span className={styles.helperError}>
+                            Нет доступных услуг для записи
+                          </span>
+                        ) : null}
                       </label>
 
-                      <label className={`${styles.fieldBlock} ${styles.sumField}`}>
+                      <label
+                        className={`${styles.fieldBlock} ${styles.sumField}`}
+                      >
                         <span>Сумма</span>
-                        <input value={line.sum} onChange={(event) => onSumChange(line.id, event.target.value)} inputMode="numeric" />
+                        <input
+                          value={line.sum}
+                          onChange={(event) =>
+                            onSumChange(line.id, event.target.value)
+                          }
+                          inputMode="numeric"
+                        />
                       </label>
 
                       {bookingLines.length > 1 ? (
@@ -1540,16 +2282,27 @@ export default function SchedulePage() {
                       <>
                         <label className={styles.fieldBlock}>
                           <span>Специалист</span>
-                          <select value={line.specialistId} onChange={(event) => onSpecialistChange(event.target.value, line.id)}>
+                          <select
+                            value={line.specialistId}
+                            onChange={(event) =>
+                              onSpecialistChange(event.target.value, line.id)
+                            }
+                          >
                             <option value="">Выберите специалиста</option>
                             {availableSpecialists.map((specialist) => (
-                              <option key={specialist.id} value={String(specialist.id)}>
+                              <option
+                                key={specialist.id}
+                                value={String(specialist.id)}
+                              >
                                 {specialist.full_name}
                               </option>
                             ))}
                           </select>
-                          {line.serviceId && availableSpecialists.length === 0 ? (
-                            <span className={styles.helperError}>Нет специалистов для выбранной услуги</span>
+                          {line.serviceId &&
+                          availableSpecialists.length === 0 ? (
+                            <span className={styles.helperError}>
+                              Нет специалистов для выбранной услуги
+                            </span>
                           ) : null}
                         </label>
 
@@ -1561,7 +2314,11 @@ export default function SchedulePage() {
                               <input
                                 type="date"
                                 value={line.date}
-                                onChange={(event) => updateBookingLine(line.id, { date: event.target.value })}
+                                onChange={(event) =>
+                                  updateBookingLine(line.id, {
+                                    date: event.target.value,
+                                  })
+                                }
                                 className={styles.dateTimeInput}
                               />
                             </div>
@@ -1573,10 +2330,15 @@ export default function SchedulePage() {
                               <img src="/schedule.svg" alt="" aria-hidden />
                               <select
                                 value={line.startTime}
-                                onChange={(event) => updateBookingLine(line.id, { startTime: event.target.value })}
+                                onChange={(event) =>
+                                  updateBookingLine(line.id, {
+                                    startTime: event.target.value,
+                                  })
+                                }
                                 className={styles.dateTimeInput}
                               >
-                                {(TIME_OPTIONS.includes(line.startTime) || !line.startTime
+                                {(TIME_OPTIONS.includes(line.startTime) ||
+                                !line.startTime
                                   ? TIME_OPTIONS
                                   : [...TIME_OPTIONS, line.startTime].sort()
                                 ).map((time) => (
@@ -1606,16 +2368,27 @@ export default function SchedulePage() {
                 <>
                   <label className={styles.fieldBlock}>
                     <span>Специалист</span>
-                    <select value={bookingSpecialistId} onChange={(event) => onSpecialistChange(event.target.value)}>
+                    <select
+                      value={bookingSpecialistId}
+                      onChange={(event) =>
+                        onSpecialistChange(event.target.value)
+                      }
+                    >
                       <option value="">Выберите специалиста</option>
                       {availableSpecialistsForService.map((specialist) => (
-                        <option key={specialist.id} value={String(specialist.id)}>
+                        <option
+                          key={specialist.id}
+                          value={String(specialist.id)}
+                        >
                           {specialist.full_name}
                         </option>
                       ))}
                     </select>
-                    {selectedServicesInModal.length > 0 && availableSpecialistsForService.length === 0 ? (
-                      <span className={styles.helperError}>Нет специалистов для выбранной услуги</span>
+                    {selectedServicesInModal.length > 0 &&
+                    availableSpecialistsForService.length === 0 ? (
+                      <span className={styles.helperError}>
+                        Нет специалистов для выбранной услуги
+                      </span>
                     ) : null}
                   </label>
 
@@ -1624,7 +2397,14 @@ export default function SchedulePage() {
                       <span>Дата</span>
                       <div className={styles.iconInputWrap}>
                         <img src="/calendar.svg" alt="" aria-hidden />
-                        <input type="date" value={bookingDate} onChange={(event) => setBookingDate(event.target.value)} className={styles.dateTimeInput} />
+                        <input
+                          type="date"
+                          value={bookingDate}
+                          onChange={(event) =>
+                            setBookingDate(event.target.value)
+                          }
+                          className={styles.dateTimeInput}
+                        />
                       </div>
                     </label>
 
@@ -1634,10 +2414,13 @@ export default function SchedulePage() {
                         <img src="/schedule.svg" alt="" aria-hidden />
                         <select
                           value={bookingStartTime}
-                          onChange={(event) => setBookingStartTime(event.target.value)}
+                          onChange={(event) =>
+                            setBookingStartTime(event.target.value)
+                          }
                           className={styles.dateTimeInput}
                         >
-                          {(TIME_OPTIONS.includes(bookingStartTime) || !bookingStartTime
+                          {(TIME_OPTIONS.includes(bookingStartTime) ||
+                          !bookingStartTime
                             ? TIME_OPTIONS
                             : [...TIME_OPTIONS, bookingStartTime].sort()
                           ).map((time) => (
@@ -1652,19 +2435,37 @@ export default function SchedulePage() {
                 </>
               ) : null}
 
-              <button type="button" className={styles.addMoreButton} onClick={addBookingLine}>
+              <button
+                type="button"
+                className={styles.addMoreButton}
+                onClick={addBookingLine}
+              >
                 <span>+</span>
                 Добавить ещё
               </button>
 
-              {modalError ? <p className={styles.modalError}>{modalError}</p> : null}
+              {modalError ? (
+                <p className={styles.modalError}>{modalError}</p>
+              ) : null}
 
               <div className={styles.bookingFooter}>
-                <button type="button" className={styles.cancelModalButton} onClick={closeBookingModal}>
+                <button
+                  type="button"
+                  className={styles.cancelModalButton}
+                  onClick={closeBookingModal}
+                >
                   Отменить
                 </button>
-                <button type="submit" className={styles.submitModalButton} disabled={!canSubmitBooking || isSubmittingBooking}>
-                  {isSubmittingBooking ? "Сохранение..." : bookingModalMode === "edit" ? "Сохранить" : "Добавить запись"}
+                <button
+                  type="submit"
+                  className={styles.submitModalButton}
+                  disabled={!canSubmitBooking || isSubmittingBooking}
+                >
+                  {isSubmittingBooking
+                    ? "Сохранение..."
+                    : bookingModalMode === "edit"
+                      ? "Сохранить"
+                      : "Добавить запись"}
                 </button>
               </div>
             </div>
@@ -1673,9 +2474,20 @@ export default function SchedulePage() {
       ) : null}
 
       {detailsBooking ? (
-        <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label="Детали записи">
-          <section className={styles.detailsModal} style={bookingDetailsModalDrag.modalStyle}>
-            <header className={styles.detailsHeader} {...bookingDetailsModalDrag.dragHandleProps}>
+        <div
+          className={styles.modalOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Детали записи"
+        >
+          <section
+            className={styles.detailsModal}
+            style={bookingDetailsModalDrag.modalStyle}
+          >
+            <header
+              className={styles.detailsHeader}
+              {...bookingDetailsModalDrag.dragHandleProps}
+            >
               <div className={styles.detailsTitle}>
                 <img src="/modal_icon.svg" alt="" aria-hidden />
                 <h3>Детали записи</h3>
@@ -1732,7 +2544,12 @@ export default function SchedulePage() {
 
             <div className={styles.detailsBody}>
               <div className={styles.clientSummary}>
-                <div className={styles.clientAvatar}>{detailsBooking.client_name.trim().slice(0, 1).toUpperCase() || "К"}</div>
+                <div className={styles.clientAvatar}>
+                  {detailsBooking.client_name
+                    .trim()
+                    .slice(0, 1)
+                    .toUpperCase() || "К"}
+                </div>
                 <div>
                   <strong>{detailsBooking.client_name}</strong>
                   <span>{formatRuPhone(detailsBooking.client_phone)}</span>
@@ -1747,21 +2564,46 @@ export default function SchedulePage() {
                 {detailsServices.map((service, index) => {
                   const minutesBeforeService = detailsServices
                     .slice(0, index)
-                    .reduce((total, previousService) => total + previousService.durationMinutes, 0);
-                  const serviceStart = addMinutesToTimeLabel(detailsBooking.starts_at, minutesBeforeService);
-                  const serviceEnd = addMinutesToTimeLabel(detailsBooking.starts_at, minutesBeforeService + service.durationMinutes);
+                    .reduce(
+                      (total, previousService) =>
+                        total + previousService.durationMinutes,
+                      0,
+                    );
+                  const serviceStart = addMinutesToTimeLabel(
+                    detailsBooking.starts_at,
+                    minutesBeforeService,
+                  );
+                  const serviceEnd = addMinutesToTimeLabel(
+                    detailsBooking.starts_at,
+                    minutesBeforeService + service.durationMinutes,
+                  );
 
                   return (
-                    <section key={`${service.name}-${index}`} className={styles.detailServiceCard}>
-                      <div><span>Услуга</span><strong>{service.name}</strong></div>
+                    <section
+                      key={`${service.name}-${index}`}
+                      className={styles.detailServiceCard}
+                    >
+                      <div>
+                        <span>Услуга</span>
+                        <strong>{service.name}</strong>
+                      </div>
                       <div>
                         <span>Стоимость услуги</span>
                         <strong>
                           {service.price == null ? (
                             "-"
-                          ) : service.discountPercent > 0 ? (
+                          ) :
+                            service.finalPrice != null &&
+                            service.finalPrice < service.price ? (
                             <>
                               <s className={styles.oldPrice}>{`${service.price.toLocaleString("ru-RU")} т`}</s>
+                              {`${service.finalPrice.toLocaleString("ru-RU")} т`}
+                            </>
+                          ) : service.discountPercent > 0 ? (
+                            <>
+                              <s
+                                className={styles.oldPrice}
+                              >{`${service.price.toLocaleString("ru-RU")} т`}</s>
                               {`${Math.round(service.price * (1 - service.discountPercent / 100)).toLocaleString("ru-RU")} т`}
                             </>
                           ) : (
@@ -1769,7 +2611,10 @@ export default function SchedulePage() {
                           )}
                         </strong>
                       </div>
-                      <div><span>Дата и время</span><strong>{`${formatDateTitle(new Date(detailsBooking.starts_at))}, ${serviceStart} - ${serviceEnd}`}</strong></div>
+                      <div>
+                        <span>Дата и время</span>
+                        <strong>{`${formatDateTitle(new Date(detailsBooking.starts_at))}, ${serviceStart} - ${serviceEnd}`}</strong>
+                      </div>
                       <div>
                         <span>Ресурс</span>
                         <strong className={styles.resourceValue}>
@@ -1777,13 +2622,26 @@ export default function SchedulePage() {
                             {detailsSpecialist?.photo_url ? (
                               <img src={detailsSpecialist.photo_url} alt="" />
                             ) : (
-                              detailsSpecialist?.full_name.slice(0, 1).toUpperCase() || "С"
+                              detailsSpecialist?.full_name
+                                .slice(0, 1)
+                                .toUpperCase() || "С"
                             )}
                           </b>
                           {detailsBooking.manager_name || "Не назначен"}
                         </strong>
                       </div>
-                      <div><span>Статус</span><strong className={styles[`detailStatus${getStatusTone(detailsBooking.status).charAt(0).toUpperCase()}${getStatusTone(detailsBooking.status).slice(1)}`]}>{getStatusLabel(detailsBooking.status)}</strong></div>
+                      <div>
+                        <span>Статус</span>
+                        <strong
+                          className={
+                            styles[
+                              `detailStatus${getStatusTone(detailsBooking.status).charAt(0).toUpperCase()}${getStatusTone(detailsBooking.status).slice(1)}`
+                            ]
+                          }
+                        >
+                          {getStatusLabel(detailsBooking.status)}
+                        </strong>
+                      </div>
                     </section>
                   );
                 })}
@@ -1792,10 +2650,32 @@ export default function SchedulePage() {
               <div className={styles.totalRow}>
                 <span>Общая сумма</span>
                 {(() => {
-                  const total = detailsServices.reduce((sum, service) => sum + (service.price || 0), 0);
-                  const discountedTotal = Math.round(
-                    detailsServices.reduce((sum, service) => sum + (service.price || 0) * (1 - service.discountPercent / 100), 0),
+                  const hasPriceSnapshot = Boolean(
+                    detailsBooking.pricing_details?.length,
                   );
+                  const snapshotTotal = Number(detailsBooking.base_price);
+                  const snapshotDiscountedTotal = Number(
+                    detailsBooking.final_price,
+                  );
+                  const total =
+                    hasPriceSnapshot && Number.isFinite(snapshotTotal)
+                      ? snapshotTotal
+                      : detailsServices.reduce(
+                          (sum, service) => sum + (service.price || 0),
+                          0,
+                        );
+                  const discountedTotal =
+                    hasPriceSnapshot && Number.isFinite(snapshotDiscountedTotal)
+                      ? snapshotDiscountedTotal
+                      : Math.round(
+                          detailsServices.reduce(
+                            (sum, service) =>
+                              sum +
+                              (service.price || 0) *
+                                (1 - service.discountPercent / 100),
+                            0,
+                          ),
+                        );
 
                   return discountedTotal < total ? (
                     <strong className={styles.totalWithDiscount}>
@@ -1814,10 +2694,20 @@ export default function SchedulePage() {
             </div>
 
             <footer className={styles.detailsFooter}>
-              <button type="button" className={styles.dangerButton} onClick={() => void updateBookingStatus("no_show")} disabled={isUpdatingStatus}>
+              <button
+                type="button"
+                className={styles.dangerButton}
+                onClick={() => void updateBookingStatus("no_show")}
+                disabled={isUpdatingStatus}
+              >
                 Неявка
               </button>
-              <button type="button" className={styles.completeButton} onClick={() => void updateBookingStatus("completed")} disabled={isUpdatingStatus}>
+              <button
+                type="button"
+                className={styles.completeButton}
+                onClick={() => void updateBookingStatus("completed")}
+                disabled={isUpdatingStatus}
+              >
                 {isUpdatingStatus ? "Сохранение..." : "Оплачен"}
               </button>
             </footer>
@@ -1826,20 +2716,49 @@ export default function SchedulePage() {
       ) : null}
 
       {isDeleteConfirmOpen && detailsBooking ? (
-        <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label="Удаление записи">
-          <section className={styles.confirmModal} style={deleteBookingModalDrag.modalStyle}>
-            <header className={styles.confirmHeader} {...deleteBookingModalDrag.dragHandleProps}>
+        <div
+          className={styles.modalOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Удаление записи"
+        >
+          <section
+            className={styles.confirmModal}
+            style={deleteBookingModalDrag.modalStyle}
+          >
+            <header
+              className={styles.confirmHeader}
+              {...deleteBookingModalDrag.dragHandleProps}
+            >
               <h3>Удалить запись?</h3>
-              <button type="button" className={styles.confirmCloseButton} onClick={() => setIsDeleteConfirmOpen(false)} aria-label="Закрыть">
+              <button
+                type="button"
+                className={styles.confirmCloseButton}
+                onClick={() => setIsDeleteConfirmOpen(false)}
+                aria-label="Закрыть"
+              >
                 ×
               </button>
             </header>
-            <p>Вы точно хотите удалить? Запись будет удалена полностью, восстановить её не получится.</p>
+            <p>
+              Вы точно хотите удалить? Запись будет удалена полностью,
+              восстановить её не получится.
+            </p>
             <div className={styles.confirmActions}>
-              <button type="button" className={styles.noShowButton} onClick={() => setIsDeleteConfirmOpen(false)} disabled={isDeletingBooking}>
+              <button
+                type="button"
+                className={styles.noShowButton}
+                onClick={() => setIsDeleteConfirmOpen(false)}
+                disabled={isDeletingBooking}
+              >
                 Отменить
               </button>
-              <button type="button" className={styles.dangerButton} onClick={() => void deleteBooking()} disabled={isDeletingBooking}>
+              <button
+                type="button"
+                className={styles.dangerButton}
+                onClick={() => void deleteBooking()}
+                disabled={isDeletingBooking}
+              >
                 {isDeletingBooking ? "Удаление..." : "Удалить"}
               </button>
             </div>
@@ -1848,32 +2767,418 @@ export default function SchedulePage() {
       ) : null}
 
       {isBulkScheduleOpen ? (
-        <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label="Составить график работы">
-          <section className={styles.bulkScheduleModal} style={bulkScheduleModalDrag.modalStyle}>
-            <header className={styles.bulkScheduleHeader} {...bulkScheduleModalDrag.dragHandleProps}>
+        <div
+          className={styles.modalOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Составить график работы"
+        >
+          <section
+            className={styles.bulkScheduleModal}
+            style={bulkScheduleModalDrag.modalStyle}
+          >
+            <header
+              className={styles.bulkScheduleHeader}
+              {...bulkScheduleModalDrag.dragHandleProps}
+            >
               <div className={styles.detailsTitle}>
                 <img src="/setting.svg" alt="" aria-hidden />
                 <h3>Составить график работы</h3>
               </div>
-              <button type="button" className={styles.closeModalButton} onClick={() => setIsBulkScheduleOpen(false)} aria-label="Закрыть">×</button>
+              <button
+                type="button"
+                className={styles.closeModalButton}
+                onClick={() => setIsBulkScheduleOpen(false)}
+                aria-label="Закрыть"
+              >
+                ×
+              </button>
             </header>
             <div className={styles.bulkScheduleBody}>
-              <label className={styles.scheduleSpecialistSelect}><span>Выберите специалиста</span><select value={scheduleSpecialistId} onChange={(event) => changeScheduleSpecialist(event.target.value)}>{activeSpecialists.map((specialist) => <option key={specialist.id} value={String(specialist.id)}>{specialist.full_name}</option>)}</select></label>
+              <label className={styles.scheduleSpecialistSelect}>
+                <span>Выберите специалиста</span>
+                <select
+                  value={scheduleSpecialistId}
+                  onChange={(event) =>
+                    changeScheduleSpecialist(event.target.value)
+                  }
+                >
+                  {activeSpecialists.map((specialist) => (
+                    <option key={specialist.id} value={String(specialist.id)}>
+                      {specialist.full_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <div className={styles.scheduleEditorLayout}>
                 <section className={styles.scheduleCalendar}>
-                  <header className={styles.scheduleCalendarHeader}><button type="button" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Предыдущий месяц">‹</button><strong>{`${RUS_MONTH[calendarMonth.getMonth()]} ${calendarMonth.getFullYear()}`}</strong><button type="button" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="Следующий месяц">›</button></header>
-                  <div className={styles.calendarWeekdays}>{["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((day) => <span key={day}>{day}</span>)}</div>
-                  <div className={styles.scheduleCalendarDays}>{calendarDays.map((date) => { const day = getScheduleForDate(bulkScheduleDraft, date); const dateKey = formatDateInputValue(date); const isSelected = selectedScheduleDateKeys.includes(dateKey); return <button key={dateKey} type="button" className={`${styles.scheduleCalendarDay} ${date.getMonth() === calendarMonth.getMonth() ? "" : styles.calendarDayMuted} ${isSelected ? styles.scheduleCalendarDaySelected : ""}`} onClick={() => toggleScheduleDate(date)}><span>{date.getDate()}</span><i className={day?.is_day_off ? styles.dayOffDot : styles.workingDayDot} /></button>; })}</div>
-                  <p className={styles.scheduleLegend}><span><i className={styles.workingDayDot} />Рабочий день</span><span><i className={styles.dayOffDot} />Выходной</span></p>
-                  {bulkScheduleError ? <p className={styles.scheduleFormError}>{bulkScheduleError}</p> : null}
+                  <header className={styles.scheduleCalendarHeader}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCalendarMonth(
+                          (month) =>
+                            new Date(
+                              month.getFullYear(),
+                              month.getMonth() - 1,
+                              1,
+                            ),
+                        )
+                      }
+                      aria-label="Предыдущий месяц"
+                    >
+                      ‹
+                    </button>
+                    <strong>{`${RUS_MONTH[calendarMonth.getMonth()]} ${calendarMonth.getFullYear()}`}</strong>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCalendarMonth(
+                          (month) =>
+                            new Date(
+                              month.getFullYear(),
+                              month.getMonth() + 1,
+                              1,
+                            ),
+                        )
+                      }
+                      aria-label="Следующий месяц"
+                    >
+                      ›
+                    </button>
+                  </header>
+                  <div className={styles.calendarWeekdays}>
+                    {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((day) => (
+                      <span key={day}>{day}</span>
+                    ))}
+                  </div>
+                  <div className={styles.scheduleCalendarDays}>
+                    {calendarDays.map((date) => {
+                      const day = getScheduleForDate(bulkScheduleDraft, date);
+                      const dateKey = formatDateInputValue(date);
+                      const isSelected =
+                        selectedScheduleDateKeys.includes(dateKey);
+                      return (
+                        <button
+                          key={dateKey}
+                          type="button"
+                          className={`${styles.scheduleCalendarDay} ${date.getMonth() === calendarMonth.getMonth() ? "" : styles.calendarDayMuted} ${isSelected ? styles.scheduleCalendarDaySelected : ""}`}
+                          onClick={() => toggleScheduleDate(date)}
+                        >
+                          <span>{date.getDate()}</span>
+                          <i
+                            className={
+                              day?.is_day_off
+                                ? styles.dayOffDot
+                                : styles.workingDayDot
+                            }
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className={styles.scheduleLegend}>
+                    <span>
+                      <i className={styles.workingDayDot} />
+                      Рабочий день
+                    </span>
+                    <span>
+                      <i className={styles.dayOffDot} />
+                      Выходной
+                    </span>
+                  </p>
+                  {bulkScheduleError ? (
+                    <p className={styles.scheduleFormError}>
+                      {bulkScheduleError}
+                    </p>
+                  ) : null}
                 </section>
-                {(() => { const day = getScheduleForDate(bulkScheduleDraft, selectedDate); if (!day) return null; return <section className={styles.scheduleDayEditor}><section className={styles.scheduleSettingsPanel}><div className={styles.scheduleDayStatus}><span>{selectedScheduleDateKeys.length > 1 ? `Выбрано дней: ${selectedScheduleDateKeys.length}` : formatDateTitle(selectedDate)}</span><b className={day.is_day_off ? styles.dayOffStatus : styles.workingStatus}>{day.is_day_off ? "Выходной" : "Рабочий"}</b><button type="button" className={day.is_day_off ? styles.makeWorkingButton : styles.makeDayOffButton} onClick={() => toggleSelectedDayOff(day)}>{day.is_day_off ? "Сделать рабочим" : "Сделать выходным"}</button></div></section>
-                  {!day.is_day_off ? <><section className={`${styles.scheduleTimeSection} ${styles.scheduleSettingsPanel}`}><h4>Рабочие часы</h4><label>Начало работы<input type="time" value={day.start_time} onChange={(event) => updateSelectedScheduleDays({ start_time: event.target.value })} /></label><label>Окончание работы<input type="time" value={day.end_time} onChange={(event) => updateSelectedScheduleDays({ end_time: event.target.value })} /></label></section><section className={`${styles.scheduleTimeSection} ${styles.scheduleSettingsPanel}`}><h4>Доступное время для услуг со скидкой</h4><label>Начало<input type="time" value={day.discount_start} onChange={(event) => updateSelectedScheduleDays({ discount_start: event.target.value })} /></label><label>Окончание<input type="time" value={day.discount_end} onChange={(event) => updateSelectedScheduleDays({ discount_end: event.target.value })} /></label></section><section className={`${styles.scheduleTimeSection} ${styles.scheduleSettingsPanel}`}><div className={styles.breakTitle}><h4>Перерывы</h4><button type="button" onClick={() => updateSelectedScheduleDays({ breaks: [...day.breaks, { name: "Перерыв", start_time: "15:00", end_time: "15:30" }] })} aria-label="Добавить перерыв">+</button></div>{day.breaks.map((scheduleBreak, index) => <div className={styles.breakRow} key={`${scheduleBreak.name}-${index}`}><input value={scheduleBreak.name} onChange={(event) => updateSelectedScheduleDays({ breaks: day.breaks.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item) })} /><input type="time" value={scheduleBreak.start_time} onChange={(event) => updateSelectedScheduleDays({ breaks: day.breaks.map((item, itemIndex) => itemIndex === index ? { ...item, start_time: event.target.value } : item) })} /><input type="time" value={scheduleBreak.end_time} onChange={(event) => updateSelectedScheduleDays({ breaks: day.breaks.map((item, itemIndex) => itemIndex === index ? { ...item, end_time: event.target.value } : item) })} /><button type="button" onClick={() => updateSelectedScheduleDays({ breaks: day.breaks.filter((_, itemIndex) => itemIndex !== index) })} aria-label="Удалить перерыв">×</button></div>)}</section></> : <p className={`${styles.dayOffNotice} ${styles.scheduleSettingsPanel}`}>Для выходного дня запись недоступна.</p>}</section>; })()}
+                {(() => {
+                  const day = getScheduleForDate(
+                    bulkScheduleDraft,
+                    selectedDate,
+                  );
+                  if (!day) return null;
+                  return (
+                    <section className={styles.scheduleDayEditor}>
+                      <section className={styles.scheduleSettingsPanel}>
+                        <div className={styles.scheduleDayStatus}>
+                          <span>
+                            {selectedScheduleDateKeys.length > 1
+                              ? `Выбрано дней: ${selectedScheduleDateKeys.length}`
+                              : formatDateTitle(selectedDate)}
+                          </span>
+                          <b
+                            className={
+                              day.is_day_off
+                                ? styles.dayOffStatus
+                                : styles.workingStatus
+                            }
+                          >
+                            {day.is_day_off ? "Выходной" : "Рабочий"}
+                          </b>
+                          <button
+                            type="button"
+                            className={
+                              day.is_day_off
+                                ? styles.makeWorkingButton
+                                : styles.makeDayOffButton
+                            }
+                            onClick={() => toggleSelectedDayOff(day)}
+                          >
+                            {day.is_day_off
+                              ? "Сделать рабочим"
+                              : "Сделать выходным"}
+                          </button>
+                        </div>
+                      </section>
+                      {!day.is_day_off ? (
+                        <>
+                          <section
+                            className={`${styles.scheduleTimeSection} ${styles.scheduleSettingsPanel}`}
+                          >
+                            <h4>Рабочие часы</h4>
+                            <label>
+                              Начало работы
+                              <input
+                                type="time"
+                                value={day.start_time}
+                                onChange={(event) =>
+                                  updateSelectedScheduleDays({
+                                    start_time: event.target.value,
+                                  })
+                                }
+                              />
+                            </label>
+                            <label>
+                              Окончание работы
+                              <input
+                                type="time"
+                                value={day.end_time}
+                                onChange={(event) =>
+                                  updateSelectedScheduleDays({
+                                    end_time: event.target.value,
+                                  })
+                                }
+                              />
+                            </label>
+                          </section>
+                          <section
+                            className={`${styles.scheduleTimeSection} ${styles.scheduleSettingsPanel} ${styles.promotionSection}`}
+                          >
+                            <div className={styles.promotionHeader}>
+                              <h4>Акция специалиста</h4>
+                              <label className={styles.promotionToggle}>
+                                <span>Включена</span>
+                                <input
+                                  type="checkbox"
+                                  checked={getPromotionWindows(day).length > 0}
+                                  onChange={() => togglePromotion(day)}
+                                />
+                              </label>
+                            </div>
+                            {getPromotionWindows(day).length ? (
+                              <div className={styles.promotionWindows}>
+                                {getPromotionWindows(day).map((window, index) => (
+                                  <div
+                                    key={index}
+                                    className={styles.promotionWindowRow}
+                                  >
+                                    <label>
+                                      <span>Начало</span>
+                                      <input
+                                        type="time"
+                                        value={window.start_time}
+                                        onChange={(event) =>
+                                          updatePromotionWindows(
+                                            getPromotionWindows(day).map(
+                                              (item, itemIndex) =>
+                                                itemIndex === index
+                                                  ? {
+                                                      ...item,
+                                                      start_time:
+                                                        event.target.value,
+                                                    }
+                                                  : item,
+                                            ),
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                    <label>
+                                      <span>Окончание</span>
+                                      <input
+                                        type="time"
+                                        value={window.end_time}
+                                        onChange={(event) =>
+                                          updatePromotionWindows(
+                                            getPromotionWindows(day).map(
+                                              (item, itemIndex) =>
+                                                itemIndex === index
+                                                  ? {
+                                                      ...item,
+                                                      end_time:
+                                                        event.target.value,
+                                                    }
+                                                  : item,
+                                            ),
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                    <button
+                                      type="button"
+                                      className={styles.removePromotionWindowButton}
+                                      onClick={() =>
+                                        updatePromotionWindows(
+                                          getPromotionWindows(day).filter(
+                                            (_, itemIndex) => itemIndex !== index,
+                                          ),
+                                        )
+                                      }
+                                      aria-label={`Удалить интервал акции ${index + 1}`}
+                                      title="Удалить интервал"
+                                    >
+                                      <Trash2 size={15} aria-hidden />
+                                    </button>
+                                  </div>
+                                ))}
+                                <button
+                                  type="button"
+                                  className={styles.addPromotionWindowButton}
+                                  onClick={() => addPromotionWindow(day)}
+                                  disabled={!findNextPromotionWindow(day)}
+                                >
+                                  <Plus size={15} aria-hidden />
+                                  <span>Добавить интервал</span>
+                                </button>
+                              </div>
+                            ) : null}
+                          </section>
+                          <section
+                            className={`${styles.scheduleTimeSection} ${styles.scheduleSettingsPanel}`}
+                          >
+                            <div className={styles.breakTitle}>
+                              <h4>Перерывы</h4>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateSelectedScheduleDays({
+                                    breaks: [
+                                      ...day.breaks,
+                                      {
+                                        name: "Перерыв",
+                                        start_time: "15:00",
+                                        end_time: "15:30",
+                                      },
+                                    ],
+                                  })
+                                }
+                                aria-label="Добавить перерыв"
+                              >
+                                +
+                              </button>
+                            </div>
+                            {day.breaks.map((scheduleBreak, index) => (
+                              <div
+                                className={styles.breakRow}
+                                key={`${scheduleBreak.name}-${index}`}
+                              >
+                                <input
+                                  value={scheduleBreak.name}
+                                  onChange={(event) =>
+                                    updateSelectedScheduleDays({
+                                      breaks: day.breaks.map(
+                                        (item, itemIndex) =>
+                                          itemIndex === index
+                                            ? {
+                                                ...item,
+                                                name: event.target.value,
+                                              }
+                                            : item,
+                                      ),
+                                    })
+                                  }
+                                />
+                                <input
+                                  type="time"
+                                  value={scheduleBreak.start_time}
+                                  onChange={(event) =>
+                                    updateSelectedScheduleDays({
+                                      breaks: day.breaks.map(
+                                        (item, itemIndex) =>
+                                          itemIndex === index
+                                            ? {
+                                                ...item,
+                                                start_time: event.target.value,
+                                              }
+                                            : item,
+                                      ),
+                                    })
+                                  }
+                                />
+                                <input
+                                  type="time"
+                                  value={scheduleBreak.end_time}
+                                  onChange={(event) =>
+                                    updateSelectedScheduleDays({
+                                      breaks: day.breaks.map(
+                                        (item, itemIndex) =>
+                                          itemIndex === index
+                                            ? {
+                                                ...item,
+                                                end_time: event.target.value,
+                                              }
+                                            : item,
+                                      ),
+                                    })
+                                  }
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateSelectedScheduleDays({
+                                      breaks: day.breaks.filter(
+                                        (_, itemIndex) => itemIndex !== index,
+                                      ),
+                                    })
+                                  }
+                                  aria-label="Удалить перерыв"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </section>
+                        </>
+                      ) : (
+                        <p
+                          className={`${styles.dayOffNotice} ${styles.scheduleSettingsPanel}`}
+                        >
+                          Для выходного дня запись недоступна.
+                        </p>
+                      )}
+                    </section>
+                  );
+                })()}
               </div>
             </div>
             <footer className={styles.bulkScheduleFooter}>
-              <button type="button" className={styles.noShowButton} onClick={() => setIsBulkScheduleOpen(false)}>Отменить</button>
-              <button type="button" className={styles.completeButton} onClick={() => void submitBulkSchedule()} disabled={isSavingBulkSchedule}>{isSavingBulkSchedule ? "Сохранение..." : "Применить график"}</button>
+              <button
+                type="button"
+                className={styles.noShowButton}
+                onClick={() => setIsBulkScheduleOpen(false)}
+              >
+                Отменить
+              </button>
+              <button
+                type="button"
+                className={styles.completeButton}
+                onClick={() => void submitBulkSchedule()}
+                disabled={isSavingBulkSchedule}
+              >
+                {isSavingBulkSchedule ? "Сохранение..." : "Применить график"}
+              </button>
             </footer>
           </section>
         </div>

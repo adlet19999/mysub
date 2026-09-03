@@ -116,6 +116,10 @@ class Booking(models.Model):
 	client_name = models.CharField(max_length=120)
 	client_phone = models.CharField(max_length=32)
 	status = models.CharField(max_length=20, default="booked")
+	base_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+	discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+	final_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+	pricing_details = models.JSONField(default=list, blank=True)
 	created_at = models.DateTimeField(auto_now_add=True)
 
 

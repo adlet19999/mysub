@@ -23,14 +23,16 @@ export async function PATCH(request: Request, { params }: Params) {
   const body = (await request.json()) as {
     specialist?: string;
     service?: string;
+    serviceIds?: number[];
     clientName?: string;
     clientPhone?: string;
     startTime?: string;
     status?: string;
   };
-  const updatePayload: Record<string, string> = {};
+  const updatePayload: Record<string, string | number[]> = {};
   if (body.specialist != null) updatePayload.manager_name = body.specialist.trim();
   if (body.service != null) updatePayload.service_name = body.service.trim();
+  if (Array.isArray(body.serviceIds)) updatePayload.service_ids = body.serviceIds;
   if (body.startTime != null) updatePayload.starts_at = body.startTime.trim();
   if (body.clientName != null) updatePayload.client_name = body.clientName.trim();
   if (body.clientPhone != null) updatePayload.client_phone = body.clientPhone.trim();

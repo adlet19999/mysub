@@ -3,6 +3,7 @@ import binascii
 import re
 import uuid
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from io import BytesIO
 from pathlib import Path
 
@@ -338,6 +339,7 @@ def default_working_schedule():
 				"break_end": "",
 				"discount_start": "",
 				"discount_end": "",
+				"discount_windows": [],
 				"breaks": [],
 			}
 		)
@@ -379,6 +381,7 @@ def normalize_working_schedule(raw_schedule):
 		break_end = str(raw_item.get("break_end") or "").strip()
 		discount_start = str(raw_item.get("discount_start") or "").strip()
 		discount_end = str(raw_item.get("discount_end") or "").strip()
+		raw_discount_windows = raw_item.get("discount_windows")
 		raw_breaks = raw_item.get("breaks")
 
 		if not is_day_off:
@@ -389,13 +392,29 @@ def normalize_working_schedule(raw_schedule):
 			if start_time >= end_time:
 				return None, f"Для дня {day} start_time должен быть раньше end_time"
 
-			if bool(discount_start) != bool(discount_end):
-				return None, f"Для скидок в {day} укажите оба поля времени"
-			if discount_start and discount_end:
-				if not TIME_RE.match(discount_start) or not TIME_RE.match(discount_end):
+			if raw_discount_windows is None:
+				if bool(discount_start) != bool(discount_end):
+					return None, f"Для скидок в {day} укажите оба поля времени"
+				raw_discount_windows = [] if not discount_start else [{"start_time": discount_start, "end_time": discount_end}]
+			elif not isinstance(raw_discount_windows, list):
+				return None, f"discount_windows для {day} должен быть массивом"
+
+			discount_windows = []
+			for raw_window in raw_discount_windows:
+				if not isinstance(raw_window, dict):
+					return None, f"discount_windows для {day} содержит некорректный элемент"
+				window_start = str(raw_window.get("start_time") or "").strip()
+				window_end = str(raw_window.get("end_time") or "").strip()
+				if not TIME_RE.match(window_start) or not TIME_RE.match(window_end):
 					return None, f"Время скидок для {day} должно быть в формате HH:MM"
-				if not (start_time <= discount_start < discount_end <= end_time):
+				if not (start_time <= window_start < window_end <= end_time):
 					return None, f"Время скидок для {day} должно быть внутри рабочего времени"
+				discount_windows.append({"start_time": window_start, "end_time": window_end})
+			discount_windows.sort(key=lambda item: item["start_time"])
+			if any(current["start_time"] < previous["end_time"] for previous, current in zip(discount_windows, discount_windows[1:])):
+				return None, f"Время скидок для {day} не должно пересекаться"
+			discount_start = discount_windows[0]["start_time"] if discount_windows else ""
+			discount_end = discount_windows[0]["end_time"] if discount_windows else ""
 
 			if raw_breaks is None:
 				raw_breaks = [] if not break_start and not break_end else [{"name": "Перерыв", "start_time": break_start, "end_time": break_end}]
@@ -424,6 +443,7 @@ def normalize_working_schedule(raw_schedule):
 			break_end = ""
 			discount_start = ""
 			discount_end = ""
+			discount_windows = []
 			breaks = []
 
 		normalized_item = {
@@ -435,6 +455,7 @@ def normalize_working_schedule(raw_schedule):
 			"break_end": break_end,
 			"discount_start": discount_start,
 			"discount_end": discount_end,
+			"discount_windows": discount_windows,
 			"breaks": breaks,
 		}
 		if date:
@@ -458,6 +479,7 @@ def normalize_working_schedule(raw_schedule):
 					"break_end": "",
 					"discount_start": "",
 					"discount_end": "",
+					"discount_windows": [],
 					"breaks": [],
 				}
 			)
@@ -507,6 +529,150 @@ def resolve_booking_duration_minutes(service_name: str, duration_map) -> int:
 	for name in names:
 		minutes += duration_map.get(name.lower(), 60)
 	return minutes if minutes > 0 else 60
+
+
+MONEY_QUANTUM = Decimal("0.01")
+
+
+def to_money(value) -> Decimal:
+	try:
+		return Decimal(str(value if value is not None else 0)).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+	except (InvalidOperation, TypeError, ValueError):
+		return Decimal("0.00")
+
+
+def services_for_booking_pricing(tenant: str, partner_profile, service_name: str, service_ids=None):
+	parsed_ids = list(service_ids or [])
+	if parsed_ids:
+		items_by_id = {
+			item.id: item
+			for item in Service.objects.filter(
+				tenant_slug=tenant,
+				partner_profile=partner_profile,
+				id__in=parsed_ids,
+			)
+		}
+		return [items_by_id[service_id] for service_id in parsed_ids if service_id in items_by_id]
+
+	items = []
+	for name in parse_service_names(service_name):
+		item = (
+			Service.objects.filter(tenant_slug=tenant, partner_profile=partner_profile)
+			.filter(Q(name__iexact=name) | Q(kind__name__iexact=name))
+			.order_by("id")
+			.first()
+		)
+		if item:
+			items.append(item)
+	return items
+
+
+def service_ids_from_pricing_details(pricing_details):
+	service_ids = []
+	for detail in pricing_details or []:
+		if not isinstance(detail, dict):
+			continue
+		try:
+			service_ids.append(int(detail.get("service_id")))
+		except (TypeError, ValueError):
+			continue
+	return service_ids
+
+
+def booking_duration_for_services(services, service_name: str, duration_map) -> int:
+	if services:
+		return sum(
+			service.duration_minutes if service.duration_minutes and service.duration_minutes > 0 else 60
+			for service in services
+		)
+	return resolve_booking_duration_minutes(service_name, duration_map)
+
+
+def discount_window_for_service(specialist: Specialist | None, starts_at, service_offset_minutes: int, duration_minutes: int):
+	if not specialist:
+		return None
+	start_dt = to_aware_datetime(starts_at)
+	if start_dt is None:
+		return None
+	schedule, schedule_error = normalize_working_schedule(specialist.working_schedule)
+	if schedule_error:
+		return None
+	local_start = timezone.localtime(start_dt) + timedelta(minutes=service_offset_minutes)
+	date_key = local_start.strftime("%Y-%m-%d")
+	weekday = WEEKDAY_ORDER[local_start.weekday()]
+	day = next((item for item in schedule if item.get("date") == date_key), None)
+	if day is None:
+		day = next((item for item in schedule if item["day"] == weekday and not item.get("date")), None)
+	if not day or day["is_day_off"]:
+		return None
+
+	service_start = local_start.strftime("%H:%M")
+	service_end = (local_start + timedelta(minutes=duration_minutes)).strftime("%H:%M")
+	for window in day.get("discount_windows", []):
+		if window["start_time"] <= service_start and service_end <= window["end_time"]:
+			return window
+	return None
+
+
+def calculate_booking_pricing(services, specialist: Specialist | None, starts_at):
+	base_price = Decimal("0.00")
+	discount_amount = Decimal("0.00")
+	pricing_details = []
+	service_offset_minutes = 0
+
+	for service in services:
+		duration_minutes = service.duration_minutes if service.duration_minutes and service.duration_minutes > 0 else 60
+		service_base_price = to_money(service.price)
+		discount_percent = max(0, min(100, int(service.discount_percent or 0)))
+		discount_window = discount_window_for_service(
+			specialist,
+			starts_at,
+			service_offset_minutes,
+			duration_minutes,
+		)
+		applied_discount_percent = discount_percent if discount_window else 0
+		service_discount_amount = (service_base_price * Decimal(applied_discount_percent) / Decimal("100")).quantize(
+			MONEY_QUANTUM,
+			rounding=ROUND_HALF_UP,
+		)
+		service_final_price = service_base_price - service_discount_amount
+		base_price += service_base_price
+		discount_amount += service_discount_amount
+		pricing_details.append(
+			{
+				"service_id": service.id,
+				"service_name": service.name,
+				"base_price": str(service_base_price),
+				"discount_percent": applied_discount_percent,
+				"discount_amount": str(service_discount_amount),
+				"final_price": str(service_final_price),
+				"discount_window": discount_window,
+			}
+		)
+		service_offset_minutes += duration_minutes
+
+	return {
+		"base_price": base_price.quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP),
+		"discount_amount": discount_amount.quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP),
+		"final_price": (base_price - discount_amount).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP),
+		"pricing_details": pricing_details,
+	}
+
+
+def serialize_booking(item: Booking):
+	return {
+		"id": item.id,
+		"service_name": item.service_name,
+		"manager_name": item.manager_name,
+		"starts_at": item.starts_at.isoformat(),
+		"client_name": item.client_name,
+		"client_phone": item.client_phone,
+		"status": item.status,
+		"base_price": str(item.base_price),
+		"discount_amount": str(item.discount_amount),
+		"final_price": str(item.final_price),
+		"pricing_details": item.pricing_details or [],
+	}
 
 
 def booking_schedule_error(specialist: Specialist, starts_at, duration_minutes: int):
@@ -1709,18 +1875,7 @@ class BookingListCreateView(APIView):
 
 		tenant = tenant_from_request(request)
 		items = Booking.objects.filter(tenant_slug=tenant, partner_profile=partner_profile).order_by("-id")
-		return Response([
-			{
-				"id": item.id,
-				"service_name": item.service_name,
-				"manager_name": item.manager_name,
-				"starts_at": item.starts_at.isoformat(),
-				"client_name": item.client_name,
-				"client_phone": item.client_phone,
-				"status": item.status,
-			}
-			for item in items
-		])
+		return Response([serialize_booking(item) for item in items])
 
 	def post(self, request):
 		partner_profile, error_response = get_partner_profile(request)
@@ -1748,6 +1903,7 @@ class BookingListCreateView(APIView):
 		except (TypeError, ValueError):
 			return Response({"message": "service_ids содержит некорректный id"}, status=400)
 
+		specialist = None
 		if parsed_service_ids:
 			available_service_ids = set(
 				Service.objects.filter(
@@ -1759,28 +1915,28 @@ class BookingListCreateView(APIView):
 			if set(parsed_service_ids) != available_service_ids:
 				return Response({"message": "Одна или несколько услуг недоступны"}, status=400)
 
-			if manager_name:
-				specialist = Specialist.objects.filter(
-					tenant_slug=tenant,
-					partner_profile=partner_profile,
-					full_name__iexact=manager_name,
-					is_active=True,
-				).first()
-				if not specialist:
-					return Response({"message": "Специалист не найден"}, status=400)
+		if manager_name:
+			specialist = Specialist.objects.filter(
+				tenant_slug=tenant,
+				partner_profile=partner_profile,
+				full_name__iexact=manager_name,
+				is_active=True,
+			).first()
+			if not specialist:
+				return Response({"message": "Специалист не найден"}, status=400)
+			if parsed_service_ids:
 				assigned_service_ids = set(
 					SpecialistService.objects.filter(specialist=specialist).values_list("service_id", flat=True)
 				)
 				if not set(parsed_service_ids).issubset(assigned_service_ids):
 					return Response({"message": "Выбранный специалист не оказывает эту услугу"}, status=400)
-		duration_minutes = resolve_booking_duration_minutes(
+		pricing_services = services_for_booking_pricing(tenant, partner_profile, service_name, parsed_service_ids)
+		duration_minutes = booking_duration_for_services(
+			pricing_services,
 			service_name,
 			build_service_duration_map(tenant, partner_profile=partner_profile),
 		)
 		if manager_name:
-			specialist = Specialist.objects.filter(tenant_slug=tenant, partner_profile=partner_profile, full_name__iexact=manager_name, is_active=True).first()
-			if not specialist:
-				return Response({"message": "Специалист не найден"}, status=400)
 			schedule_error = booking_schedule_error(specialist, starts_at, duration_minutes)
 			if schedule_error:
 				return Response({"message": schedule_error}, status=409)
@@ -1801,6 +1957,7 @@ class BookingListCreateView(APIView):
 		):
 			return Response({"message": "Этот клиент уже записан на пересекающееся время"}, status=409)
 
+		pricing = calculate_booking_pricing(pricing_services, specialist, starts_at)
 		item = Booking.objects.create(
 			tenant_slug=tenant,
 			partner_profile=partner_profile,
@@ -1810,8 +1967,9 @@ class BookingListCreateView(APIView):
 			client_name=str(request.data.get("client_name")).strip(),
 			client_phone=str(request.data.get("client_phone")).strip(),
 			status=str(request.data.get("status") or "booked").strip(),
+			**pricing,
 		)
-		return Response({"id": item.id, "ok": True}, status=201)
+		return Response(serialize_booking(item), status=201)
 
 
 class BookingDetailView(APIView):
@@ -1824,6 +1982,26 @@ class BookingDetailView(APIView):
 		item = Booking.objects.filter(id=booking_id, tenant_slug=tenant, partner_profile=partner_profile).first()
 		if not item:
 			return Response({"message": "Запись не найдена"}, status=404)
+
+		parsed_service_ids = None
+		if "service_ids" in request.data:
+			raw_service_ids = request.data.get("service_ids")
+			if not isinstance(raw_service_ids, list):
+				return Response({"message": "service_ids должен быть массивом"}, status=400)
+			try:
+				parsed_service_ids = [int(service_id) for service_id in raw_service_ids]
+			except (TypeError, ValueError):
+				return Response({"message": "service_ids содержит некорректный id"}, status=400)
+			if parsed_service_ids:
+				available_service_ids = set(
+					Service.objects.filter(
+						tenant_slug=tenant,
+						partner_profile=partner_profile,
+						id__in=parsed_service_ids,
+					).values_list("id", flat=True)
+				)
+				if set(parsed_service_ids) != available_service_ids:
+					return Response({"message": "Одна или несколько услуг недоступны"}, status=400)
 
 		if "service_name" in request.data:
 			value = str(request.data.get("service_name") or "").strip()
@@ -1856,15 +2034,32 @@ class BookingDetailView(APIView):
 		if "status" in request.data:
 			item.status = str(request.data.get("status") or "booked").strip() or "booked"
 
+		pricing_requires_refresh = any(
+			field in request.data for field in ("service_name", "service_ids", "manager_name", "starts_at")
+		)
+		pricing_service_ids = (
+			parsed_service_ids
+			if parsed_service_ids is not None
+			else ([] if "service_name" in request.data else service_ids_from_pricing_details(item.pricing_details))
+		)
+		pricing_services = services_for_booking_pricing(tenant, partner_profile, item.service_name, pricing_service_ids)
+		duration_minutes = booking_duration_for_services(
+			pricing_services,
+			item.service_name,
+			build_service_duration_map(tenant, partner_profile=partner_profile),
+		)
+
 		# Проверяем график только когда меняется время, услуга или специалист.
-		if any(field in request.data for field in ("service_name", "manager_name", "starts_at")) and item.manager_name:
-			duration_minutes = resolve_booking_duration_minutes(
-				item.service_name,
-				build_service_duration_map(tenant, partner_profile=partner_profile),
-			)
+		if pricing_requires_refresh and item.manager_name:
 			specialist = Specialist.objects.filter(tenant_slug=tenant, partner_profile=partner_profile, full_name__iexact=item.manager_name, is_active=True).first()
 			if not specialist:
 				return Response({"message": "Специалист не найден"}, status=400)
+			if pricing_service_ids:
+				assigned_service_ids = set(
+					SpecialistService.objects.filter(specialist=specialist).values_list("service_id", flat=True)
+				)
+				if not set(pricing_service_ids).issubset(assigned_service_ids):
+					return Response({"message": "Выбранный специалист не оказывает эту услугу"}, status=400)
 			schedule_error = booking_schedule_error(specialist, item.starts_at, duration_minutes)
 			if schedule_error:
 				return Response({"message": schedule_error}, status=409)
@@ -1878,10 +2073,6 @@ class BookingDetailView(APIView):
 			):
 				return Response({"message": "У специалиста уже есть запись на это время"}, status=409)
 
-		duration_minutes = resolve_booking_duration_minutes(
-			item.service_name,
-			build_service_duration_map(tenant, partner_profile=partner_profile),
-		)
 		if has_client_booking_overlap(
 			tenant,
 			item.client_phone,
@@ -1892,18 +2083,22 @@ class BookingDetailView(APIView):
 		):
 			return Response({"message": "Этот клиент уже записан на пересекающееся время"}, status=409)
 
+		if pricing_requires_refresh:
+			specialist = None
+			if item.manager_name:
+				specialist = Specialist.objects.filter(
+					tenant_slug=tenant,
+					partner_profile=partner_profile,
+					full_name__iexact=item.manager_name,
+					is_active=True,
+				).first()
+			pricing = calculate_booking_pricing(pricing_services, specialist, item.starts_at)
+			item.base_price = pricing["base_price"]
+			item.discount_amount = pricing["discount_amount"]
+			item.final_price = pricing["final_price"]
+			item.pricing_details = pricing["pricing_details"]
 		item.save()
-		return Response(
-			{
-				"id": item.id,
-				"service_name": item.service_name,
-				"manager_name": item.manager_name,
-				"starts_at": item.starts_at.isoformat(),
-				"client_name": item.client_name,
-				"client_phone": item.client_phone,
-				"status": item.status,
-			}
-		)
+		return Response(serialize_booking(item))
 
 	def delete(self, request, booking_id: int):
 		partner_profile, error_response = get_partner_profile(request)
