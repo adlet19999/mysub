@@ -150,7 +150,8 @@ const RUS_MONTH: string[] = [
   "декабря",
 ];
 
-const HOURS = Array.from({ length: 12 }, (_, index) => 9 + index);
+const DEFAULT_SCHEDULE_START_HOUR = 9;
+const DEFAULT_SCHEDULE_END_HOUR = 20;
 const SLOT_HEIGHT = 56;
 const TIME_STEP_MINUTES = 15;
 const TIME_OPTIONS = Array.from(
@@ -542,6 +543,18 @@ function getSpecialistSlotState(
 
   const slotStart = hour * 60;
   const slotEnd = (hour + 1) * 60;
+  const workStart = toMinutes(day.start_time);
+  const workEnd = toMinutes(day.end_time);
+  if (
+    workStart == null ||
+    workEnd == null ||
+    workStart >= workEnd ||
+    slotEnd <= workStart ||
+    slotStart >= workEnd
+  ) {
+    return { tone: "dayoff", label: "Вне рабочего времени" };
+  }
+
   const intersectsBreak = day.breaks.some((scheduleBreak) => {
     const breakStart = toMinutes(scheduleBreak.start_time);
     const breakEnd = toMinutes(scheduleBreak.end_time);
@@ -962,6 +975,55 @@ export default function SchedulePage() {
     return map;
   }, [activeSpecialists, selectedDay]);
 
+  const scheduleHours = useMemo(() => {
+    let earliestWorkStart: number | null = null;
+    let latestWorkEnd: number | null = null;
+
+    for (const daySchedule of selectedDayScheduleBySpecialist.values()) {
+      if (!daySchedule || daySchedule.is_day_off) {
+        continue;
+      }
+      const workStart = toMinutes(daySchedule.start_time);
+      const workEnd = toMinutes(daySchedule.end_time);
+      if (workStart == null || workEnd == null || workStart >= workEnd) {
+        continue;
+      }
+      earliestWorkStart =
+        earliestWorkStart == null
+          ? workStart
+          : Math.min(earliestWorkStart, workStart);
+      latestWorkEnd =
+        latestWorkEnd == null ? workEnd : Math.max(latestWorkEnd, workEnd);
+    }
+
+    const startHour = Math.max(
+      0,
+      Math.min(
+        23,
+        earliestWorkStart == null
+          ? DEFAULT_SCHEDULE_START_HOUR
+          : Math.floor(earliestWorkStart / 60),
+      ),
+    );
+    const endHour = Math.max(
+      startHour + 1,
+      Math.min(
+        24,
+        latestWorkEnd == null
+          ? DEFAULT_SCHEDULE_END_HOUR
+          : Math.ceil(latestWorkEnd / 60),
+      ),
+    );
+
+    return {
+      hours: Array.from(
+        { length: endHour - startHour },
+        (_, index) => startHour + index,
+      ),
+      endHour,
+    };
+  }, [selectedDayScheduleBySpecialist]);
+
   const bookingsBySlot = useMemo(() => {
     const map = new Map<string, CalendarBooking[]>();
     const selectedDateKey = formatDateInputValue(selectedDate);
@@ -1017,7 +1079,7 @@ export default function SchedulePage() {
 
       const hour = parsedStartsAt.hour;
       const minutes = parsedStartsAt.minutes;
-      if (!HOURS.includes(hour)) {
+      if (!scheduleHours.hours.includes(hour)) {
         continue;
       }
 
@@ -1038,7 +1100,7 @@ export default function SchedulePage() {
     }
 
     return map;
-  }, [bookings, selectedDate, activeSpecialists]);
+  }, [bookings, selectedDate, activeSpecialists, scheduleHours]);
 
   function formatBookingTime(value: string) {
     const parsed = parseBookingDateTime(value);
@@ -2117,13 +2179,18 @@ export default function SchedulePage() {
           <div className={`${styles.timeRailHeader} ${styles.sticky}`}>
             Время
           </div>
-          {HOURS.map((hour) => (
+          {scheduleHours.hours.map((hour) => (
             <div key={`time-${hour}`} className={styles.timeMark}>
               <span
                 className={styles.timeMarkLabel}
               >{`${String(hour).padStart(2, "0")}:00`}</span>
             </div>
           ))}
+          <div className={styles.timeMarkEnd}>
+            <span
+              className={styles.timeMarkLabel}
+            >{`${String(scheduleHours.endHour).padStart(2, "0")}:00`}</span>
+          </div>
         </div>
 
         <div className={styles.gridSurface}>
@@ -2142,7 +2209,7 @@ export default function SchedulePage() {
               </div>
             ))}
 
-            {HOURS.map((hour) => {
+            {scheduleHours.hours.map((hour) => {
               return (
                 <Fragment key={`row-${hour}`}>
                   {activeSpecialists.map((specialist) => {

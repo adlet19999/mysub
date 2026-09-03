@@ -270,6 +270,11 @@
   box-sizing: border-box;
 }
 
+.timeMarkEnd {
+  position: relative;
+  height: 0;
+}
+
 .timeMarkLabel {
   position: absolute;
   top: 0;
