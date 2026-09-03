@@ -2399,7 +2399,9 @@ export default function SchedulePage() {
                     key={line.id}
                     className={`${styles.serviceLine} ${styles.independentServiceLine}`}
                   >
-                    <div className={styles.serviceRow}>
+                    <div
+                      className={`${styles.serviceRow} ${bookingLines.length > 1 ? styles.multipleBookingLineRow : ""}`}
+                    >
                       <label className={styles.fieldBlock}>
                         <span>Услуга{index === 0 ? "" : ` ${index + 1}`}</span>
                         <select
@@ -2447,7 +2449,9 @@ export default function SchedulePage() {
                       ) : null}
                     </div>
 
-                    <div className={styles.specialistRow}>
+                    <div
+                      className={`${styles.specialistRow} ${bookingLines.length > 1 ? styles.multipleBookingLineRow : ""}`}
+                    >
                       <label className={styles.fieldBlock}>
                         <span>Специалист</span>
                         <select
@@ -2476,7 +2480,7 @@ export default function SchedulePage() {
                       </label>
 
                       <label
-                        className={`${styles.fieldBlock} ${styles.durationField} ${bookingLines.length > 1 ? styles.expandedDurationField : ""}`}
+                        className={`${styles.fieldBlock} ${styles.durationField}`}
                       >
                         <span>Длительность</span>
                         <input

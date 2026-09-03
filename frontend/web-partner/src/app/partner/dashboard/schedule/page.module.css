@@ -676,6 +676,17 @@
   gap: 10px;
 }
 
+.multipleBookingLineRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 36px;
+  gap: 10px;
+}
+
+.multipleBookingLineRow .durationField {
+  grid-column: 2 / -1;
+  width: auto;
+}
+
 .serviceLine {
   width: 100%;
   display: grid;
@@ -722,11 +733,6 @@
 .durationField {
   width: 110px;
   flex: 0 0 110px;
-}
-
-.expandedDurationField {
-  width: auto;
-  flex: 1 1 auto;
 }
 
 .durationField input {
@@ -1823,6 +1829,15 @@
   .durationField {
     width: 100%;
     flex: 1;
+  }
+
+  .multipleBookingLineRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .multipleBookingLineRow .durationField {
+    grid-column: auto;
+    width: 100%;
   }
 
   .removeLineButton {
