@@ -665,6 +665,12 @@
   gap: 10px;
 }
 
+.specialistRow {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+}
+
 .serviceLine {
   width: 100%;
   display: grid;
@@ -708,6 +714,17 @@
   flex: 0 0 110px;
 }
 
+.durationField {
+  width: 110px;
+  flex: 0 0 110px;
+}
+
+.durationField input {
+  background: #f8faf9;
+  color: #4b5563;
+  cursor: default;
+}
+
 .removeLineButton {
   align-self: flex-end;
   flex: 0 0 36px;
@@ -721,6 +738,11 @@
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
+}
+
+.removeLineSpacer {
+  flex: 0 0 36px;
+  width: 36px;
 }
 
 .removeLineButton:hover {
@@ -1786,14 +1808,20 @@
   }
 
   .serviceRow,
+  .specialistRow,
   .dateTimeRow,
   .bookingFooter {
     flex-direction: column;
   }
 
-  .sumField {
+  .sumField,
+  .durationField {
     width: 100%;
     flex: 1;
+  }
+
+  .removeLineSpacer {
+    display: none;
   }
 
   .removeLineButton {

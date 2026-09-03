@@ -2293,6 +2293,14 @@ export default function SchedulePage() {
 
               {bookingLines.map((line, index) => {
                 const lineDiscount = bookingDiscountByLineId.get(line.id);
+                const selectedService = bookableServices.find(
+                  (service) => String(service.id) === line.serviceId,
+                );
+                const durationMinutes =
+                  selectedService?.duration_minutes &&
+                  selectedService.duration_minutes > 0
+                    ? selectedService.duration_minutes
+                    : 60;
                 const availableServices =
                   bookingModalMode === "edit"
                     ? availableServicesForSpecialist
@@ -2356,31 +2364,53 @@ export default function SchedulePage() {
 
                     {bookingModalMode === "create" ? (
                       <>
-                        <label className={styles.fieldBlock}>
-                          <span>Специалист</span>
-                          <select
-                            value={line.specialistId}
-                            onChange={(event) =>
-                              onSpecialistChange(event.target.value, line.id)
-                            }
+                        <div className={styles.specialistRow}>
+                          <label className={styles.fieldBlock}>
+                            <span>Специалист</span>
+                            <select
+                              value={line.specialistId}
+                              onChange={(event) =>
+                                onSpecialistChange(event.target.value, line.id)
+                              }
+                            >
+                              <option value="">Выберите специалиста</option>
+                              {availableSpecialists.map((specialist) => (
+                                <option
+                                  key={specialist.id}
+                                  value={String(specialist.id)}
+                                >
+                                  {specialist.full_name}
+                                </option>
+                              ))}
+                            </select>
+                            {line.serviceId &&
+                            availableSpecialists.length === 0 ? (
+                              <span className={styles.helperError}>
+                                Нет специалистов для выбранной услуги
+                              </span>
+                            ) : null}
+                          </label>
+
+                          <label
+                            className={`${styles.fieldBlock} ${styles.durationField}`}
                           >
-                            <option value="">Выберите специалиста</option>
-                            {availableSpecialists.map((specialist) => (
-                              <option
-                                key={specialist.id}
-                                value={String(specialist.id)}
-                              >
-                                {specialist.full_name}
-                              </option>
-                            ))}
-                          </select>
-                          {line.serviceId &&
-                          availableSpecialists.length === 0 ? (
-                            <span className={styles.helperError}>
-                              Нет специалистов для выбранной услуги
-                            </span>
+                            <span>Длительность</span>
+                            <input
+                              value={
+                                selectedService ? `${durationMinutes} мин` : ""
+                              }
+                              placeholder="-- мин"
+                              readOnly
+                            />
+                          </label>
+
+                          {bookingLines.length > 1 ? (
+                            <span
+                              className={styles.removeLineSpacer}
+                              aria-hidden
+                            />
                           ) : null}
-                        </label>
+                        </div>
 
                         <div className={styles.dateTimeRow}>
                           <label className={styles.fieldBlock}>
