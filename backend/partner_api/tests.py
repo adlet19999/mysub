@@ -338,3 +338,21 @@ class SpecialistArchivingApiTests(TestCase):
 		self.assertEqual(response.status_code, 200)
 		self.specialist.refresh_from_db()
 		self.assertFalse(self.specialist.is_active)
+
+	def test_day_with_completed_booking_may_not_be_made_day_off(self):
+		schedule = weekday_working_schedule()
+		self.specialist.working_schedule = schedule
+		self.specialist.save(update_fields=["working_schedule"])
+		self.create_booking(status="completed")
+		monday = next(day for day in schedule if day["day"] == "mon")
+		monday.update({"is_day_off": True})
+
+		response = self.client.patch(
+			f"/api/v1/partner/specialists/{self.specialist.id}/",
+			{"working_schedule": schedule},
+			format="json",
+			**self.headers,
+		)
+
+		self.assertEqual(response.status_code, 409)
+		self.assertIn("на этот день есть записи", response.data["message"])

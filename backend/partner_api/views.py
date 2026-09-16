@@ -503,6 +503,32 @@ def normalize_working_schedule(raw_schedule):
 	return normalized + [by_date[date] for date in sorted(by_date)], None
 
 
+def schedule_day_for_date(schedule, date):
+	date_key = date.strftime("%Y-%m-%d")
+	day = next((item for item in schedule if item.get("date") == date_key), None)
+	if day is not None:
+		return day
+	return next(
+		(item for item in schedule if item["day"] == WEEKDAY_ORDER[date.weekday()] and not item.get("date")),
+		None,
+	)
+
+
+def schedule_has_new_day_off_with_bookings(specialist: Specialist, previous_schedule, schedule):
+	bookings = Booking.objects.filter(
+		tenant_slug=specialist.tenant_slug,
+		partner_profile=specialist.partner_profile,
+		manager_name__iexact=specialist.full_name,
+	)
+	for booking in bookings.iterator():
+		booking_date = timezone.localtime(to_aware_datetime(booking.starts_at)).date()
+		previous_day = schedule_day_for_date(previous_schedule, booking_date)
+		day = schedule_day_for_date(schedule, booking_date)
+		if previous_day and not previous_day["is_day_off"] and day and day["is_day_off"]:
+			return booking_date
+	return None
+
+
 def parse_service_names(raw: str):
 	return [item.strip() for item in str(raw or "").splitlines() if item.strip()]
 
@@ -1854,6 +1880,19 @@ class SpecialistDetailView(APIView):
 			normalized_schedule, schedule_error = normalize_working_schedule(working_schedule_raw)
 			if schedule_error:
 				return Response({"message": schedule_error}, status=400)
+			previous_schedule, previous_schedule_error = normalize_working_schedule(item.working_schedule)
+			if previous_schedule_error:
+				return Response({"message": "Текущий график специалиста заполнен некорректно"}, status=409)
+			booking_date = schedule_has_new_day_off_with_bookings(
+				item,
+				previous_schedule,
+				normalized_schedule,
+			)
+			if booking_date:
+				return Response(
+					{"message": f"Нельзя сделать {booking_date.strftime('%d.%m.%Y')} выходным: на этот день есть записи"},
+					status=409,
+				)
 			item.working_schedule = normalized_schedule
 
 		if is_active is not None:

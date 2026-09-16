@@ -175,20 +175,6 @@ const TIME_OPTIONS = Array.from(
     return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
   },
 );
-const CLOSED_BOOKING_STATUSES = [
-  "cancelled",
-  "canceled",
-  "отменен",
-  "отменена",
-  "completed",
-  "done",
-  "завершен",
-  "завершена",
-  "no_show",
-  "no-show",
-  "missed",
-  "неявка",
-];
 const WORKING_DAYS: { key: WorkingDayKey; label: string }[] = [
   { key: "mon", label: "Понедельник" },
   { key: "tue", label: "Вторник" },
@@ -1913,7 +1899,7 @@ export default function SchedulePage() {
     setBulkScheduleError("");
   }
 
-  function hasActiveBookingsOnSelectedDates() {
+  function hasBookingsOnSelectedDates() {
     const targetSpecialists = isApplyingScheduleToAll
       ? activeSpecialists
       : activeSpecialists.filter(
@@ -1939,16 +1925,14 @@ export default function SchedulePage() {
       if (!parsed || !selectedScheduleDateKeys.includes(parsed.dateKey)) {
         return false;
       }
-      return !CLOSED_BOOKING_STATUSES.includes(
-        booking.status.trim().toLowerCase(),
-      );
+      return true;
     });
   }
 
   function toggleSelectedDayOff(day: WorkingDaySchedule) {
-    if (!day.is_day_off && hasActiveBookingsOnSelectedDates()) {
+    if (!day.is_day_off && hasBookingsOnSelectedDates()) {
       setBulkScheduleError(
-        "В расписании на этот день присутствуют активные записи. День нельзя сделать нерабочим с активными записями",
+        "В расписании на этот день есть записи. День нельзя сделать выходным",
       );
       return;
     }
