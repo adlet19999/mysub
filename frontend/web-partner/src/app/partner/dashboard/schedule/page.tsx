@@ -1929,6 +1929,50 @@ export default function SchedulePage() {
     });
   }
 
+  function hasBookingOverlappingBreak(
+    specialist: Specialist,
+    workingSchedule: WorkingDaySchedule[],
+  ) {
+    return bookings.some((booking) => {
+      if (
+        (booking.manager_name || "").trim().toLowerCase() !==
+        specialist.full_name.trim().toLowerCase()
+      ) {
+        return false;
+      }
+      const startsAt = parseBookingDateTime(booking.starts_at);
+      if (!startsAt || !selectedScheduleDateKeys.includes(startsAt.dateKey)) {
+        return false;
+      }
+      const day = getScheduleForDate(
+        workingSchedule,
+        new Date(`${startsAt.dateKey}T12:00:00`),
+      );
+      if (!day || day.is_day_off) {
+        return false;
+      }
+      const durationMinutes = parseServiceNames(booking.service_name).reduce(
+        (total, serviceName) => {
+          const service = services.find(
+            (item) =>
+              item.name.trim().toLowerCase() === serviceName.toLowerCase() ||
+              (item.kind_name || "").trim().toLowerCase() ===
+                serviceName.toLowerCase(),
+          );
+          return total + (service?.duration_minutes || 60);
+        },
+        0,
+      ) || 60;
+      const bookingStart = startsAt.hour * 60 + startsAt.minutes;
+      const bookingEnd = bookingStart + durationMinutes;
+      return day.breaks.some((scheduleBreak) => {
+        const breakStart = toMinutes(scheduleBreak.start_time);
+        const breakEnd = toMinutes(scheduleBreak.end_time);
+        return breakStart != null && breakEnd != null && bookingStart < breakEnd && breakStart < bookingEnd;
+      });
+    });
+  }
+
   function toggleSelectedDayOff(day: WorkingDaySchedule) {
     if (!day.is_day_off && hasBookingsOnSelectedDates()) {
       setBulkScheduleError(
@@ -2110,6 +2154,9 @@ export default function SchedulePage() {
                 selectedScheduleDateKeys,
               )
             : bulkScheduleDraft;
+          if (hasBookingOverlappingBreak(specialist, workingSchedule)) {
+            return { specialist, ok: false, bookingConflict: true };
+          }
           try {
             const response = await fetch(
               `${API_BASE}/partner/specialists/${specialist.id}/`,
@@ -2123,9 +2170,9 @@ export default function SchedulePage() {
                 body: JSON.stringify({ working_schedule: workingSchedule }),
               },
             );
-            return { specialist, ok: response.ok };
+            return { specialist, ok: response.ok, bookingConflict: false };
           } catch {
-            return { specialist, ok: false };
+            return { specialist, ok: false, bookingConflict: false };
           }
         }),
       );
@@ -2135,6 +2182,9 @@ export default function SchedulePage() {
         .map((result) => result.specialist.full_name);
       if (failedSpecialists.length) {
         setBulkScheduleError(
+          results.some((result) => result.bookingConflict)
+            ? "Перерыв пересекается с существующей записью"
+            :
           failedSpecialists.length === targetSpecialists.length
             ? "Не удалось сохранить график"
             : `График не удалось сохранить у: ${failedSpecialists.join(", ")}`,

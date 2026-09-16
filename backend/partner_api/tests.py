@@ -356,3 +356,21 @@ class SpecialistArchivingApiTests(TestCase):
 
 		self.assertEqual(response.status_code, 409)
 		self.assertIn("на этот день есть записи", response.data["message"])
+
+	def test_break_may_not_overlap_completed_booking(self):
+		schedule = weekday_working_schedule()
+		self.specialist.working_schedule = schedule
+		self.specialist.save(update_fields=["working_schedule"])
+		self.create_booking(status="completed")
+		monday = next(day for day in schedule if day["day"] == "mon")
+		monday["breaks"] = [{"name": "Перерыв", "start_time": "10:00", "end_time": "11:00"}]
+
+		response = self.client.patch(
+			f"/api/v1/partner/specialists/{self.specialist.id}/",
+			{"working_schedule": schedule},
+			format="json",
+			**self.headers,
+		)
+
+		self.assertEqual(response.status_code, 409)
+		self.assertIn("перерыв", response.data["message"].lower())

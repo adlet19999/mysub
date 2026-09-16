@@ -529,6 +529,35 @@ def schedule_has_new_day_off_with_bookings(specialist: Specialist, previous_sche
 	return None
 
 
+def schedule_has_new_break_with_bookings(specialist: Specialist, previous_schedule, schedule):
+	duration_map = build_service_duration_map(
+		specialist.tenant_slug,
+		partner_profile=specialist.partner_profile,
+	)
+	bookings = Booking.objects.filter(
+		tenant_slug=specialist.tenant_slug,
+		partner_profile=specialist.partner_profile,
+		manager_name__iexact=specialist.full_name,
+	)
+	for booking in bookings.iterator():
+		local_start = timezone.localtime(to_aware_datetime(booking.starts_at))
+		booking_date = local_start.date()
+		booking_start = local_start.strftime("%H:%M")
+		booking_end = (local_start + timedelta(minutes=resolve_booking_duration_minutes(booking.service_name, duration_map))).strftime("%H:%M")
+		previous_day = schedule_day_for_date(previous_schedule, booking_date)
+		day = schedule_day_for_date(schedule, booking_date)
+		if not day or day["is_day_off"]:
+			continue
+		for schedule_break in day["breaks"]:
+			if booking_start < schedule_break["end_time"] and schedule_break["start_time"] < booking_end:
+				if not previous_day or not any(
+					booking_start < previous_break["end_time"] and previous_break["start_time"] < booking_end
+					for previous_break in previous_day["breaks"]
+				):
+					return booking_date
+	return None
+
+
 def parse_service_names(raw: str):
 	return [item.strip() for item in str(raw or "").splitlines() if item.strip()]
 
@@ -1891,6 +1920,16 @@ class SpecialistDetailView(APIView):
 			if booking_date:
 				return Response(
 					{"message": f"Нельзя сделать {booking_date.strftime('%d.%m.%Y')} выходным: на этот день есть записи"},
+					status=409,
+				)
+			booking_date = schedule_has_new_break_with_bookings(
+				item,
+				previous_schedule,
+				normalized_schedule,
+			)
+			if booking_date:
+				return Response(
+					{"message": f"Нельзя установить перерыв {booking_date.strftime('%d.%m.%Y')}: он пересекается с записью"},
 					status=409,
 				)
 			item.working_schedule = normalized_schedule
