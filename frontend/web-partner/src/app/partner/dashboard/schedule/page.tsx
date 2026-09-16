@@ -1884,7 +1884,7 @@ export default function SchedulePage() {
     setCalendarMonth(
       new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1),
     );
-    setSelectedScheduleDateKeys([formatDateInputValue(selectedDate)]);
+    setSelectedScheduleDateKeys([]);
     setIsBulkScheduleOpen(true);
   }
 
