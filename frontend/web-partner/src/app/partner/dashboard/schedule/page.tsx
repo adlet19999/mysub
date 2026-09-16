@@ -1199,9 +1199,25 @@ export default function SchedulePage() {
     scheduleHours,
   ]);
 
-  function formatBookingTime(value: string) {
-    const parsed = parseBookingDateTime(value);
-    return parsed?.timeLabel ?? "--:--";
+  function getBookingPrices(booking: Booking) {
+    const details = booking.pricing_details || [];
+    const detailBasePrice = details.reduce(
+      (sum, detail) => sum + Number(detail.base_price || 0),
+      0,
+    );
+    const detailFinalPrice = details.reduce(
+      (sum, detail) => sum + Number(detail.final_price || 0),
+      0,
+    );
+    const basePrice = details.length ? detailBasePrice : Number(booking.base_price);
+    const finalPrice = details.length
+      ? detailFinalPrice
+      : Number(booking.final_price);
+
+    return {
+      basePrice: Number.isFinite(basePrice) ? basePrice : null,
+      finalPrice: Number.isFinite(finalPrice) ? finalPrice : null,
+    };
   }
 
   function addMinutesToTimeLabel(startTimeRaw: string, minutesToAdd: number) {
@@ -2375,8 +2391,11 @@ export default function SchedulePage() {
                             Тех. перерыв
                           </p>
                         ) : null}
-                        {slotEntries.map((entry) => (
-                          <article
+                        {slotEntries.map((entry) => {
+                          const { basePrice, finalPrice } = getBookingPrices(entry.booking);
+                          const hasDiscount = basePrice != null && finalPrice != null && finalPrice < basePrice;
+
+                          return <article
                             key={entry.booking.id}
                             className={`${styles.bookingCard} ${styles[`bookingCard${getStatusTone(entry.booking.status).charAt(0).toUpperCase()}${getStatusTone(entry.booking.status).slice(1)}`]}`}
                             onClick={() => openDetailsModal(entry.booking)}
@@ -2405,15 +2424,20 @@ export default function SchedulePage() {
                             <p className={styles.bookingClient}>
                               {entry.booking.client_name}
                             </p>
-                            <p className={styles.bookingTime}>
-                              {formatBookingTime(entry.booking.starts_at)} -{" "}
-                              {addMinutesToTimeLabel(
-                                entry.booking.starts_at,
-                                entry.durationMinutes,
-                              )}
-                            </p>
-                          </article>
-                        ))}
+                            {basePrice != null ? (
+                              <p className={styles.bookingPrice}>
+                                {hasDiscount ? (
+                                  <>
+                                    <s>{`${basePrice.toLocaleString("ru-RU")} т`}</s>
+                                    <strong>{`${finalPrice.toLocaleString("ru-RU")} т`}</strong>
+                                  </>
+                                ) : (
+                                  <strong>{`${basePrice.toLocaleString("ru-RU")} т`}</strong>
+                                )}
+                              </p>
+                            ) : null}
+                          </article>;
+                        })}
                       </div>
                     );
                   })}

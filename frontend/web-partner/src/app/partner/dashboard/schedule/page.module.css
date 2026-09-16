@@ -525,8 +525,7 @@
 }
 
 .bookingService,
-.bookingClient,
-.bookingTime {
+.bookingClient {
   margin: 0;
   font-family: var(--font-family-base);
 }
@@ -555,11 +554,27 @@
   font-weight: 400;
 }
 
-.bookingTime {
-  color: #1f5f4d;
+.bookingPrice {
+  position: absolute;
+  right: 9px;
+  bottom: 7px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 0;
+  color: #0b6b55;
   font-size: 9px;
   line-height: 12px;
-  font-weight: 500;
+  font-weight: 600;
+}
+
+.bookingPrice s {
+  color: #5e746b;
+  font-weight: 400;
+}
+
+.bookingPrice strong {
+  font-weight: 600;
 }
 
 .bookingEditButton {
