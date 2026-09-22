@@ -219,14 +219,14 @@ class MobileAuthRefreshView(APIView):
 
 
 class MobileCurrentUserView(MobileAuthenticatedView):
-    @extend_schema(tags=['Клиент'], summary='Получить профиль клиента', auth=['MobileBearer'], responses={200: None, 401: None})
+    @extend_schema(tags=['Клиент'], summary='Получить профиль клиента', auth=[{'MobileBearer': []}], responses={200: None, 401: None})
     def get(self, request):
         return Response(serialize_customer(self.customer))
 
     @extend_schema(
         tags=['Клиент'],
         summary='Изменить профиль клиента',
-        auth=['MobileBearer'],
+        auth=[{'MobileBearer': []}],
         request=CustomerUpdateRequestSerializer,
         responses={200: None, 400: None, 401: None},
     )
@@ -256,7 +256,7 @@ class MobileCurrentUserView(MobileAuthenticatedView):
         customer.save()
         return Response(serialize_customer(customer))
 
-    @extend_schema(tags=['Клиент'], summary='Удалить аккаунт клиента', auth=['MobileBearer'], responses={204: None, 401: None})
+    @extend_schema(tags=['Клиент'], summary='Удалить аккаунт клиента', auth=[{'MobileBearer': []}], responses={204: None, 401: None})
     def delete(self, request):
         MobileRefreshSession.objects.filter(customer=self.customer).update(revoked_at=timezone.now())
         self.customer.user.delete()
@@ -264,7 +264,7 @@ class MobileCurrentUserView(MobileAuthenticatedView):
 
 
 class MobileChildrenView(MobileAuthenticatedView):
-    @extend_schema(tags=['Дети'], summary='Получить детей клиента', auth=['MobileBearer'], responses={200: None, 401: None})
+    @extend_schema(tags=['Дети'], summary='Получить детей клиента', auth=[{'MobileBearer': []}], responses={200: None, 401: None})
     def get(self, request):
         return Response({"data": [serialize_child(child) for child in self.customer.children.order_by("id")], "max_children": MAX_CHILDREN})
 
@@ -272,7 +272,7 @@ class MobileChildrenView(MobileAuthenticatedView):
         tags=['Дети'],
         summary='Добавить ребёнка',
         description='Для одного клиента можно добавить не более двух детей.',
-        auth=['MobileBearer'],
+        auth=[{'MobileBearer': []}],
         request=ChildRequestSerializer,
         responses={201: None, 400: None, 401: None, 422: None},
     )
@@ -295,7 +295,7 @@ class MobileChildrenView(MobileAuthenticatedView):
 
 
 class MobileChildDetailView(MobileAuthenticatedView):
-    @extend_schema(tags=['Дети'], summary='Изменить данные ребёнка', auth=['MobileBearer'], request=ChildRequestSerializer, responses={200: None, 400: None, 401: None, 404: None})
+    @extend_schema(tags=['Дети'], summary='Изменить данные ребёнка', auth=[{'MobileBearer': []}], request=ChildRequestSerializer, responses={200: None, 400: None, 401: None, 404: None})
     def patch(self, request, child_id):
         child = self.customer.children.filter(id=child_id).first()
         if not child:
@@ -316,7 +316,7 @@ class MobileChildDetailView(MobileAuthenticatedView):
         child.save()
         return Response(serialize_child(child))
 
-    @extend_schema(tags=['Дети'], summary='Удалить ребёнка', auth=['MobileBearer'], responses={204: None, 401: None, 404: None})
+    @extend_schema(tags=['Дети'], summary='Удалить ребёнка', auth=[{'MobileBearer': []}], responses={204: None, 401: None, 404: None})
     def delete(self, request, child_id):
         child = self.customer.children.filter(id=child_id).first()
         if not child:
