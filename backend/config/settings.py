@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'common_api',
+    'mobile_api',
     'partner_api',
 ]
 
@@ -179,3 +180,8 @@ EMAIL_TIMEOUT = int(os.getenv('DJANGO_EMAIL_TIMEOUT', '10'))
 
 # срок жизни ссылки сброса пароля, по умолчанию 1 час вместо 3 суток
 PASSWORD_RESET_TIMEOUT = int(os.getenv('DJANGO_PASSWORD_RESET_TIMEOUT', '3600'))
+
+MOBILE_JWT_SECRET = os.getenv('MOBILE_JWT_SECRET', SECRET_KEY)
+MOBILE_JWT_ACCESS_TTL_SECONDS = int(os.getenv('MOBILE_JWT_ACCESS_TTL_SECONDS', '3600'))
+MOBILE_JWT_REFRESH_TTL_SECONDS = int(os.getenv('MOBILE_JWT_REFRESH_TTL_SECONDS', str(30 * 24 * 60 * 60)))
+MOBILE_SMS_TEST_CODE = os.getenv('MOBILE_SMS_TEST_CODE', '11111')
