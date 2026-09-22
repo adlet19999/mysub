@@ -16,10 +16,15 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import include, path
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+
+from mobile_api.schema import MobileSchemaGenerator
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/v1/common/', include('common_api.urls')),
     path('api/v1/mobile/', include('mobile_api.urls')),
+    path('api/v1/mobile/schema/', SpectacularAPIView.as_view(generator_class=MobileSchemaGenerator), name='mobile-schema'),
+    path('api/v1/mobile/docs/', SpectacularSwaggerView.as_view(url_name='mobile-schema'), name='mobile-swagger-ui'),
     path('api/v1/partner/', include('partner_api.urls')),
 ]

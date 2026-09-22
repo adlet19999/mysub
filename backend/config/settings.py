@@ -156,7 +156,26 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.AllowAny'],
     'DEFAULT_AUTHENTICATION_CLASSES': [],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'UNAUTHENTICATED_USER': None,
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'MySub Mobile API',
+    'DESCRIPTION': 'API для мобильного приложения клиентов MySub.',
+    'VERSION': 'v1',
+    'TAGS': [
+        {'name': 'Авторизация', 'description': 'Вход и обновление JWT-токенов.'},
+        {'name': 'Клиент', 'description': 'Профиль текущего клиента.'},
+        {'name': 'Дети', 'description': 'Дети текущего клиента, не более двух.'},
+        {'name': 'Услуги', 'description': 'Будущий каталог услуг для мобильного приложения.'},
+        {'name': 'Записи', 'description': 'Будущие создание и управление записями клиента.'},
+    ],
+    'APPEND_COMPONENTS': {
+        'securitySchemes': {
+            'MobileBearer': {'type': 'http', 'scheme': 'bearer', 'bearerFormat': 'JWT'},
+        },
+    },
 }
 
 CORS_ALLOWED_ORIGINS = _env_to_list(

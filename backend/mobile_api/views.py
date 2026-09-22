@@ -7,12 +7,20 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import transaction
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from common_api.views import normalize_ru_phone
 
 from .models import CustomerChild, CustomerProfile, MobileRefreshSession
+from .serializers import (
+    ChildRequestSerializer,
+    CustomerUpdateRequestSerializer,
+    RefreshTokenRequestSerializer,
+    SendCodeRequestSerializer,
+    VerifyCodeRequestSerializer,
+)
 
 
 PHONE_RE = re.compile(r"^\+7\d{10}$")
@@ -144,6 +152,12 @@ class MobileAuthenticatedView(APIView):
 
 
 class MobileAuthSendCodeView(APIView):
+    @extend_schema(
+        tags=['Авторизация'],
+        summary='Запросить SMS-код',
+        request=SendCodeRequestSerializer,
+        responses={200: None, 400: None},
+    )
     def post(self, request):
         phone = normalize_ru_phone(str(request.data.get("phone") or ""))
         if not PHONE_RE.fullmatch(phone):
@@ -152,6 +166,13 @@ class MobileAuthSendCodeView(APIView):
 
 
 class MobileAuthVerifyCodeView(APIView):
+    @extend_schema(
+        tags=['Авторизация'],
+        summary='Подтвердить SMS-код и войти',
+        description='В режиме разработки принимается код `11111`.',
+        request=VerifyCodeRequestSerializer,
+        responses={200: None, 400: None, 401: None},
+    )
     def post(self, request):
         phone = normalize_ru_phone(str(request.data.get("phone") or ""))
         code = str(request.data.get("code") or "").strip()
@@ -179,6 +200,12 @@ class MobileAuthVerifyCodeView(APIView):
 
 
 class MobileAuthRefreshView(APIView):
+    @extend_schema(
+        tags=['Авторизация'],
+        summary='Обновить JWT-токены',
+        request=RefreshTokenRequestSerializer,
+        responses={200: None, 401: None},
+    )
     def post(self, request):
         payload = decode_token(str(request.data.get("refresh_token") or ""), "refresh")
         if not payload:
@@ -192,9 +219,17 @@ class MobileAuthRefreshView(APIView):
 
 
 class MobileCurrentUserView(MobileAuthenticatedView):
+    @extend_schema(tags=['Клиент'], summary='Получить профиль клиента', auth=['MobileBearer'], responses={200: None, 401: None})
     def get(self, request):
         return Response(serialize_customer(self.customer))
 
+    @extend_schema(
+        tags=['Клиент'],
+        summary='Изменить профиль клиента',
+        auth=['MobileBearer'],
+        request=CustomerUpdateRequestSerializer,
+        responses={200: None, 400: None, 401: None},
+    )
     def patch(self, request):
         customer = self.customer
         user = customer.user
@@ -221,6 +256,7 @@ class MobileCurrentUserView(MobileAuthenticatedView):
         customer.save()
         return Response(serialize_customer(customer))
 
+    @extend_schema(tags=['Клиент'], summary='Удалить аккаунт клиента', auth=['MobileBearer'], responses={204: None, 401: None})
     def delete(self, request):
         MobileRefreshSession.objects.filter(customer=self.customer).update(revoked_at=timezone.now())
         self.customer.user.delete()
@@ -228,9 +264,18 @@ class MobileCurrentUserView(MobileAuthenticatedView):
 
 
 class MobileChildrenView(MobileAuthenticatedView):
+    @extend_schema(tags=['Дети'], summary='Получить детей клиента', auth=['MobileBearer'], responses={200: None, 401: None})
     def get(self, request):
         return Response({"data": [serialize_child(child) for child in self.customer.children.order_by("id")], "max_children": MAX_CHILDREN})
 
+    @extend_schema(
+        tags=['Дети'],
+        summary='Добавить ребёнка',
+        description='Для одного клиента можно добавить не более двух детей.',
+        auth=['MobileBearer'],
+        request=ChildRequestSerializer,
+        responses={201: None, 400: None, 401: None, 422: None},
+    )
     def post(self, request):
         if self.customer.children.count() >= MAX_CHILDREN:
             return error_response(422, "MAX_CHILDREN_REACHED", "Уже добавлено 2 ребёнка")
@@ -250,6 +295,7 @@ class MobileChildrenView(MobileAuthenticatedView):
 
 
 class MobileChildDetailView(MobileAuthenticatedView):
+    @extend_schema(tags=['Дети'], summary='Изменить данные ребёнка', auth=['MobileBearer'], request=ChildRequestSerializer, responses={200: None, 400: None, 401: None, 404: None})
     def patch(self, request, child_id):
         child = self.customer.children.filter(id=child_id).first()
         if not child:
@@ -270,6 +316,7 @@ class MobileChildDetailView(MobileAuthenticatedView):
         child.save()
         return Response(serialize_child(child))
 
+    @extend_schema(tags=['Дети'], summary='Удалить ребёнка', auth=['MobileBearer'], responses={204: None, 401: None, 404: None})
     def delete(self, request, child_id):
         child = self.customer.children.filter(id=child_id).first()
         if not child:
