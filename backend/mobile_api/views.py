@@ -15,9 +15,13 @@ from common_api.views import normalize_ru_phone
 
 from .models import CustomerChild, CustomerProfile, MobileRefreshSession
 from .serializers import (
+    AuthenticationResponseSerializer,
     ChildRequestSerializer,
+    CustomerResponseSerializer,
     CustomerUpdateRequestSerializer,
+    RefreshTokenResponseSerializer,
     RefreshTokenRequestSerializer,
+    SendCodeResponseSerializer,
     SendCodeRequestSerializer,
     VerifyCodeRequestSerializer,
 )
@@ -153,10 +157,15 @@ class MobileAuthenticatedView(APIView):
 
 class MobileAuthSendCodeView(APIView):
     @extend_schema(
-        tags=['Авторизация'],
-        summary='Запросить SMS-код',
+        tags=['1. Регистрация и вход'],
+        summary='Шаг 1. Запросить одноразовый SMS-код',
+        description=(
+            'Передайте номер телефона. Сервер отправляет одноразовый код на этот номер. '
+            'Код не возвращается в API-ответе, действует ограниченное время и используется '
+            'на следующем шаге регистрации или входа.'
+        ),
         request=SendCodeRequestSerializer,
-        responses={200: None, 400: None},
+        responses={200: SendCodeResponseSerializer, 400: None},
     )
     def post(self, request):
         phone = normalize_ru_phone(str(request.data.get("phone") or ""))
@@ -167,11 +176,15 @@ class MobileAuthSendCodeView(APIView):
 
 class MobileAuthVerifyCodeView(APIView):
     @extend_schema(
-        tags=['Авторизация'],
-        summary='Подтвердить SMS-код и войти в существующий аккаунт',
-        description='В режиме разработки принимается код `11111`.',
+        tags=['1. Регистрация и вход'],
+        summary='Шаг 3B. Войти в существующий аккаунт',
+        description=(
+            'Используйте после шага 1, если клиент уже зарегистрирован. '
+            'При успешной проверке кода клиент не создаётся повторно: API возвращает профиль '
+            'и новую пару JWT-токенов. В режиме разработки принимается код `11111`.'
+        ),
         request=VerifyCodeRequestSerializer,
-        responses={200: None, 400: None, 401: None, 404: None},
+        responses={200: AuthenticationResponseSerializer, 400: None, 401: None, 404: None},
     )
     def post(self, request):
         phone = normalize_ru_phone(str(request.data.get("phone") or ""))
@@ -191,11 +204,16 @@ class MobileAuthVerifyCodeView(APIView):
 
 class MobileAuthRegisterView(APIView):
     @extend_schema(
-        tags=['Авторизация'],
-        summary='Подтвердить SMS-код и зарегистрировать клиента',
-        description='Создаёт клиента только для нового номера. В режиме разработки принимается код `11111`.',
+        tags=['1. Регистрация и вход'],
+        summary='Шаг 3A. Создать нового клиента',
+        description=(
+            'Используйте после шага 1 только для нового номера. API сверяет одноразовый SMS-код, '
+            'создаёт профиль клиента и возвращает JWT-токены. После ответа с `is_new_user: true` '
+            'вызовите `PATCH /users/me/`, чтобы заполнить имя и город. '
+            'В режиме разработки принимается код `11111`.'
+        ),
         request=VerifyCodeRequestSerializer,
-        responses={201: None, 400: None, 401: None, 409: None},
+        responses={201: AuthenticationResponseSerializer, 400: None, 401: None, 409: None},
     )
     def post(self, request):
         phone = normalize_ru_phone(str(request.data.get("phone") or ""))
@@ -221,10 +239,15 @@ class MobileAuthRegisterView(APIView):
 
 class MobileAuthRefreshView(APIView):
     @extend_schema(
-        tags=['Авторизация'],
-        summary='Обновить JWT-токены',
+        tags=['2. Сессия'],
+        summary='Обновить JWT-токены без SMS',
+        description=(
+            'Вызывайте при истечении access token или при старте приложения. '
+            'Передайте сохранённый refresh token. При успехе сохраните оба токена из ответа: '
+            'старый refresh token становится недействительным.'
+        ),
         request=RefreshTokenRequestSerializer,
-        responses={200: None, 401: None},
+        responses={200: RefreshTokenResponseSerializer, 401: None},
     )
     def post(self, request):
         payload = decode_token(str(request.data.get("refresh_token") or ""), "refresh")
@@ -239,16 +262,23 @@ class MobileAuthRefreshView(APIView):
 
 
 class MobileCurrentUserView(MobileAuthenticatedView):
-    @extend_schema(tags=['Клиент'], summary='Получить профиль клиента', auth=[{'MobileBearer': []}], responses={200: None, 401: None})
+    @extend_schema(
+        tags=['3. Профиль клиента'],
+        summary='Получить профиль текущего клиента',
+        description='Возвращает только профиль клиента, которому принадлежит access token. Идентификатор в URL не нужен.',
+        auth=[{'MobileBearer': []}],
+        responses={200: CustomerResponseSerializer, 401: None},
+    )
     def get(self, request):
         return Response(serialize_customer(self.customer))
 
     @extend_schema(
-        tags=['Клиент'],
-        summary='Изменить профиль клиента',
+        tags=['3. Профиль клиента'],
+        summary='Заполнить или изменить профиль текущего клиента',
+        description='Для первого заполнения профиля после регистрации передайте как минимум `name`, `city_id` и `city_name`.',
         auth=[{'MobileBearer': []}],
         request=CustomerUpdateRequestSerializer,
-        responses={200: None, 400: None, 401: None},
+        responses={200: CustomerResponseSerializer, 400: None, 401: None},
     )
     def patch(self, request):
         customer = self.customer
@@ -276,7 +306,7 @@ class MobileCurrentUserView(MobileAuthenticatedView):
         customer.save()
         return Response(serialize_customer(customer))
 
-    @extend_schema(tags=['Клиент'], summary='Удалить аккаунт клиента', auth=[{'MobileBearer': []}], responses={204: None, 401: None})
+    @extend_schema(tags=['3. Профиль клиента'], summary='Удалить аккаунт текущего клиента', auth=[{'MobileBearer': []}], responses={204: None, 401: None})
     def delete(self, request):
         MobileRefreshSession.objects.filter(customer=self.customer).update(revoked_at=timezone.now())
         self.customer.user.delete()
@@ -284,12 +314,12 @@ class MobileCurrentUserView(MobileAuthenticatedView):
 
 
 class MobileChildrenView(MobileAuthenticatedView):
-    @extend_schema(tags=['Дети'], summary='Получить детей клиента', auth=[{'MobileBearer': []}], responses={200: None, 401: None})
+    @extend_schema(tags=['4. Дети'], summary='Получить детей текущего клиента', auth=[{'MobileBearer': []}], responses={200: None, 401: None})
     def get(self, request):
         return Response({"data": [serialize_child(child) for child in self.customer.children.order_by("id")], "max_children": MAX_CHILDREN})
 
     @extend_schema(
-        tags=['Дети'],
+        tags=['4. Дети'],
         summary='Добавить ребёнка',
         description='Для одного клиента можно добавить не более двух детей.',
         auth=[{'MobileBearer': []}],
@@ -315,7 +345,7 @@ class MobileChildrenView(MobileAuthenticatedView):
 
 
 class MobileChildDetailView(MobileAuthenticatedView):
-    @extend_schema(tags=['Дети'], summary='Изменить данные ребёнка', auth=[{'MobileBearer': []}], request=ChildRequestSerializer, responses={200: None, 400: None, 401: None, 404: None})
+    @extend_schema(tags=['4. Дети'], summary='Изменить данные ребёнка', auth=[{'MobileBearer': []}], request=ChildRequestSerializer, responses={200: None, 400: None, 401: None, 404: None})
     def patch(self, request, child_id):
         child = self.customer.children.filter(id=child_id).first()
         if not child:
@@ -336,7 +366,7 @@ class MobileChildDetailView(MobileAuthenticatedView):
         child.save()
         return Response(serialize_child(child))
 
-    @extend_schema(tags=['Дети'], summary='Удалить ребёнка', auth=[{'MobileBearer': []}], responses={204: None, 401: None, 404: None})
+    @extend_schema(tags=['4. Дети'], summary='Удалить ребёнка', auth=[{'MobileBearer': []}], responses={204: None, 401: None, 404: None})
     def delete(self, request, child_id):
         child = self.customer.children.filter(id=child_id).first()
         if not child:

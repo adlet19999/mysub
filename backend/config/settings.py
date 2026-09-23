@@ -163,14 +163,22 @@ REST_FRAMEWORK = {
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'MySub Mobile API',
-    'DESCRIPTION': 'API для мобильного приложения клиентов MySub.',
+    'DESCRIPTION': (
+        'API мобильного приложения MySub.\n\n'
+        '**Порядок первой регистрации:**\n'
+        '1. `POST /auth/send-code/` - запросить SMS-код.\n'
+        '2. Клиент вводит код, полученный в SMS.\n'
+        '3. `POST /auth/register/` - создать нового клиента и получить токены.\n'
+        '4. `PATCH /users/me/` - заполнить профиль.\n\n'
+        '**Повторный вход:** запросите код и вызовите `POST /auth/verify-code/`. '
+        'При сохранённом refresh token используйте `POST /auth/refresh/` без SMS.'
+    ),
     'VERSION': 'v1',
     'TAGS': [
-        {'name': 'Авторизация', 'description': 'Вход и обновление JWT-токенов.'},
-        {'name': 'Клиент', 'description': 'Профиль текущего клиента.'},
-        {'name': 'Дети', 'description': 'Дети текущего клиента, не более двух.'},
-        {'name': 'Услуги', 'description': 'Будущий каталог услуг для мобильного приложения.'},
-        {'name': 'Записи', 'description': 'Будущие создание и управление записями клиента.'},
+        {'name': '1. Регистрация и вход', 'description': 'Новый клиент: SMS-код, затем регистрация. Существующий клиент: SMS-код, затем вход.'},
+        {'name': '2. Сессия', 'description': 'Обновление access и refresh token без SMS.'},
+        {'name': '3. Профиль клиента', 'description': 'Данные только текущего клиента, определяемого по Bearer access token.'},
+        {'name': '4. Дети', 'description': 'Дети текущего клиента, не более двух.'},
     ],
     'APPEND_COMPONENTS': {
         'securitySchemes': {
