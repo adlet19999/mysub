@@ -17,6 +17,7 @@ from .models import CustomerChild, CustomerProfile, MobileRefreshSession
 from .serializers import (
     AuthenticationResponseSerializer,
     ChildRequestSerializer,
+    CityListResponseSerializer,
     CustomerResponseSerializer,
     CustomerUpdateRequestSerializer,
     RefreshTokenResponseSerializer,
@@ -25,6 +26,7 @@ from .serializers import (
     SendCodeRequestSerializer,
     VerifyCodeRequestSerializer,
 )
+from .models import City
 
 
 PHONE_RE = re.compile(r"^\+7\d{10}$")
@@ -65,8 +67,8 @@ def serialize_customer(customer):
         "name": customer.user.first_name or None,
         "email": customer.user.email or None,
         "avatar_url": customer.avatar_url or None,
-        "city_id": customer.city_id or None,
-        "city_name": customer.city_name or None,
+        "city_id": customer.city_id,
+        "city_name": customer.city.name if customer.city_id else None,
         "language": customer.language,
         "is_profile_complete": bool(customer.user.first_name and customer.city_id),
         "agreement_accepted": customer.agreement_accepted,
@@ -153,6 +155,18 @@ class MobileAuthenticatedView(APIView):
         if getattr(exc, "detail", None) == "UNAUTHORIZED":
             return error_response(401, "UNAUTHORIZED", "Недействительный access token")
         return super().handle_exception(exc)
+
+
+class MobileCitiesView(APIView):
+    @extend_schema(
+        tags=['0. Справочники'],
+        summary='Получить список городов',
+        description='Используйте `id` выбранного города в поле `city_id` при заполнении профиля. Название города вручную передавать не нужно.',
+        responses={200: CityListResponseSerializer},
+    )
+    def get(self, request):
+        cities = City.objects.filter(is_active=True)
+        return Response({"data": [{"id": city.id, "name": city.name} for city in cities]})
 
 
 class MobileAuthSendCodeView(APIView):
@@ -275,7 +289,7 @@ class MobileCurrentUserView(MobileAuthenticatedView):
     @extend_schema(
         tags=['3. Профиль клиента'],
         summary='Заполнить или изменить профиль текущего клиента',
-        description='Для первого заполнения профиля после регистрации передайте как минимум `name`, `city_id` и `city_name`.',
+        description='Для первого заполнения профиля после регистрации передайте как минимум `name` и `city_id`. Сначала получите допустимые ID через `GET /cities/`.',
         auth=[{'MobileBearer': []}],
         request=CustomerUpdateRequestSerializer,
         responses={200: CustomerResponseSerializer, 400: None, 401: None},
@@ -294,9 +308,10 @@ class MobileCurrentUserView(MobileAuthenticatedView):
                 return error_response(400, "VALIDATION_ERROR", "Некорректный email", "email")
             user.email = email
         if "city_id" in request.data:
-            customer.city_id = str(request.data.get("city_id") or "").strip()[:80]
-        if "city_name" in request.data:
-            customer.city_name = str(request.data.get("city_name") or "").strip()[:120]
+            city = City.objects.filter(id=request.data.get("city_id"), is_active=True).first()
+            if not city:
+                return error_response(400, "VALIDATION_ERROR", "Город не найден", "city_id")
+            customer.city = city
         if "language" in request.data:
             language = str(request.data.get("language") or "").strip().lower()
             if language not in {"ru", "kk", "en"}:

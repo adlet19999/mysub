@@ -34,13 +34,22 @@ class ChildResponseSerializer(serializers.Serializer):
     age = serializers.IntegerField()
 
 
+class CityResponseSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text='Идентификатор города для передачи в city_id')
+    name = serializers.CharField(help_text='Название города для отображения пользователю')
+
+
+class CityListResponseSerializer(serializers.Serializer):
+    data = CityResponseSerializer(many=True)
+
+
 class CustomerResponseSerializer(serializers.Serializer):
     id = serializers.CharField()
     phone = serializers.CharField()
     name = serializers.CharField(allow_null=True)
     email = serializers.EmailField(allow_null=True)
     avatar_url = serializers.URLField(allow_null=True)
-    city_id = serializers.CharField(allow_null=True)
+    city_id = serializers.IntegerField(allow_null=True, help_text='ID выбранного города из GET /cities/')
     city_name = serializers.CharField(allow_null=True)
     language = serializers.ChoiceField(choices=['ru', 'kk', 'en'])
     is_profile_complete = serializers.BooleanField(help_text='true, если заполнены имя и город')
@@ -65,8 +74,7 @@ class RefreshTokenResponseSerializer(serializers.Serializer):
 class CustomerUpdateRequestSerializer(serializers.Serializer):
     name = serializers.CharField(required=False, help_text='Имя от 2 до 100 символов')
     email = serializers.EmailField(required=False, allow_blank=True)
-    city_id = serializers.CharField(required=False)
-    city_name = serializers.CharField(required=False)
+    city_id = serializers.IntegerField(required=False, min_value=1, help_text='ID города из GET /cities/')
     language = serializers.ChoiceField(choices=['ru', 'kk', 'en'], required=False)
 
 

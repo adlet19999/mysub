@@ -1,7 +1,7 @@
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from mobile_api.models import CustomerProfile
+from mobile_api.models import City, CustomerProfile
 
 
 class MobileAuthAndProfileTests(TestCase):
@@ -42,6 +42,26 @@ class MobileAuthAndProfileTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.data["is_new_user"])
+
+    def test_customer_can_select_city_by_id(self):
+        city = City.objects.create(name="Алматы", display_order=1)
+        headers = self.authorization()
+        response = self.client.patch(
+            "/api/v1/mobile/users/me/",
+            {"name": "Иван", "city_id": city.id},
+            format="json",
+            **headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["city_id"], city.id)
+        self.assertEqual(response.data["city_name"], "Алматы")
+
+    def test_cities_endpoint_returns_active_cities(self):
+        city = City.objects.create(name="Алматы", display_order=1)
+        City.objects.create(name="Архивный город", display_order=2, is_active=False)
+        response = self.client.get("/api/v1/mobile/cities/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["data"], [{"id": city.id, "name": "Алматы"}])
 
     def test_customer_can_have_at_most_two_children(self):
         headers = self.authorization()

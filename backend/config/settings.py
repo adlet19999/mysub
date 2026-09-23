@@ -169,12 +169,14 @@ SPECTACULAR_SETTINGS = {
         '1. `POST /auth/send-code/` - запросить SMS-код.\n'
         '2. Клиент вводит код, полученный в SMS.\n'
         '3. `POST /auth/register/` - создать нового клиента и получить токены.\n'
-        '4. `PATCH /users/me/` - заполнить профиль.\n\n'
+        '4. `GET /cities/` - получить города для выбора.\n'
+        '5. `PATCH /users/me/` - заполнить профиль, передав `city_id`.\n\n'
         '**Повторный вход:** запросите код и вызовите `POST /auth/verify-code/`. '
         'При сохранённом refresh token используйте `POST /auth/refresh/` без SMS.'
     ),
     'VERSION': 'v1',
     'TAGS': [
+        {'name': '0. Справочники', 'description': 'Данные для выбора на экранах мобильного приложения.'},
         {'name': '1. Регистрация и вход', 'description': 'Новый клиент: SMS-код, затем регистрация. Существующий клиент: SMS-код, затем вход.'},
         {'name': '2. Сессия', 'description': 'Обновление access и refresh token без SMS.'},
         {'name': '3. Профиль клиента', 'description': 'Данные только текущего клиента, определяемого по Bearer access token.'},

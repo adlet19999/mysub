@@ -2,6 +2,18 @@ from django.conf import settings
 from django.db import models
 
 
+class City(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    display_order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ("display_order", "name")
+
+    def __str__(self):
+        return self.name
+
+
 class CustomerProfile(models.Model):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
@@ -9,8 +21,13 @@ class CustomerProfile(models.Model):
         related_name="customer_profile",
     )
     phone = models.CharField(max_length=12, unique=True)
-    city_id = models.CharField(max_length=80, blank=True, default="")
-    city_name = models.CharField(max_length=120, blank=True, default="")
+    city = models.ForeignKey(
+        City,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="customer_profiles",
+    )
     language = models.CharField(max_length=2, default="ru")
     avatar_url = models.URLField(blank=True, default="")
     agreement_accepted = models.BooleanField(default=False)
