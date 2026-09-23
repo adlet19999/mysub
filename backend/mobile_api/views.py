@@ -168,10 +168,10 @@ class MobileAuthSendCodeView(APIView):
 class MobileAuthVerifyCodeView(APIView):
     @extend_schema(
         tags=['Авторизация'],
-        summary='Подтвердить SMS-код и войти',
+        summary='Подтвердить SMS-код и войти в существующий аккаунт',
         description='В режиме разработки принимается код `11111`.',
         request=VerifyCodeRequestSerializer,
-        responses={200: None, 400: None, 401: None},
+        responses={200: None, 400: None, 401: None, 404: None},
     )
     def post(self, request):
         phone = normalize_ru_phone(str(request.data.get("phone") or ""))
@@ -184,19 +184,39 @@ class MobileAuthVerifyCodeView(APIView):
             return error_response(401, "INVALID_CODE", "SMS-код неверен")
 
         customer = CustomerProfile.objects.select_related("user").filter(phone=phone).first()
-        is_new_user = customer is None
         if customer is None:
-            with transaction.atomic():
-                user = User.objects.create_user(
-                    username=f"mobile:{phone}",
-                    password=None,
-                )
-                customer = CustomerProfile.objects.create(
-                    user=user,
-                    phone=phone,
-                    language=get_request_language(request),
-                )
-        return Response({"user": serialize_customer(customer), "tokens": issue_tokens(customer), "is_new_user": is_new_user})
+            return error_response(404, "USER_NOT_FOUND", "Клиент с этим номером не зарегистрирован", "phone")
+        return Response({"user": serialize_customer(customer), "tokens": issue_tokens(customer), "is_new_user": False})
+
+
+class MobileAuthRegisterView(APIView):
+    @extend_schema(
+        tags=['Авторизация'],
+        summary='Подтвердить SMS-код и зарегистрировать клиента',
+        description='Создаёт клиента только для нового номера. В режиме разработки принимается код `11111`.',
+        request=VerifyCodeRequestSerializer,
+        responses={201: None, 400: None, 401: None, 409: None},
+    )
+    def post(self, request):
+        phone = normalize_ru_phone(str(request.data.get("phone") or ""))
+        code = str(request.data.get("code") or "").strip()
+        if not PHONE_RE.fullmatch(phone):
+            return error_response(400, "VALIDATION_ERROR", "Неверный формат номера", "phone")
+        if not re.fullmatch(r"\d{5}", code):
+            return error_response(400, "VALIDATION_ERROR", "Код должен состоять из 5 цифр", "code")
+        if code != settings.MOBILE_SMS_TEST_CODE:
+            return error_response(401, "INVALID_CODE", "SMS-код неверен")
+        if CustomerProfile.objects.filter(phone=phone).exists():
+            return error_response(409, "USER_ALREADY_EXISTS", "Клиент с этим номером уже зарегистрирован", "phone")
+
+        with transaction.atomic():
+            user = User.objects.create_user(username=f"mobile:{phone}", password=None)
+            customer = CustomerProfile.objects.create(
+                user=user,
+                phone=phone,
+                language=get_request_language(request),
+            )
+        return Response({"user": serialize_customer(customer), "tokens": issue_tokens(customer), "is_new_user": True}, status=201)
 
 
 class MobileAuthRefreshView(APIView):
