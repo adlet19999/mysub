@@ -295,6 +295,7 @@ class MobileCatalogTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["time_zone"], "Asia/Almaty")
         self.assertEqual(response.data["slots"], ["09:00"])
         self.assertEqual(response.data["duration_minutes"], 60)
 
@@ -386,6 +387,7 @@ class MobileBookingTests(TestCase):
         self.assertEqual(created.status_code, 201)
         self.assertEqual(created.data["status"], "booked")
         self.assertEqual(created.data["final_price"], "5000.00")
+        self.assertTrue(created.data["starts_at"].endswith("+05:00"))
         booking = Booking.objects.get(id=created.data["id"])
         self.assertEqual(booking.client_phone, self.customer.phone)
         self.assertEqual(booking.client_name, "Айша")

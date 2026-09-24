@@ -21,6 +21,7 @@ services:
     container_name: mysub-backend
     restart: unless-stopped
     environment:
+      TZ: Asia/Almaty
       POSTGRES_DB: ${POSTGRES_DB:-mysub}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -62,6 +63,7 @@ services:
     container_name: mysub-frontend
     restart: unless-stopped
     environment:
+      TZ: Asia/Almaty
       BACKEND_BASE_URL: http://backend:8000
       NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-/api/v1}
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api/v1}

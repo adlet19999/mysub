@@ -735,7 +735,7 @@ def serialize_booking(item: Booking):
 		"id": item.id,
 		"service_name": item.service_name,
 		"manager_name": item.manager_name,
-		"starts_at": item.starts_at.isoformat(),
+		"starts_at": timezone.localtime(item.starts_at).isoformat(),
 		"client_name": item.client_name,
 		"client_phone": item.client_phone,
 		"status": item.status,

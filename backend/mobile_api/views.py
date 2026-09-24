@@ -189,7 +189,7 @@ def serialize_mobile_booking(booking):
         "partner_name": catalog_partner_name(partner),
         "service_name": booking.service_name,
         "specialist_name": booking.manager_name or "",
-        "starts_at": booking.starts_at.isoformat(),
+        "starts_at": timezone.localtime(booking.starts_at).isoformat(),
         "status": booking.status,
         "base_price": str(booking.base_price),
         "discount_amount": str(booking.discount_amount),
@@ -435,7 +435,7 @@ class MobileCatalogSpecialistAvailabilityView(APIView):
     @extend_schema(
         tags=["4. Каталог и запись"],
         summary="Получить свободное время специалиста",
-        description="Слоты рассчитываются с учётом рабочего графика, перерывов, длительности выбранной услуги и активных записей. Шаг слотов — 30 минут.",
+        description="Слоты возвращаются в часовом поясе Asia/Almaty с учётом рабочего графика, перерывов, длительности выбранной услуги и активных записей. Шаг слотов — 30 минут.",
         parameters=[
             OpenApiParameter(
                 name="date",
@@ -500,6 +500,7 @@ class MobileCatalogSpecialistAvailabilityView(APIView):
 
         return Response({
             "date": requested_date.isoformat(),
+            "time_zone": timezone.get_current_timezone_name(),
             "duration_minutes": duration_minutes,
             "slot_interval_minutes": 30,
             "slots": slots,

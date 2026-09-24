@@ -243,7 +243,7 @@ class BookingPricingApiTests(TestCase):
 				"service_name": self.service.name,
 				"service_ids": [self.service.id],
 				"manager_name": self.specialist.full_name,
-				"starts_at": "2026-04-20T15:00:00Z",
+				"starts_at": "2026-04-20T15:00:00+05:00",
 				"client_name": "Клиент",
 				"client_phone": "+77000000000",
 			},
@@ -258,7 +258,7 @@ class BookingPricingApiTests(TestCase):
 		updated = self.client.patch(
 			f"/api/v1/partner/bookings/{created.data['id']}/",
 			{
-				"starts_at": "2026-04-20T12:00:00Z",
+				"starts_at": "2026-04-20T12:00:00+05:00",
 				"service_ids": [self.service.id],
 			},
 			format="json",

@@ -137,6 +137,7 @@ class CatalogSpecialistListResponseSerializer(serializers.Serializer):
 
 class AvailabilityResponseSerializer(serializers.Serializer):
     date = serializers.DateField()
+    time_zone = serializers.CharField(help_text="Часовой пояс возвращаемых слотов")
     duration_minutes = serializers.IntegerField()
     slot_interval_minutes = serializers.IntegerField()
     slots = serializers.ListField(child=serializers.TimeField(format="%H:%M"))
@@ -146,7 +147,7 @@ class MobileBookingCreateRequestSerializer(serializers.Serializer):
     partner_id = serializers.IntegerField(min_value=1, help_text="ID партнёра из каталога")
     specialist_id = serializers.IntegerField(min_value=1, help_text="ID специалиста выбранного партнёра")
     service_id = serializers.IntegerField(min_value=1, help_text="ID выбранной услуги")
-    starts_at = serializers.DateTimeField(help_text="Начало записи в ISO 8601; время должно совпадать со свободным слотом")
+    starts_at = serializers.DateTimeField(help_text="Начало записи в ISO 8601 с offset +05:00 для Алматы; время должно совпадать со свободным слотом")
 
 
 class MobileBookingSerializer(serializers.Serializer):
