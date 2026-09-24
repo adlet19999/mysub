@@ -9,7 +9,7 @@ type DashboardData = {
   admin: { name: string; email: string };
   metrics: { customers_total: number; subscriptions_active: number; customers_without_subscription: number; customers_turnover: string; partners_total: number; partners_active: number; bookings_total: number; revenue_total: string };
   customers: Array<{ id: number; name: string; email: string; phone: string; city_name: string; avatar_url: string; created_at: string; visits: number; last_visit: string | null; total_amount: string }>;
-  partners: Array<{ id: number; name: string; email: string; category: string; is_active: boolean }>;
+  partners: Array<{ id: number; name: string; email: string; phone: string; category: string; is_active: boolean; created_at: string }>;
 };
 
 const navigation = [
@@ -138,6 +138,35 @@ function CustomersTable({ customers, onOpenUsers }: { customers: DashboardData["
   </section>;
 }
 
-function PartnersTable({ partners, compact = false }: { partners: DashboardData["partners"]; compact?: boolean }) {
-  return <section className={styles.tableSection}><div className={styles.sectionHead}><div><h2>{compact ? "Партнёры" : "Партнёры"}</h2><p>{compact ? "Недавно добавленные компании" : "Компании в системе MySub"}</p></div>{compact ? <button>Все партнёры</button> : null}</div>{partners.length ? <div className={styles.table}><div className={styles.tableHeader}><span>Компания</span><span>Категория</span><span>Статус</span></div>{partners.map((partner) => <div className={styles.tableRow} key={partner.id}><span><b>{partner.name}</b><small>{partner.email}</small></span><span>{partner.category || "Не указана"}</span><span><i className={partner.is_active ? styles.statusActive : styles.statusInactive} />{partner.is_active ? "Активен" : "Отключён"}</span></div>)}</div> : <div className={styles.empty}>Партнёров пока нет.</div>}</section>;
+function PartnersTable({ partners }: { partners: DashboardData["partners"] }) {
+  const [items, setItems] = useState(partners);
+  const [selectedPartner, setSelectedPartner] = useState<DashboardData["partners"][number] | null>(null);
+  const [pending, setPending] = useState(false);
+  const [notice, setNotice] = useState<{ kind: "blocked" | "unblocked" | "error"; message: string } | null>(null);
+
+  async function updateStatus() {
+    if (!selectedPartner) return;
+    const nextActive = !selectedPartner.is_active;
+    setPending(true);
+    try {
+      const response = await fetch(`/api/admin/partners/${selectedPartner.id}/status`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_active: nextActive }) });
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(payload.message || "Не удалось обновить статус партнёра");
+      setItems((current) => current.map((partner) => partner.id === selectedPartner.id ? { ...partner, is_active: nextActive } : partner));
+      setNotice({ kind: nextActive ? "unblocked" : "blocked", message: selectedPartner.name });
+      setSelectedPartner(null);
+    } catch (error) {
+      setNotice({ kind: "error", message: error instanceof Error ? error.message : "Не удалось обновить статус" });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  const blocking = selectedPartner?.is_active;
+  return <section className={styles.partnersPage}>
+    <div className={styles.partnersHeading}><h2>Управление партнёрами</h2><p>Управление пользователями, их подписками и статусами</p></div>
+    {items.length ? <div className={styles.partnersTable}><div className={styles.partnersTableHeader}><span>Компания</span><span>Контакты</span><span>Категория</span><span>Статус</span><span>Дата регистрации</span><span>Действия</span></div>{items.map((partner) => <div className={styles.partnersTableRow} key={partner.id}><span><b>{partner.name}</b><small>юр.лицо</small></span><span><b>{partner.email || "Контакт не указан"}</b><small>{partner.phone || "Телефон не указан"}</small></span><span>{partner.category || "Не указана"}</span><span className={partner.is_active ? styles.partnerActive : styles.partnerBlocked}>{partner.is_active ? "Активен" : "Заблокирован"}</span><span>{formatDate(partner.created_at)}</span><span><button className={styles.lockButton} onClick={() => setSelectedPartner(partner)} aria-label={partner.is_active ? `Заблокировать ${partner.name}` : `Разблокировать ${partner.name}`} title={partner.is_active ? "Заблокировать" : "Разблокировать"}>{partner.is_active ? "🔒" : "🔓"}</button></span></div>)}</div> : <div className={styles.empty}>Партнёров пока нет.</div>}
+    {notice ? <div className={`${styles.partnerNotice} ${notice.kind === "unblocked" ? styles.partnerNoticeInfo : styles.partnerNoticeBlocked}`} role="status"><b>{notice.kind === "unblocked" ? "Партнёр разблокирован" : notice.kind === "blocked" ? "Партнёр заблокирован" : "Ошибка"}</b><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="Закрыть уведомление">×</button></div> : null}
+    {selectedPartner ? <div className={styles.modalBackdrop} role="presentation"><section className={styles.statusModal} role="dialog" aria-modal="true" aria-labelledby="partner-status-title"><div className={`${styles.statusIcon} ${blocking ? styles.statusIconBlock : styles.statusIconUnblock}`}>{blocking ? "🔒" : "🔓"}</div><h2 id="partner-status-title">{blocking ? "Заблокировать партнёра" : "Разблокировать партнёра"}</h2><p>Вы уверены, что хотите {blocking ? "заблокировать" : "разблокировать"} партнёра?</p><div><button disabled={pending} onClick={() => setSelectedPartner(null)}>Отменить</button><button className={blocking ? styles.blockConfirm : styles.unblockConfirm} disabled={pending} onClick={() => void updateStatus()}>{pending ? "Сохраняем..." : blocking ? "Заблокировать" : "Разблокировать"}</button></div></section></div> : null}
+  </section>;
 }

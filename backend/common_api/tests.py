@@ -107,3 +107,31 @@ class AdminApiTests(TestCase):
 			response.data["customers"][0]["avatar_url"],
 			"/api/v1/mobile/avatar-images/customer-1-avatar.webp",
 		)
+
+	def test_staff_user_can_block_and_unblock_partner(self):
+		partner_user = User.objects.create_user(username="partner@example.com", password="password123")
+		partner = PartnerProfile.objects.create(user=partner_user, phone="+77001112233", user_type="partner")
+		login = self.client.post(
+			"/api/v1/common/admin/login/",
+			{"username": self.staff_user.username, "password": "password123"},
+			format="json",
+		)
+		self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['token']}")
+
+		block_response = self.client.post(
+			f"/api/v1/common/admin/partners/{partner.id}/status/",
+			{"is_active": False},
+			format="json",
+		)
+		partner_user.refresh_from_db()
+		self.assertEqual(block_response.status_code, 200)
+		self.assertFalse(partner_user.is_active)
+
+		unblock_response = self.client.post(
+			f"/api/v1/common/admin/partners/{partner.id}/status/",
+			{"is_active": True},
+			format="json",
+		)
+		partner_user.refresh_from_db()
+		self.assertEqual(unblock_response.status_code, 200)
+		self.assertTrue(partner_user.is_active)

@@ -242,8 +242,10 @@ class AdminDashboardView(APIView):
 				"id": partner.id,
 				"name": partner.company_name or partner.user.get_full_name() or partner.user.username,
 				"email": partner.user.email,
+				"phone": partner.phone,
 				"category": partner.business_category,
 				"is_active": partner.user.is_active,
+				"created_at": partner.created_at.isoformat(),
 			}
 			for partner in partners[:50]
 		]
@@ -269,6 +271,24 @@ class AdminDashboardView(APIView):
 				"partners": partner_list,
 			}
 		)
+
+
+class AdminPartnerStatusView(APIView):
+	def post(self, request, partner_id: int):
+		if get_admin_user(request) is None:
+			return Response({"message": "Требуется вход администратора"}, status=status.HTTP_401_UNAUTHORIZED)
+
+		is_active = request.data.get("is_active")
+		if not isinstance(is_active, bool):
+			return Response({"message": "Поле is_active должно быть логическим значением"}, status=status.HTTP_400_BAD_REQUEST)
+
+		partner = PartnerProfile.objects.select_related("user").filter(id=partner_id, user_type="partner").first()
+		if partner is None:
+			return Response({"message": "Партнёр не найден"}, status=status.HTTP_404_NOT_FOUND)
+
+		partner.user.is_active = is_active
+		partner.user.save(update_fields=["is_active"])
+		return Response({"id": partner.id, "is_active": partner.user.is_active})
 
 
 class AuthForgotPasswordView(APIView):
