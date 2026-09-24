@@ -105,5 +105,5 @@ class AdminApiTests(TestCase):
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(
 			response.data["customers"][0]["avatar_url"],
-			"http://testserver/api/v1/mobile/avatar-images/customer-1-avatar.webp",
+			"/api/v1/mobile/avatar-images/customer-1-avatar.webp",
 		)

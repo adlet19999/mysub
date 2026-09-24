@@ -225,11 +225,7 @@ class AdminDashboardView(APIView):
 				"email": customer.user.email or "",
 				"phone": customer.phone,
 				"city_name": customer.city.name if customer.city_id else "",
-				"avatar_url": (
-					request.build_absolute_uri(customer.avatar_url)
-					if customer.avatar_url.startswith("/")
-					else customer.avatar_url
-				),
+				"avatar_url": customer.avatar_url or None,
 				"created_at": customer.created_at.isoformat(),
 				"visits": bookings_by_phone.get(customer.phone, {}).get("visits", 0),
 				"last_visit": (
