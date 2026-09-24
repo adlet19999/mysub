@@ -430,6 +430,12 @@ class MobileCurrentUserView(MobileAuthenticatedView):
             customer.save()
         return Response(serialize_customer(customer, request))
 
+    @extend_schema(tags=['3. Профиль клиента'], summary='Удалить аккаунт текущего клиента', auth=[{'MobileBearer': []}], responses={204: None, 401: None})
+    def delete(self, request):
+        MobileRefreshSession.objects.filter(customer=self.customer).update(revoked_at=timezone.now())
+        self.customer.user.delete()
+        return Response(status=204)
+
 
 class MobileCurrentUserAvatarView(MobileAuthenticatedView):
     parser_classes = [MultiPartParser, FormParser]
@@ -456,9 +462,3 @@ class MobileCurrentUserAvatarView(MobileAuthenticatedView):
         self.customer.save(update_fields=["avatar_url", "updated_at"])
         delete_stored_avatar(previous_avatar_url)
         return Response({"avatar_url": request.build_absolute_uri(avatar_url)})
-
-    @extend_schema(tags=['3. Профиль клиента'], summary='Удалить аккаунт текущего клиента', auth=[{'MobileBearer': []}], responses={204: None, 401: None})
-    def delete(self, request):
-        MobileRefreshSession.objects.filter(customer=self.customer).update(revoked_at=timezone.now())
-        self.customer.user.delete()
-        return Response(status=204)

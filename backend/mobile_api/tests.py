@@ -175,3 +175,9 @@ class MobileAvatarUploadTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data["error"]["code"], "INVALID_IMAGE")
+
+    def test_avatar_endpoint_does_not_delete_customer(self):
+        response = self.client.delete("/api/v1/mobile/users/me/avatar/", **self.headers)
+
+        self.assertEqual(response.status_code, 405)
+        self.assertTrue(CustomerProfile.objects.exists())
