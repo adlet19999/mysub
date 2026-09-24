@@ -6,6 +6,7 @@ from .views import (
     MobileAuthSendCodeView,
     MobileAuthVerifyCodeView,
     MobileCitiesView,
+    MobileCurrentUserAvatarView,
     MobileCurrentUserView,
 )
 
@@ -17,4 +18,5 @@ urlpatterns = [
     path("auth/verify-code/", MobileAuthVerifyCodeView.as_view(), name="mobile-auth-verify-code"),
     path("auth/refresh/", MobileAuthRefreshView.as_view(), name="mobile-auth-refresh"),
     path("users/me/", MobileCurrentUserView.as_view(), name="mobile-current-user"),
+    path("users/me/avatar/", MobileCurrentUserAvatarView.as_view(), name="mobile-current-user-avatar"),
 ]

@@ -1,13 +1,17 @@
 import re
 import uuid
+from io import BytesIO
+from pathlib import Path
 from datetime import date, timedelta
 
 import jwt
+from PIL import Image, ImageOps, UnidentifiedImageError
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import transaction
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -16,6 +20,8 @@ from common_api.views import normalize_ru_phone
 from .models import CustomerChild, CustomerProfile, MobileRefreshSession
 from .serializers import (
     AuthenticationResponseSerializer,
+    AvatarUploadRequestSerializer,
+    AvatarUploadResponseSerializer,
     CityListResponseSerializer,
     CustomerResponseSerializer,
     CustomerUpdateRequestSerializer,
@@ -31,6 +37,9 @@ from .models import City
 PHONE_RE = re.compile(r"^\+7\d{10}$")
 CHILD_NAME_RE = re.compile(r"^[^\d_]{1,50}$")
 MAX_CHILDREN = 2
+MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024
+MAX_AVATAR_PIXELS = 25_000_000
+AVATAR_URL_PREFIX = "/api/v1/mobile/avatar-images/"
 
 
 def error_response(status_code, code, message, field=None):
@@ -58,14 +67,17 @@ def serialize_child(child):
     }
 
 
-def serialize_customer(customer):
+def serialize_customer(customer, request=None):
     children = list(customer.children.order_by("id"))
+    avatar_url = customer.avatar_url or None
+    if avatar_url and avatar_url.startswith("/") and request:
+        avatar_url = request.build_absolute_uri(avatar_url)
     return {
         "id": str(customer.id),
         "phone": customer.phone,
         "name": customer.user.first_name or None,
         "email": customer.user.email or None,
-        "avatar_url": customer.avatar_url or None,
+        "avatar_url": avatar_url,
         "city_id": customer.city_id,
         "city_name": customer.city.name if customer.city_id else None,
         "language": customer.language,
@@ -77,6 +89,47 @@ def serialize_customer(customer):
         "created_at": customer.created_at.isoformat(),
         "updated_at": customer.updated_at.isoformat(),
     }
+
+
+def delete_stored_avatar(avatar_url):
+    if not avatar_url or not avatar_url.startswith(AVATAR_URL_PREFIX):
+        return
+    file_name = avatar_url.removeprefix(AVATAR_URL_PREFIX)
+    if file_name != Path(file_name).name:
+        return
+    file_path = Path(settings.MEDIA_ROOT) / "customer_avatars" / file_name
+    if file_path.exists():
+        file_path.unlink()
+
+
+def save_customer_avatar(uploaded_file, customer_id):
+    if uploaded_file.size > MAX_AVATAR_SIZE_BYTES:
+        return None, "Изображение слишком большое (максимум 5 MB)"
+    try:
+        with Image.open(uploaded_file) as probe:
+            probe.verify()
+        uploaded_file.seek(0)
+        with Image.open(uploaded_file) as source:
+            if source.width * source.height > MAX_AVATAR_PIXELS:
+                return None, "Разрешение изображения слишком большое"
+            image = ImageOps.exif_transpose(source)
+            image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
+            if image.mode == "RGBA":
+                background = Image.new("RGB", image.size, "white")
+                background.paste(image, mask=image.getchannel("A"))
+                image = background
+            else:
+                image = image.convert("RGB")
+            output = BytesIO()
+            image.save(output, format="WEBP", quality=82, method=6)
+    except (Image.DecompressionBombError, OSError, UnidentifiedImageError, ValueError):
+        return None, "Не удалось обработать изображение"
+
+    avatar_dir = Path(settings.MEDIA_ROOT) / "customer_avatars"
+    avatar_dir.mkdir(parents=True, exist_ok=True)
+    file_name = f"customer-{customer_id}-{uuid.uuid4().hex}.webp"
+    (avatar_dir / file_name).write_bytes(output.getvalue())
+    return f"{AVATAR_URL_PREFIX}{file_name}", None
 
 
 def token_payload(customer, token_type, expires_at, token_id=None):
@@ -212,7 +265,7 @@ class MobileAuthVerifyCodeView(APIView):
         customer = CustomerProfile.objects.select_related("user").filter(phone=phone).first()
         if customer is None:
             return error_response(404, "USER_NOT_FOUND", "Клиент с этим номером не зарегистрирован", "phone")
-        return Response({"user": serialize_customer(customer), "tokens": issue_tokens(customer), "is_new_user": False})
+        return Response({"user": serialize_customer(customer, request), "tokens": issue_tokens(customer), "is_new_user": False})
 
 
 class MobileAuthRegisterView(APIView):
@@ -247,7 +300,7 @@ class MobileAuthRegisterView(APIView):
                 phone=phone,
                 language=get_request_language(request),
             )
-        return Response({"user": serialize_customer(customer), "tokens": issue_tokens(customer), "is_new_user": True}, status=201)
+        return Response({"user": serialize_customer(customer, request), "tokens": issue_tokens(customer), "is_new_user": True}, status=201)
 
 
 class MobileAuthRefreshView(APIView):
@@ -283,7 +336,7 @@ class MobileCurrentUserView(MobileAuthenticatedView):
         responses={200: CustomerResponseSerializer, 401: None},
     )
     def get(self, request):
-        return Response(serialize_customer(self.customer))
+        return Response(serialize_customer(self.customer, request))
 
     @extend_schema(
         tags=['3. Профиль клиента'],
@@ -375,7 +428,34 @@ class MobileCurrentUserView(MobileAuthenticatedView):
         else:
             user.save()
             customer.save()
-        return Response(serialize_customer(customer))
+        return Response(serialize_customer(customer, request))
+
+
+class MobileCurrentUserAvatarView(MobileAuthenticatedView):
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        tags=['3. Профиль клиента'],
+        summary='Загрузить или заменить фотографию клиента',
+        description='Передайте файл в поле `file` как `multipart/form-data`. Допускаются изображения до 5 MB; сервер уменьшает их и сохраняет в WebP.',
+        auth=[{'MobileBearer': []}],
+        request=AvatarUploadRequestSerializer,
+        responses={200: AvatarUploadResponseSerializer, 400: None, 401: None},
+    )
+    def post(self, request):
+        uploaded_file = request.FILES.get("file")
+        if not uploaded_file:
+            return error_response(400, "VALIDATION_ERROR", "Передайте изображение в поле file", "file")
+
+        avatar_url, error = save_customer_avatar(uploaded_file, self.customer.id)
+        if error:
+            return error_response(400, "INVALID_IMAGE", error, "file")
+
+        previous_avatar_url = self.customer.avatar_url
+        self.customer.avatar_url = avatar_url
+        self.customer.save(update_fields=["avatar_url", "updated_at"])
+        delete_stored_avatar(previous_avatar_url)
+        return Response({"avatar_url": request.build_absolute_uri(avatar_url)})
 
     @extend_schema(tags=['3. Профиль клиента'], summary='Удалить аккаунт текущего клиента', auth=[{'MobileBearer': []}], responses={204: None, 401: None})
     def delete(self, request):

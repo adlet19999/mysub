@@ -80,3 +80,11 @@ class CustomerUpdateRequestSerializer(serializers.Serializer):
     agreement_accepted = serializers.BooleanField(required=False)
     agreement_version = serializers.CharField(required=False, allow_blank=True, max_length=40)
     children = ChildSerializer(required=False, many=True, help_text='Полный актуальный список детей, не более двух')
+
+
+class AvatarUploadRequestSerializer(serializers.Serializer):
+    file = serializers.ImageField(help_text='Файл изображения до 5 MB')
+
+
+class AvatarUploadResponseSerializer(serializers.Serializer):
+    avatar_url = serializers.URLField(help_text='Абсолютная ссылка на сохранённую фотографию')

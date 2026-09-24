@@ -1,7 +1,19 @@
-from django.test import TestCase
+from io import BytesIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
+from PIL import Image
 from rest_framework.test import APIClient
 
 from mobile_api.models import City, CustomerProfile
+
+
+def image_upload():
+    output = BytesIO()
+    Image.new("RGB", (64, 64), "green").save(output, format="PNG")
+    return SimpleUploadedFile("avatar.png", output.getvalue(), content_type="image/png")
 
 
 class MobileAuthAndProfileTests(TestCase):
@@ -44,7 +56,7 @@ class MobileAuthAndProfileTests(TestCase):
         self.assertFalse(response.data["is_new_user"])
 
     def test_customer_can_select_city_by_id(self):
-        city = City.objects.create(name="Алматы", display_order=1)
+        city, _ = City.objects.get_or_create(name="Алматы", defaults={"display_order": 1})
         headers = self.authorization()
         response = self.client.patch(
             "/api/v1/mobile/users/me/",
@@ -57,14 +69,15 @@ class MobileAuthAndProfileTests(TestCase):
         self.assertEqual(response.data["city_name"], "Алматы")
 
     def test_cities_endpoint_returns_active_cities(self):
-        city = City.objects.create(name="Алматы", display_order=1)
-        City.objects.create(name="Архивный город", display_order=2, is_active=False)
+        city, _ = City.objects.get_or_create(name="Алматы", defaults={"display_order": 1})
+        archived_city = City.objects.create(name="Архивный город", display_order=2, is_active=False)
         response = self.client.get("/api/v1/mobile/cities/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["data"], [{"id": city.id, "name": "Алматы"}])
+        self.assertIn({"id": city.id, "name": "Алматы"}, response.data["data"])
+        self.assertNotIn({"id": archived_city.id, "name": "Архивный город"}, response.data["data"])
 
     def test_customer_can_update_profile_and_children_in_one_request(self):
-        city = City.objects.create(name="Алматы", display_order=1)
+        city, _ = City.objects.get_or_create(name="Алматы", defaults={"display_order": 1})
         headers = self.authorization()
         response = self.client.patch(
             "/api/v1/mobile/users/me/",
@@ -119,3 +132,46 @@ class MobileAuthAndProfileTests(TestCase):
         )
         self.assertEqual(response.status_code, 422)
         self.assertEqual(response.data["error"]["code"], "MAX_CHILDREN_REACHED")
+
+
+class MobileAvatarUploadTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.media_directory = TemporaryDirectory()
+        self.media_override = override_settings(MEDIA_ROOT=self.media_directory.name)
+        self.media_override.enable()
+        registration = self.client.post(
+            "/api/v1/mobile/auth/register/",
+            {"phone": "+77007654321", "code": "11111"},
+            format="json",
+        )
+        self.headers = {"HTTP_AUTHORIZATION": f"Bearer {registration.data['tokens']['access_token']}"}
+
+    def tearDown(self):
+        self.media_override.disable()
+        self.media_directory.cleanup()
+
+    def test_customer_can_upload_avatar(self):
+        response = self.client.post(
+            "/api/v1/mobile/users/me/avatar/",
+            {"file": image_upload()},
+            format="multipart",
+            **self.headers,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["avatar_url"].startswith("http://testserver/api/v1/mobile/avatar-images/"))
+        customer = CustomerProfile.objects.get()
+        self.assertTrue(customer.avatar_url.startswith("/api/v1/mobile/avatar-images/"))
+        self.assertTrue((Path(self.media_directory.name) / "customer_avatars" / customer.avatar_url.rsplit("/", 1)[-1]).exists())
+
+    def test_avatar_upload_rejects_non_image_file(self):
+        response = self.client.post(
+            "/api/v1/mobile/users/me/avatar/",
+            {"file": SimpleUploadedFile("avatar.txt", b"not an image", content_type="text/plain")},
+            format="multipart",
+            **self.headers,
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["error"]["code"], "INVALID_IMAGE")
