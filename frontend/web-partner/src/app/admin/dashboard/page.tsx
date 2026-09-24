@@ -35,6 +35,11 @@ function formatDateTime(value: string | null) {
     : new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
+function formatDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "-" : new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
+}
+
 export default function AdminDashboardPage() {
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
@@ -77,7 +82,7 @@ export default function AdminDashboardPage() {
     <main className={partnerStyles.screen}>
       <header className={partnerStyles.header}>
         <div className={partnerStyles.logoCell}><img src="/logo.svg" alt="MySub" className={partnerStyles.logoImage} /></div>
-        <div className={partnerStyles.headerMain}><h1 className={partnerStyles.headerTitle}>Дашборд</h1><p className={partnerStyles.headerSubtitle}>Админ</p></div>
+        <div className={partnerStyles.headerMain}><h1 className={partnerStyles.headerTitle}>{tabLabel}</h1><p className={partnerStyles.headerSubtitle}>Админ</p></div>
         <div className={partnerStyles.headerActions}><button className={partnerStyles.notifyButton} aria-label="Уведомления"><img src="/notifications.svg" alt="" /></button><div className={partnerStyles.avatarPill}>{(data?.admin.name || "A").slice(0, 1).toUpperCase()}</div></div>
       </header>
       <aside className={partnerStyles.sidebar}>
@@ -118,8 +123,11 @@ function Metric({ label, value }: { label: string; value: string }) {
   return <article className={styles.metric}><div><p>{label}</p><strong>{value}</strong></div></article>;
 }
 
-function UsersTable({ customers, compact = false }: { customers: DashboardData["customers"]; compact?: boolean }) {
-  return <section className={styles.tableSection}><div className={styles.sectionHead}><div><h2>{compact ? "Новые пользователи" : "Пользователи"}</h2><p>{compact ? "Последние регистрации" : "Клиенты мобильного приложения"}</p></div>{compact ? <button>Все пользователи</button> : null}</div>{customers.length ? <div className={styles.table}><div className={styles.tableHeader}><span>Пользователь</span><span>Город</span><span>Телефон</span></div>{customers.map((customer) => <div className={styles.tableRow} key={customer.id}><span className={styles.userIdentity}>{customer.avatar_url ? <img src={customer.avatar_url} alt="" className={styles.userAvatar} /> : <i className={styles.userAvatar}>{customer.name.slice(0, 1).toUpperCase()}</i>}<span><b>{customer.name}</b><small>{customer.email}</small></span></span><span>{customer.city_name || "Не указан"}</span><span>{customer.phone}</span></div>)}</div> : <div className={styles.empty}>Пользователей пока нет.</div>}</section>;
+function UsersTable({ customers }: { customers: DashboardData["customers"] }) {
+  return <section className={styles.usersPage}>
+    <div className={styles.usersHeading}><h2>Пользователи</h2><p>Управление пользователями, их подписками и статусами</p></div>
+    {customers.length ? <div className={styles.usersTable}><div className={styles.usersTableHeader}><span>Пользователь</span><span>Контакты</span><span>Статус подписки</span><span>Дата регистрации</span><span>Дата окончания</span><span>Визиты</span><span>Сумма</span></div>{customers.map((customer) => <div className={styles.usersTableRow} key={customer.id}><span className={styles.userIdentity}>{customer.avatar_url ? <img src={customer.avatar_url} alt="" className={styles.userAvatar} /> : <i className={styles.userAvatar}>{customer.name.slice(0, 1).toUpperCase()}</i>}<span><b>{customer.name}</b><small>{customer.email || "Email не указан"}</small></span></span><span>{customer.phone}</span><span className={styles.subscriptionNone}>Отсутствует</span><span>{formatDate(customer.created_at)}</span><span>-</span><span>{customer.visits}</span><span>{formatMoney(customer.total_amount)}</span></div>)}</div> : <div className={styles.empty}>Пользователей пока нет.</div>}
+  </section>;
 }
 
 function CustomersTable({ customers, onOpenUsers }: { customers: DashboardData["customers"]; onOpenUsers: () => void }) {
