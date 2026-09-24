@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       sameSite: "lax",
       secure: request.headers.get("x-forwarded-proto") === "https",
       maxAge: 60 * 60 * 8,
-      path: "/admin",
+      path: "/",
     });
     return result;
   } catch {
