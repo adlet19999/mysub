@@ -1,9 +1,12 @@
+from decimal import Decimal
+
 from django.contrib.auth.models import User
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from django.test import TestCase
 
-from partner_api.models import Manager
+from partner_api.models import Booking, Manager
 from mobile_api.models import CustomerProfile
 
 from .models import PartnerProfile
@@ -135,3 +138,42 @@ class AdminApiTests(TestCase):
 		partner_user.refresh_from_db()
 		self.assertEqual(unblock_response.status_code, 200)
 		self.assertTrue(partner_user.is_active)
+
+	def test_staff_user_can_read_customer_profile_and_visits(self):
+		customer_user = User.objects.create_user(
+			username="customer@example.com",
+			email="customer@example.com",
+			first_name="Клиент",
+			password="password123",
+		)
+		customer = CustomerProfile.objects.create(user=customer_user, phone="+77005556677")
+		partner_user = User.objects.create_user(username="partner@example.com", password="password123")
+		partner = PartnerProfile.objects.create(
+			user=partner_user,
+			phone="+77001112233",
+			user_type="partner",
+			company_name="Тестовая компания",
+		)
+		Booking.objects.create(
+			tenant_slug="public",
+			partner_profile=partner,
+			service_name="Тестовая услуга",
+			starts_at=timezone.now(),
+			client_name="Клиент",
+			client_phone=customer.phone,
+			final_price=Decimal("1500.00"),
+		)
+		login = self.client.post(
+			"/api/v1/common/admin/login/",
+			{"username": self.staff_user.username, "password": "password123"},
+			format="json",
+		)
+		self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['token']}")
+
+		response = self.client.get(f"/api/v1/common/admin/customers/{customer.id}/")
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["customer"]["name"], "Клиент")
+		self.assertEqual(response.data["subscription"], None)
+		self.assertEqual(response.data["visits"][0]["company"], "Тестовая компания")
+		self.assertEqual(response.data["visits"][0]["final_price"], "1500.00")

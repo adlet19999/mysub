@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { Eye, LockKeyhole, UnlockKeyhole } from "lucide-react";
+import { ArrowLeft, Eye, LockKeyhole, UnlockKeyhole } from "lucide-react";
 import partnerStyles from "../../partner/dashboard/layout.module.css";
 import styles from "./page.module.css";
 
@@ -11,6 +11,12 @@ type DashboardData = {
   metrics: { customers_total: number; subscriptions_active: number; customers_without_subscription: number; customers_turnover: string; partners_total: number; partners_active: number; bookings_total: number; revenue_total: string };
   customers: Array<{ id: number; name: string; email: string; phone: string; city_name: string; avatar_url: string; created_at: string; visits: number; last_visit: string | null; total_amount: string }>;
   partners: Array<{ id: number; name: string; contact_name: string; email: string; phone: string; category: string; is_active: boolean; created_at: string }>;
+};
+
+type CustomerDetail = {
+  customer: { id: number; name: string; email: string; phone: string; city_name: string; avatar_url: string | null; created_at: string; is_active: boolean };
+  subscription: null;
+  visits: Array<{ id: number; starts_at: string; company: string; service_name: string; final_price: string; status: string }>;
 };
 
 const navigation = [
@@ -54,13 +60,23 @@ function AdminDashboardContent() {
   const [loading, setLoading] = useState(true);
   const requestedTab = searchParams.get("tab");
   const activeTab = requestedTab && navigation.some((item) => item.id === requestedTab) ? requestedTab : "dashboard";
+  const requestedUserId = searchParams.get("user");
+  const userId = activeTab === "users" && requestedUserId && /^\d+$/.test(requestedUserId) ? Number(requestedUserId) : null;
 
   function setActiveTab(tab: string) {
     const params = new URLSearchParams(searchParams.toString());
+    params.delete("user");
     if (tab === "dashboard") params.delete("tab");
     else params.set("tab", tab);
     const query = params.toString();
     router.push(query ? `${pathname}?${query}` : pathname);
+  }
+
+  function openUserProfile(customerId: number) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", "users");
+    params.set("user", customerId.toString());
+    router.push(`${pathname}?${params.toString()}`);
   }
 
   async function loadDashboard() {
@@ -111,15 +127,15 @@ function AdminDashboardContent() {
         <div className={styles.content}>
           {loading ? <div className={styles.state}>Загружаем данные панели...</div> : null}
           {!loading && error ? <div className={styles.state}><p>{error}</p><button onClick={() => void loadDashboard()}><img src="/change.svg" alt="" /> Повторить</button></div> : null}
-          {!loading && !error && data ? <TabContent activeTab={activeTab} data={data} onOpenUsers={() => setActiveTab("users")} /> : null}
+          {!loading && !error && data ? <TabContent activeTab={activeTab} data={data} userId={userId} onOpenUsers={() => setActiveTab("users")} onOpenUserProfile={openUserProfile} onCloseUserProfile={() => setActiveTab("users")} /> : null}
         </div>
       </section>
     </main>
   );
 }
 
-function TabContent({ activeTab, data, onOpenUsers }: { activeTab: string; data: DashboardData; onOpenUsers: () => void }) {
-  if (activeTab === "users") return <UsersTable customers={data.customers} />;
+function TabContent({ activeTab, data, userId, onOpenUsers, onOpenUserProfile, onCloseUserProfile }: { activeTab: string; data: DashboardData; userId: number | null; onOpenUsers: () => void; onOpenUserProfile: (customerId: number) => void; onCloseUserProfile: () => void }) {
+  if (activeTab === "users") return userId ? <CustomerProfile customerId={userId} onBack={onCloseUserProfile} /> : <UsersTable customers={data.customers} onOpenProfile={onOpenUserProfile} />;
   if (activeTab === "partners") return <PartnersTable partners={data.partners} />;
   if (activeTab === "account") return <section><h1>Аккаунт</h1><div className={styles.account}><img src="/profile.svg" alt="" /><div><strong>{data.admin.name}</strong><span>{data.admin.email || "Администратор MySub"}</span></div></div></section>;
   if (activeTab !== "dashboard") return <section><h1>{navigation.find((item) => item.id === activeTab)?.label}</h1><div className={styles.empty}>В этом разделе пока нет данных.</div></section>;
@@ -139,10 +155,57 @@ function Metric({ label, value }: { label: string; value: string }) {
   return <article className={styles.metric}><div><p>{label}</p><strong>{value}</strong></div></article>;
 }
 
-function UsersTable({ customers }: { customers: DashboardData["customers"] }) {
+function UsersTable({ customers, onOpenProfile }: { customers: DashboardData["customers"]; onOpenProfile: (customerId: number) => void }) {
   return <section className={styles.usersPage}>
     <div className={styles.usersHeading}><h2>Пользователи</h2><p>Управление пользователями, их подписками и статусами</p></div>
-    {customers.length ? <div className={styles.usersTable}><div className={styles.usersTableHeader}><span>Пользователь</span><span>Контакты</span><span>Статус подписки</span><span>Дата регистрации</span><span>Дата окончания</span><span>Визиты</span><span>Сумма</span></div>{customers.map((customer) => <div className={styles.usersTableRow} key={customer.id}><span className={styles.userIdentity}>{customer.avatar_url ? <img src={customer.avatar_url} alt="" className={styles.userAvatar} /> : <i className={styles.userAvatar}>{customer.name.slice(0, 1).toUpperCase()}</i>}<span><b>{customer.name}</b><small>{customer.email || "Email не указан"}</small></span></span><span>{customer.phone}</span><span className={styles.subscriptionNone}>Отсутствует</span><span>{formatDate(customer.created_at)}</span><span>-</span><span>{customer.visits}</span><span>{formatMoney(customer.total_amount)}</span></div>)}</div> : <div className={styles.empty}>Пользователей пока нет.</div>}
+    {customers.length ? <div className={styles.usersTable}><div className={styles.usersTableHeader}><span>Пользователь</span><span>Контакты</span><span>Статус подписки</span><span>Дата регистрации</span><span>Дата окончания</span><span>Визиты</span><span>Сумма</span></div>{customers.map((customer) => <div className={`${styles.usersTableRow} ${styles.userProfileRow}`} key={customer.id} role="button" tabIndex={0} onClick={() => onOpenProfile(customer.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpenProfile(customer.id); }}><span className={styles.userIdentity}>{customer.avatar_url ? <img src={customer.avatar_url} alt="" className={styles.userAvatar} /> : <i className={styles.userAvatar}>{customer.name.slice(0, 1).toUpperCase()}</i>}<span><b>{customer.name}</b><small>{customer.email || "Email не указан"}</small></span></span><span>{customer.phone}</span><span className={styles.subscriptionNone}>Отсутствует</span><span>{formatDate(customer.created_at)}</span><span>-</span><span>{customer.visits}</span><span>{formatMoney(customer.total_amount)}</span></div>)}</div> : <div className={styles.empty}>Пользователей пока нет.</div>}
+  </section>;
+}
+
+function CustomerProfile({ customerId, onBack }: { customerId: number; onBack: () => void }) {
+  const [profile, setProfile] = useState<CustomerDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadProfile() {
+      setLoading(true);
+      setError("");
+      try {
+        const response = await fetch(`/api/admin/customers/${customerId}`, { cache: "no-store", signal: controller.signal });
+        const payload = (await response.json()) as CustomerDetail & { message?: string };
+        if (!response.ok) throw new Error(payload.message || "Не удалось загрузить профиль пользователя");
+        setProfile(payload);
+      } catch (loadError) {
+        if (!controller.signal.aborted) setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить профиль пользователя");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }
+    void loadProfile();
+    return () => controller.abort();
+  }, [customerId]);
+
+  if (loading) return <div className={styles.state}>Загружаем профиль пользователя...</div>;
+  if (error || !profile) return <div className={styles.state}><p>{error || "Профиль пользователя не найден"}</p><button onClick={onBack}>Вернуться к пользователям</button></div>;
+
+  return <section className={styles.customerProfilePage}>
+    <button className={styles.profileBack} onClick={onBack}><ArrowLeft size={18} strokeWidth={1.8} /> Профиль пользователя</button>
+    <div className={styles.profileSummary}>
+      <article className={styles.profileCard}>
+        <div className={styles.profileCardHead}><h2>Основные данные</h2><span className={profile.customer.is_active ? styles.accountActive : styles.accountBlocked}>{profile.customer.is_active ? "Аккаунт активен" : "Аккаунт заблокирован"}</span></div>
+        <div className={styles.profileIdentity}>{profile.customer.avatar_url ? <img src={profile.customer.avatar_url} alt="" className={styles.profileAvatar} /> : <i className={styles.profileAvatar}>{profile.customer.name.slice(0, 1).toUpperCase()}</i>}<strong>{profile.customer.name}</strong><small>Регистрация: {formatDate(profile.customer.created_at)}</small></div>
+        <dl className={styles.profileContacts}><div><dt>Телефон</dt><dd>{profile.customer.phone}</dd></div><div><dt>Email</dt><dd>{profile.customer.email || "Не указан"}</dd></div></dl>
+      </article>
+      <article className={styles.subscriptionCard}>
+        <h2>Статус подписки</h2>
+        <div className={styles.subscriptionCurrent}><p>Текущая подписка</p><strong>Отсутствует</strong></div>
+        <div className={styles.subscriptionExpiry}><span>Срок действия до</span><strong>—</strong></div>
+        <div className={styles.subscriptionActions}><button disabled title="Подписки пока не подключены">Приостановить</button><button disabled title="Подписки пока не подключены">Продлить подписку</button></div>
+      </article>
+    </div>
+    <section className={styles.visitHistory}><h2>История визитов</h2>{profile.visits.length ? <div className={styles.historyTable}><div className={styles.historyTableHead}><span>Дата и время</span><span>Компания</span><span>Услуги</span><span>Итоговая стоимость</span></div>{profile.visits.map((visit) => <div className={styles.historyTableRow} key={visit.id}><span><b>{formatDate(visit.starts_at)}</b><small>{new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(new Date(visit.starts_at))}</small></span><span>{visit.company}</span><span>{visit.service_name}</span><span>{Number(visit.final_price) > 0 ? formatMoney(visit.final_price) : "—"}</span></div>)}</div> : <div className={styles.profileEmpty}>Визитов пока нет.</div>}</section>
   </section>;
 }
 

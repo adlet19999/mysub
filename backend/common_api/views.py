@@ -292,6 +292,53 @@ class AdminPartnerStatusView(APIView):
 		return Response({"id": partner.id, "is_active": partner.user.is_active})
 
 
+class AdminCustomerDetailView(APIView):
+	def get(self, request, customer_id: int):
+		if get_admin_user(request) is None:
+			return Response({"message": "Требуется вход администратора"}, status=status.HTTP_401_UNAUTHORIZED)
+
+		from mobile_api.models import CustomerProfile
+		from partner_api.models import Booking
+
+		customer = CustomerProfile.objects.select_related("user", "city").filter(id=customer_id).first()
+		if customer is None:
+			return Response({"message": "Пользователь не найден"}, status=status.HTTP_404_NOT_FOUND)
+
+		visits = Booking.objects.filter(client_phone=customer.phone).select_related("partner_profile", "partner_profile__user").order_by("-starts_at")
+		return Response(
+			{
+				"customer": {
+					"id": customer.id,
+					"name": customer.user.first_name or "Без имени",
+					"email": customer.user.email or "",
+					"phone": customer.phone,
+					"city_name": customer.city.name if customer.city_id else "",
+					"avatar_url": customer.avatar_url or None,
+					"created_at": customer.created_at.isoformat(),
+					"is_active": customer.user.is_active,
+				},
+				"subscription": None,
+				"visits": [
+					{
+						"id": visit.id,
+						"starts_at": visit.starts_at.isoformat(),
+						"company": (
+							visit.partner_profile.company_name
+							or visit.partner_profile.user.get_full_name()
+							or visit.partner_profile.user.username
+							if visit.partner_profile_id
+							else "Компания не указана"
+						),
+						"service_name": visit.service_name,
+						"final_price": str(visit.final_price),
+						"status": visit.status,
+					}
+					for visit in visits
+				],
+			}
+		)
+
+
 class AuthForgotPasswordView(APIView):
 	def post(self, request):
 		email = (request.data.get("email") or "").strip().lower()
