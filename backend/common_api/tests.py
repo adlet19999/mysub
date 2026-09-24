@@ -4,6 +4,7 @@ from rest_framework.test import APIClient
 from django.test import TestCase
 
 from partner_api.models import Manager
+from mobile_api.models import CustomerProfile
 
 from .models import PartnerProfile
 
@@ -84,3 +85,25 @@ class AdminApiTests(TestCase):
 
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(response.data["admin"]["id"], self.staff_user.id)
+
+	def test_dashboard_returns_customer_avatar_url(self):
+		customer_user = User.objects.create_user(username="customer@example.com", password="password123")
+		CustomerProfile.objects.create(
+			user=customer_user,
+			phone="+77005556677",
+			avatar_url="/api/v1/mobile/avatar-images/customer-1-avatar.webp",
+		)
+		login = self.client.post(
+			"/api/v1/common/admin/login/",
+			{"username": self.staff_user.username, "password": "password123"},
+			format="json",
+		)
+		self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['token']}")
+
+		response = self.client.get("/api/v1/common/admin/dashboard/")
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(
+			response.data["customers"][0]["avatar_url"],
+			"http://testserver/api/v1/mobile/avatar-images/customer-1-avatar.webp",
+		)

@@ -8,7 +8,7 @@ import styles from "./page.module.css";
 type DashboardData = {
   admin: { name: string; email: string };
   metrics: { customers_total: number; subscriptions_active: number; customers_without_subscription: number; customers_turnover: string; partners_total: number; partners_active: number; bookings_total: number; revenue_total: string };
-  customers: Array<{ id: number; name: string; email: string; phone: string; city_name: string; created_at: string; visits: number; last_visit: string | null; total_amount: string }>;
+  customers: Array<{ id: number; name: string; email: string; phone: string; city_name: string; avatar_url: string; created_at: string; visits: number; last_visit: string | null; total_amount: string }>;
   partners: Array<{ id: number; name: string; email: string; category: string; is_active: boolean }>;
 };
 
@@ -119,13 +119,13 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function UsersTable({ customers, compact = false }: { customers: DashboardData["customers"]; compact?: boolean }) {
-  return <section className={styles.tableSection}><div className={styles.sectionHead}><div><h2>{compact ? "Новые пользователи" : "Пользователи"}</h2><p>{compact ? "Последние регистрации" : "Клиенты мобильного приложения"}</p></div>{compact ? <button>Все пользователи</button> : null}</div>{customers.length ? <div className={styles.table}><div className={styles.tableHeader}><span>Пользователь</span><span>Город</span><span>Телефон</span></div>{customers.map((customer) => <div className={styles.tableRow} key={customer.id}><span><b>{customer.name}</b><small>{customer.email}</small></span><span>{customer.city_name || "Не указан"}</span><span>{customer.phone}</span></div>)}</div> : <div className={styles.empty}>Пользователей пока нет.</div>}</section>;
+  return <section className={styles.tableSection}><div className={styles.sectionHead}><div><h2>{compact ? "Новые пользователи" : "Пользователи"}</h2><p>{compact ? "Последние регистрации" : "Клиенты мобильного приложения"}</p></div>{compact ? <button>Все пользователи</button> : null}</div>{customers.length ? <div className={styles.table}><div className={styles.tableHeader}><span>Пользователь</span><span>Город</span><span>Телефон</span></div>{customers.map((customer) => <div className={styles.tableRow} key={customer.id}><span className={styles.userIdentity}>{customer.avatar_url ? <img src={customer.avatar_url} alt="" className={styles.userAvatar} /> : <i className={styles.userAvatar}>{customer.name.slice(0, 1).toUpperCase()}</i>}<span><b>{customer.name}</b><small>{customer.email}</small></span></span><span>{customer.city_name || "Не указан"}</span><span>{customer.phone}</span></div>)}</div> : <div className={styles.empty}>Пользователей пока нет.</div>}</section>;
 }
 
 function CustomersTable({ customers, onOpenUsers }: { customers: DashboardData["customers"]; onOpenUsers: () => void }) {
   return <section className={styles.customersSection}>
     <h2>Пользователи</h2>
-    {customers.length ? <div className={styles.customerTable}><div className={styles.customerTableHeader}><span>ФИО пользователей</span><span>Телефон</span><span>Подписка</span><span>Последний визит</span><span>Визиты</span><span>Сумма</span></div>{customers.map((customer) => <div className={styles.customerTableRow} key={customer.id}><span className={styles.customerIdentity}><i>{customer.name.slice(0, 1).toUpperCase()}</i><span><b>{customer.name}</b><small>{customer.email || "Email не указан"}</small></span></span><span>{customer.phone}</span><span className={styles.noSubscription}>Нет</span><span>{formatDateTime(customer.last_visit)}</span><span>{customer.visits}</span><span>{formatMoney(customer.total_amount)}</span></div>)}</div> : <div className={styles.empty}>Пользователей пока нет.</div>}
+    {customers.length ? <div className={styles.customerTable}><div className={styles.customerTableHeader}><span>ФИО пользователей</span><span>Телефон</span><span>Подписка</span><span>Последний визит</span><span>Визиты</span><span>Сумма</span></div>{customers.map((customer) => <div className={styles.customerTableRow} key={customer.id}><span className={styles.customerIdentity}>{customer.avatar_url ? <img src={customer.avatar_url} alt="" className={styles.customerAvatar} /> : <i className={styles.customerAvatar}>{customer.name.slice(0, 1).toUpperCase()}</i>}<span><b>{customer.name}</b><small>{customer.email || "Email не указан"}</small></span></span><span>{customer.phone}</span><span className={styles.noSubscription}>Нет</span><span>{formatDateTime(customer.last_visit)}</span><span>{customer.visits}</span><span>{formatMoney(customer.total_amount)}</span></div>)}</div> : <div className={styles.empty}>Пользователей пока нет.</div>}
     <button className={styles.allUsersButton} onClick={onOpenUsers}>Все пользователи</button>
   </section>;
 }
