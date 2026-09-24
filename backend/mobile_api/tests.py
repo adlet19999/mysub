@@ -312,3 +312,125 @@ class MobileCatalogTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+
+
+class MobileBookingTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        registration = self.client.post(
+            "/api/v1/mobile/auth/register/",
+            {"phone": "+77008889900", "code": "11111"},
+            format="json",
+        )
+        self.headers = {"HTTP_AUTHORIZATION": f"Bearer {registration.data['tokens']['access_token']}"}
+        self.customer = CustomerProfile.objects.select_related("user").get(phone="+77008889900")
+        self.customer.user.first_name = "Айша"
+        self.customer.user.save(update_fields=["first_name"])
+
+        partner_user = User.objects.create_user(username="booking-partner", is_active=True)
+        self.partner = PartnerProfile.objects.create(
+            user=partner_user,
+            phone="+77001234567",
+            company_name="Студия записи",
+            business_category="Красота",
+            city="Алматы",
+        )
+        category = Category.objects.create(tenant_slug="public", name="Красота")
+        kind = ServiceKind.objects.create(tenant_slug="public", category=category, name="Стрижка")
+        self.service = Service.objects.create(
+            tenant_slug="public",
+            partner_profile=self.partner,
+            category=category,
+            kind=kind,
+            name="Стрижка",
+            duration_minutes=60,
+            price="5000.00",
+        )
+        self.booking_date = timezone.localdate() + timedelta(days=1)
+        weekday = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"][self.booking_date.weekday()]
+        self.specialist = Specialist.objects.create(
+            tenant_slug="public",
+            partner_profile=self.partner,
+            full_name="Алина Стилист",
+            phone="+77005554433",
+            working_schedule=[{
+                "day": weekday,
+                "is_day_off": False,
+                "start_time": "09:00",
+                "end_time": "13:00",
+                "breaks": [],
+            }],
+        )
+        SpecialistService.objects.create(specialist=self.specialist, service=self.service)
+        self.starts_at = timezone.make_aware(datetime.combine(self.booking_date, time(10, 0)))
+
+    def booking_payload(self, starts_at=None):
+        return {
+            "partner_id": self.partner.id,
+            "specialist_id": self.specialist.id,
+            "service_id": self.service.id,
+            "starts_at": (starts_at or self.starts_at).isoformat(),
+        }
+
+    def create_booking(self, starts_at=None):
+        return self.client.post(
+            "/api/v1/mobile/bookings/",
+            self.booking_payload(starts_at),
+            format="json",
+            **self.headers,
+        )
+
+    def test_customer_can_create_list_and_cancel_booking(self):
+        created = self.create_booking()
+
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.data["status"], "booked")
+        self.assertEqual(created.data["final_price"], "5000.00")
+        booking = Booking.objects.get(id=created.data["id"])
+        self.assertEqual(booking.client_phone, self.customer.phone)
+        self.assertEqual(booking.client_name, "Айша")
+
+        listed = self.client.get("/api/v1/mobile/bookings/", **self.headers)
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual([item["id"] for item in listed.data["data"]], [booking.id])
+
+        cancelled = self.client.post(f"/api/v1/mobile/bookings/{booking.id}/cancel/", {}, format="json", **self.headers)
+        self.assertEqual(cancelled.status_code, 200)
+        self.assertEqual(cancelled.data["status"], "cancelled")
+
+        repeated_cancel = self.client.post(f"/api/v1/mobile/bookings/{booking.id}/cancel/", {}, format="json", **self.headers)
+        self.assertEqual(repeated_cancel.status_code, 200)
+
+        availability = self.client.get(
+            f"/api/v1/mobile/catalog/partners/{self.partner.id}/specialists/{self.specialist.id}/availability/",
+            {"date": self.booking_date.isoformat(), "service_id": self.service.id},
+        )
+        self.assertEqual(availability.status_code, 200)
+        self.assertIn("10:00", availability.data["slots"])
+
+    def test_booking_rejects_busy_slot_and_cannot_cancel_another_customer_booking(self):
+        created = self.create_booking()
+        self.assertEqual(created.status_code, 201)
+
+        conflict = self.create_booking()
+        self.assertEqual(conflict.status_code, 409)
+        self.assertEqual(conflict.data["error"]["code"], "SLOT_UNAVAILABLE")
+
+        other_booking = Booking.objects.create(
+            tenant_slug="public",
+            partner_profile=self.partner,
+            service_name=self.service.name,
+            manager_name=self.specialist.full_name,
+            starts_at=self.starts_at + timedelta(hours=2),
+            client_name="Другой клиент",
+            client_phone="+77001112233",
+        )
+        cancellation = self.client.post(
+            f"/api/v1/mobile/bookings/{other_booking.id}/cancel/",
+            {},
+            format="json",
+            **self.headers,
+        )
+        self.assertEqual(cancellation.status_code, 404)
+        other_booking.refresh_from_db()
+        self.assertEqual(other_booking.status, "booked")

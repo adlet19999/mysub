@@ -140,3 +140,29 @@ class AvailabilityResponseSerializer(serializers.Serializer):
     duration_minutes = serializers.IntegerField()
     slot_interval_minutes = serializers.IntegerField()
     slots = serializers.ListField(child=serializers.TimeField(format="%H:%M"))
+
+
+class MobileBookingCreateRequestSerializer(serializers.Serializer):
+    partner_id = serializers.IntegerField(min_value=1, help_text="ID партнёра из каталога")
+    specialist_id = serializers.IntegerField(min_value=1, help_text="ID специалиста выбранного партнёра")
+    service_id = serializers.IntegerField(min_value=1, help_text="ID выбранной услуги")
+    starts_at = serializers.DateTimeField(help_text="Начало записи в ISO 8601; время должно совпадать со свободным слотом")
+
+
+class MobileBookingSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    partner_id = serializers.IntegerField()
+    partner_name = serializers.CharField()
+    service_name = serializers.CharField()
+    specialist_name = serializers.CharField()
+    starts_at = serializers.DateTimeField()
+    status = serializers.CharField()
+    base_price = serializers.CharField()
+    discount_amount = serializers.CharField()
+    final_price = serializers.CharField()
+    is_cancellable = serializers.BooleanField()
+    created_at = serializers.DateTimeField()
+
+
+class MobileBookingListResponseSerializer(serializers.Serializer):
+    data = MobileBookingSerializer(many=True)

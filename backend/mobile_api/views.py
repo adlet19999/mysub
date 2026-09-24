@@ -10,6 +10,7 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import transaction
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
@@ -17,8 +18,15 @@ from rest_framework.views import APIView
 
 from common_api.models import PartnerProfile
 from common_api.views import normalize_ru_phone
-from partner_api.models import Service, Specialist
-from partner_api.views import booking_schedule_error, has_booking_overlap
+from partner_api.models import Booking, Service, Specialist
+from partner_api.views import (
+    CLOSED_BOOKING_STATUSES,
+    booking_schedule_error,
+    calculate_booking_pricing,
+    has_booking_overlap,
+    has_client_booking_overlap,
+    to_aware_datetime,
+)
 
 from .models import CustomerChild, CustomerProfile, MobileRefreshSession
 from .serializers import (
@@ -32,6 +40,9 @@ from .serializers import (
     CityListResponseSerializer,
     CustomerResponseSerializer,
     CustomerUpdateRequestSerializer,
+    MobileBookingCreateRequestSerializer,
+    MobileBookingListResponseSerializer,
+    MobileBookingSerializer,
     RefreshTokenResponseSerializer,
     RefreshTokenRequestSerializer,
     SendCodeResponseSerializer,
@@ -159,6 +170,33 @@ def serialize_catalog_specialist(specialist, request):
 
 def active_catalog_partners():
     return PartnerProfile.objects.select_related("user").filter(user_type="partner", user__is_active=True)
+
+
+def is_mobile_booking_cancellable(booking):
+    starts_at = to_aware_datetime(booking.starts_at)
+    return bool(
+        starts_at
+        and starts_at > timezone.now()
+        and (booking.status or "").strip().lower() not in CLOSED_BOOKING_STATUSES
+    )
+
+
+def serialize_mobile_booking(booking):
+    partner = booking.partner_profile
+    return {
+        "id": booking.id,
+        "partner_id": partner.id,
+        "partner_name": catalog_partner_name(partner),
+        "service_name": booking.service_name,
+        "specialist_name": booking.manager_name or "",
+        "starts_at": booking.starts_at.isoformat(),
+        "status": booking.status,
+        "base_price": str(booking.base_price),
+        "discount_amount": str(booking.discount_amount),
+        "final_price": str(booking.final_price),
+        "is_cancellable": is_mobile_booking_cancellable(booking),
+        "created_at": booking.created_at.isoformat(),
+    }
 
 
 def delete_stored_avatar(avatar_url):
@@ -466,6 +504,163 @@ class MobileCatalogSpecialistAvailabilityView(APIView):
             "slot_interval_minutes": 30,
             "slots": slots,
         })
+
+
+class MobileBookingsView(MobileAuthenticatedView):
+    @extend_schema(
+        tags=["4. Каталог и запись"],
+        summary="Получить мои записи",
+        description="Возвращает записи только авторизованного клиента, включая отменённые для истории.",
+        responses={200: MobileBookingListResponseSerializer, 401: None},
+    )
+    def get(self, request):
+        items = (
+            Booking.objects.filter(
+                tenant_slug="public",
+                client_phone=self.customer.phone,
+                partner_profile__isnull=False,
+            )
+            .select_related("partner_profile__user")
+            .order_by("-starts_at", "-id")
+        )
+        return Response({"data": [serialize_mobile_booking(item) for item in items]})
+
+    @extend_schema(
+        tags=["4. Каталог и запись"],
+        summary="Записаться к специалисту",
+        description=(
+            "Создаёт запись для авторизованного клиента. Сервер повторно проверяет активность партнёра, "
+            "услугу специалиста, график, перерывы и пересечения записей. Время должно быть будущим "
+            "и кратным 30 минутам, как в endpoint свободных слотов."
+        ),
+        request=MobileBookingCreateRequestSerializer,
+        responses={201: MobileBookingSerializer, 400: None, 401: None, 404: None, 409: None},
+    )
+    def post(self, request):
+        try:
+            partner_id = int(request.data.get("partner_id") or "")
+            specialist_id = int(request.data.get("specialist_id") or "")
+            service_id = int(request.data.get("service_id") or "")
+        except (TypeError, ValueError):
+            return error_response(400, "VALIDATION_ERROR", "partner_id, specialist_id и service_id должны быть числами")
+
+        starts_at_raw = request.data.get("starts_at")
+        starts_at = parse_datetime(str(starts_at_raw)) if starts_at_raw else None
+        if starts_at is None:
+            return error_response(400, "VALIDATION_ERROR", "starts_at должен быть в ISO 8601 формате", "starts_at")
+        starts_at = to_aware_datetime(starts_at)
+        if starts_at <= timezone.now():
+            return error_response(400, "VALIDATION_ERROR", "Нельзя записаться на прошедшее время", "starts_at")
+        if starts_at.minute % 30 or starts_at.second or starts_at.microsecond:
+            return error_response(400, "VALIDATION_ERROR", "Время записи должно совпадать со свободным 30-минутным слотом", "starts_at")
+
+        with transaction.atomic():
+            customer = (
+                CustomerProfile.objects.select_for_update()
+                .select_related("user")
+                .filter(id=self.customer.id)
+                .first()
+            )
+            client_name = customer.user.get_full_name().strip() if customer else ""
+            if not client_name:
+                return error_response(409, "PROFILE_INCOMPLETE", "Заполните имя в профиле перед записью", "name")
+
+            partner = active_catalog_partners().select_for_update().filter(id=partner_id).first()
+            if partner is None:
+                return error_response(404, "PARTNER_NOT_FOUND", "Партнёр не найден")
+            specialist = (
+                Specialist.objects.select_for_update()
+                .filter(
+                    id=specialist_id,
+                    tenant_slug="public",
+                    partner_profile=partner,
+                    is_active=True,
+                )
+                .first()
+            )
+            if specialist is None:
+                return error_response(404, "SPECIALIST_NOT_FOUND", "Специалист не найден")
+            service = (
+                Service.objects.select_for_update()
+                .filter(
+                    id=service_id,
+                    tenant_slug="public",
+                    partner_profile=partner,
+                    is_active=True,
+                )
+                .first()
+            )
+            if service is None:
+                return error_response(404, "SERVICE_NOT_FOUND", "Услуга не найдена")
+            if not specialist.capabilities.filter(service_id=service.id).exists():
+                return error_response(409, "SERVICE_UNAVAILABLE", "Специалист не оказывает выбранную услугу")
+
+            duration_minutes = service.duration_minutes or 60
+            schedule_error = booking_schedule_error(specialist, starts_at, duration_minutes)
+            if schedule_error:
+                return error_response(409, "SLOT_UNAVAILABLE", schedule_error, "starts_at")
+            if has_booking_overlap(
+                specialist.tenant_slug,
+                specialist.full_name,
+                starts_at,
+                duration_minutes,
+                partner_profile=partner,
+            ):
+                return error_response(409, "SLOT_UNAVAILABLE", "У специалиста уже есть запись на это время", "starts_at")
+            if has_client_booking_overlap(specialist.tenant_slug, customer.phone, starts_at, duration_minutes):
+                return error_response(409, "CLIENT_TIME_CONFLICT", "У вас уже есть пересекающаяся запись", "starts_at")
+
+            pricing = calculate_booking_pricing([service], specialist, starts_at)
+            booking = Booking.objects.create(
+                tenant_slug=specialist.tenant_slug,
+                partner_profile=partner,
+                service_name=service.name,
+                manager_name=specialist.full_name,
+                starts_at=starts_at,
+                client_name=client_name,
+                client_phone=customer.phone,
+                status="booked",
+                **pricing,
+            )
+
+        return Response(serialize_mobile_booking(booking), status=201)
+
+
+class MobileBookingCancelView(MobileAuthenticatedView):
+    @extend_schema(
+        tags=["4. Каталог и запись"],
+        summary="Отменить мою запись",
+        description="Отменяет будущую активную запись авторизованного клиента. Повторный вызов для уже отменённой записи безопасен и возвращает её текущее состояние.",
+        responses={200: MobileBookingSerializer, 401: None, 404: None, 409: None},
+    )
+    def post(self, request, booking_id: int):
+        with transaction.atomic():
+            booking = (
+                Booking.objects.select_for_update()
+                .select_related("partner_profile__user")
+                .filter(
+                    id=booking_id,
+                    tenant_slug="public",
+                    client_phone=self.customer.phone,
+                    partner_profile__isnull=False,
+                )
+                .first()
+            )
+            if booking is None:
+                return error_response(404, "BOOKING_NOT_FOUND", "Запись не найдена")
+
+            status = (booking.status or "").strip().lower()
+            if status in {"cancelled", "canceled", "отменен", "отменена"}:
+                return Response(serialize_mobile_booking(booking))
+            if status in CLOSED_BOOKING_STATUSES:
+                return error_response(409, "BOOKING_CANNOT_BE_CANCELLED", "Эту запись уже нельзя отменить")
+            if not is_mobile_booking_cancellable(booking):
+                return error_response(409, "BOOKING_CANNOT_BE_CANCELLED", "Нельзя отменить начавшуюся или прошедшую запись")
+
+            booking.status = "cancelled"
+            booking.save(update_fields=["status"])
+
+        return Response(serialize_mobile_booking(booking))
 
 
 class MobileAuthSendCodeView(APIView):
