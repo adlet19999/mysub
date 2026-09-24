@@ -241,6 +241,7 @@ class AdminDashboardView(APIView):
 			{
 				"id": partner.id,
 				"name": partner.company_name or partner.user.get_full_name() or partner.user.username,
+				"contact_name": partner.user.get_full_name() or partner.user.first_name or partner.user.email,
 				"email": partner.user.email,
 				"phone": partner.phone,
 				"category": partner.business_category,
