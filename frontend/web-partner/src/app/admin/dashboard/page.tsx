@@ -103,7 +103,6 @@ function TabContent({ activeTab, data, onOpenUsers }: { activeTab: string; data:
   if (activeTab === "account") return <section><h1>Аккаунт</h1><div className={styles.account}><img src="/profile.svg" alt="" /><div><strong>{data.admin.name}</strong><span>{data.admin.email || "Администратор MySub"}</span></div></div></section>;
   if (activeTab !== "dashboard") return <section><h1>{navigation.find((item) => item.id === activeTab)?.label}</h1><div className={styles.empty}>В этом разделе пока нет данных.</div></section>;
   return <>
-    <div className={styles.titleRow}><div><h1>Дашборд</h1><p>Админ</p></div></div>
     <section className={styles.metrics}>
       <Metric label="Всего клиентов" value={data.metrics.customers_total.toString()} />
       <Metric label="Активные подписки" value={data.metrics.subscriptions_active.toString()} />
