@@ -1,21 +1,8 @@
 "use client";
 
-import {
-  BarChart3,
-  Bell,
-  Building2,
-  CalendarDays,
-  ChevronDown,
-  LayoutDashboard,
-  LogOut,
-  MessageSquareText,
-  RefreshCw,
-  ShieldCheck,
-  UserRound,
-  UsersRound,
-} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import partnerStyles from "../../partner/dashboard/layout.module.css";
 import styles from "./page.module.css";
 
 type DashboardData = {
@@ -26,13 +13,13 @@ type DashboardData = {
 };
 
 const navigation = [
-  { id: "dashboard", label: "Дашборд", icon: LayoutDashboard },
-  { id: "users", label: "Пользователи", icon: UsersRound },
-  { id: "partners", label: "Партнёры", icon: Building2 },
-  { id: "subscriptions", label: "Подписки", icon: CalendarDays },
-  { id: "reviews", label: "Отзывы", icon: MessageSquareText },
-  { id: "statistics", label: "Статистика", icon: BarChart3 },
-  { id: "account", label: "Аккаунт", icon: UserRound },
+  { id: "dashboard", label: "Дашборд", icon: "/statistics.svg" },
+  { id: "users", label: "Пользователи", icon: "/specialists.svg" },
+  { id: "partners", label: "Партнёры", icon: "/mybusiness.svg" },
+  { id: "subscriptions", label: "Подписки", icon: "/subs_icon.svg" },
+  { id: "reviews", label: "Отзывы", icon: "/otzyv.svg" },
+  { id: "statistics", label: "Статистика", icon: "/statistics.svg" },
+  { id: "account", label: "Аккаунт", icon: "/profile.svg" },
 ];
 
 function formatMoney(value: string) {
@@ -79,31 +66,22 @@ export default function AdminDashboardPage() {
   const tabLabel = navigation.find((item) => item.id === activeTab)?.label || "Дашборд";
 
   return (
-    <main className={styles.shell}>
-      <aside className={styles.sidebar}>
-        <div className={styles.brand}><span className={styles.mark}>M</span><span>MySub</span></div>
-        <nav aria-label="Административная навигация">
-          {navigation.map(({ id, label, icon: Icon }) => (
-            <button key={id} onClick={() => setActiveTab(id)} className={activeTab === id ? styles.activeNav : styles.navItem}>
-              <Icon size={19} aria-hidden /> <span>{label}</span>
-            </button>
-          ))}
+    <main className={partnerStyles.screen}>
+      <header className={partnerStyles.header}>
+        <div className={partnerStyles.logoCell}><img src="/logo.svg" alt="MySub" className={partnerStyles.logoImage} /></div>
+        <div className={partnerStyles.headerMain}><h1 className={partnerStyles.headerTitle}>{data?.admin.name || "Администратор"}</h1><p className={partnerStyles.headerSubtitle}>Администратор</p></div>
+        <div className={partnerStyles.headerActions}><button className={partnerStyles.notifyButton} aria-label="Уведомления"><img src="/notifications.svg" alt="" /></button><div className={partnerStyles.avatarPill}>{(data?.admin.name || "A").slice(0, 1).toUpperCase()}</div></div>
+      </header>
+      <aside className={partnerStyles.sidebar}>
+        <nav className={partnerStyles.menuTop} aria-label="Административная навигация">
+          {navigation.map(({ id, label, icon }) => <button key={id} onClick={() => setActiveTab(id)} className={`${partnerStyles.sideItem} ${activeTab === id ? partnerStyles.sideItemActive : ""}`}><img src={icon} alt="" className={partnerStyles.sideIcon} aria-hidden /><span>{label}</span></button>)}
         </nav>
-        <button className={styles.logout} onClick={() => void logout()}><LogOut size={19} aria-hidden /> <span>Выйти</span></button>
+        <div className={partnerStyles.menuBottom}><button className={partnerStyles.sideItem} onClick={() => void logout()}><img src="/quit.svg" alt="" className={partnerStyles.sideIcon} aria-hidden /><span>Выйти</span></button></div>
       </aside>
-      <section className={styles.content}>
-        <header className={styles.header}>
-          <div className={styles.breadcrumb}>Главная <span>/</span> {tabLabel}</div>
-          <div className={styles.headerActions}>
-            <button className={styles.iconButton} aria-label="Уведомления"><Bell size={20} /></button>
-            <div className={styles.adminName}><span>{data?.admin.name || "Администратор"}</span><small>{data?.admin.email || ""}</small></div>
-            <div className={styles.avatar}>{(data?.admin.name || "A").slice(0, 1).toUpperCase()}</div>
-            <ChevronDown size={17} className={styles.chevron} />
-          </div>
-        </header>
-        <div className={styles.body}>
+      <section className={partnerStyles.contentArea}>
+        <div className={styles.content}>
           {loading ? <div className={styles.state}>Загружаем данные панели...</div> : null}
-          {!loading && error ? <div className={styles.state}><p>{error}</p><button onClick={() => void loadDashboard()}><RefreshCw size={16} /> Повторить</button></div> : null}
+          {!loading && error ? <div className={styles.state}><p>{error}</p><button onClick={() => void loadDashboard()}><img src="/change.svg" alt="" /> Повторить</button></div> : null}
           {!loading && !error && data ? <TabContent activeTab={activeTab} data={data} /> : null}
         </div>
       </section>
@@ -114,22 +92,22 @@ export default function AdminDashboardPage() {
 function TabContent({ activeTab, data }: { activeTab: string; data: DashboardData }) {
   if (activeTab === "users") return <UsersTable customers={data.customers} />;
   if (activeTab === "partners") return <PartnersTable partners={data.partners} />;
-  if (activeTab === "account") return <section><h1>Аккаунт</h1><div className={styles.account}><ShieldCheck size={23} /><div><strong>{data.admin.name}</strong><span>{data.admin.email || "Администратор MySub"}</span></div></div></section>;
+  if (activeTab === "account") return <section><h1>Аккаунт</h1><div className={styles.account}><img src="/profile.svg" alt="" /><div><strong>{data.admin.name}</strong><span>{data.admin.email || "Администратор MySub"}</span></div></div></section>;
   if (activeTab !== "dashboard") return <section><h1>{navigation.find((item) => item.id === activeTab)?.label}</h1><div className={styles.empty}>В этом разделе пока нет данных.</div></section>;
   return <>
-    <div className={styles.titleRow}><div><h1>Дашборд</h1><p>Обзор работы платформы MySub</p></div><button className={styles.period}><CalendarDays size={17} /> За всё время <ChevronDown size={16} /></button></div>
+    <div className={styles.titleRow}><div><h1>Дашборд</h1><p>Обзор работы платформы MySub</p></div><button className={styles.period}><img src="/calendar.svg" alt="" /> За всё время</button></div>
     <section className={styles.metrics}>
-      <Metric label="Пользователи" value={data.metrics.customers_total.toString()} icon={<UsersRound size={23} />} tone="mint" />
-      <Metric label="Партнёры" value={data.metrics.partners_total.toString()} suffix={`${data.metrics.partners_active} активных`} icon={<Building2 size={23} />} tone="yellow" />
-      <Metric label="Бронирования" value={data.metrics.bookings_total.toString()} icon={<CalendarDays size={23} />} tone="blue" />
-      <Metric label="Выручка" value={formatMoney(data.metrics.revenue_total)} icon={<BarChart3 size={23} />} tone="pink" />
+      <Metric label="Пользователи" value={data.metrics.customers_total.toString()} icon="/specialists.svg" />
+      <Metric label="Партнёры" value={data.metrics.partners_total.toString()} suffix={`${data.metrics.partners_active} активных`} icon="/mybusiness.svg" />
+      <Metric label="Бронирования" value={data.metrics.bookings_total.toString()} icon="/calendar.svg" />
+      <Metric label="Выручка" value={formatMoney(data.metrics.revenue_total)} icon="/statistics.svg" />
     </section>
     <section className={styles.grid}><UsersTable customers={data.customers} compact /><PartnersTable partners={data.partners} compact /></section>
   </>;
 }
 
-function Metric({ label, value, suffix, icon, tone }: { label: string; value: string; suffix?: string; icon: React.ReactNode; tone: string }) {
-  return <article className={styles.metric}><div className={`${styles.metricIcon} ${styles[tone]}`}>{icon}</div><div><p>{label}</p><strong>{value}</strong>{suffix ? <small>{suffix}</small> : null}</div></article>;
+function Metric({ label, value, suffix, icon }: { label: string; value: string; suffix?: string; icon: string }) {
+  return <article className={styles.metric}><img className={styles.metricIcon} src={icon} alt="" /><div><p>{label}</p><strong>{value}</strong>{suffix ? <small>{suffix}</small> : null}</div></article>;
 }
 
 function UsersTable({ customers, compact = false }: { customers: DashboardData["customers"]; compact?: boolean }) {
