@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import AuthForgotPasswordView, AuthInitialPasswordChangeView, AuthLoginView, AuthRegisterView, AuthResetPasswordView, HealthView
+from .views import AdminDashboardView, AdminLoginView, AuthForgotPasswordView, AuthInitialPasswordChangeView, AuthLoginView, AuthRegisterView, AuthResetPasswordView, HealthView
 
 urlpatterns = [
     path("health/", HealthView.as_view(), name="common-health"),
@@ -9,4 +9,6 @@ urlpatterns = [
     path("auth/forgot-password/", AuthForgotPasswordView.as_view(), name="common-auth-forgot-password"),
     path("auth/reset-password/", AuthResetPasswordView.as_view(), name="common-auth-reset-password"),
     path("auth/initial-password-change/", AuthInitialPasswordChangeView.as_view(), name="common-auth-initial-password-change"),
+    path("admin/login/", AdminLoginView.as_view(), name="admin-login"),
+    path("admin/dashboard/", AdminDashboardView.as_view(), name="admin-dashboard"),
 ]

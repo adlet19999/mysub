@@ -21,7 +21,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from mobile_api.schema import MobileSchemaGenerator
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path('django-admin/', admin.site.urls),
     path('api/v1/common/', include('common_api.urls')),
     path('api/v1/mobile/', include('mobile_api.urls')),
     path('api/v1/mobile/schema/', SpectacularAPIView.as_view(generator_class=MobileSchemaGenerator), name='mobile-schema'),

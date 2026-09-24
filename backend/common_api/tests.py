@@ -31,3 +31,56 @@ class ArchivedManagerLoginTests(TestCase):
 
 		self.assertEqual(response.status_code, 403)
 		self.assertEqual(response.data["message"], "Аккаунт менеджера заблокирован")
+
+
+class AdminApiTests(TestCase):
+	def setUp(self):
+		self.client = APIClient()
+		self.staff_user = User.objects.create_user(
+			username="admin@example.com",
+			email="admin@example.com",
+			password="password123",
+			is_staff=True,
+		)
+		self.regular_user = User.objects.create_user(
+			username="user@example.com",
+			password="password123",
+		)
+
+	def test_regular_user_cannot_log_in_to_admin_panel(self):
+		response = self.client.post(
+			"/api/v1/common/admin/login/",
+			{"username": self.regular_user.username, "password": "password123"},
+			format="json",
+		)
+
+		self.assertEqual(response.status_code, 401)
+
+	def test_staff_user_receives_admin_token(self):
+		response = self.client.post(
+			"/api/v1/common/admin/login/",
+			{"username": self.staff_user.username, "password": "password123"},
+			format="json",
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertIn("token", response.data)
+		self.assertEqual(response.data["admin"]["username"], self.staff_user.username)
+
+	def test_dashboard_rejects_missing_token(self):
+		response = self.client.get("/api/v1/common/admin/dashboard/")
+
+		self.assertEqual(response.status_code, 401)
+
+	def test_staff_user_can_read_dashboard(self):
+		login = self.client.post(
+			"/api/v1/common/admin/login/",
+			{"username": self.staff_user.username, "password": "password123"},
+			format="json",
+		)
+		self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['token']}")
+
+		response = self.client.get("/api/v1/common/admin/dashboard/")
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["admin"]["id"], self.staff_user.id)

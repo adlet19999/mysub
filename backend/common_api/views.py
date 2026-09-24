@@ -1,7 +1,9 @@
 import logging
 import re
+from datetime import timedelta
 from uuid import uuid4
 
+import jwt
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
@@ -9,6 +11,7 @@ from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
 from django.conf import settings
+from django.utils import timezone
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import status
@@ -26,6 +29,34 @@ PHONE_RU_RE = re.compile(r"^\+7\d{10}$")
 def normalize_ru_phone(raw_phone: str) -> str:
 	cleaned = re.sub(r"[\s\-()]", "", raw_phone or "")
 	return cleaned
+
+
+def issue_admin_token(user: User) -> str:
+	now = timezone.now()
+	return jwt.encode(
+		{
+			"sub": str(user.id),
+			"type": "admin",
+			"iat": now,
+			"exp": now + timedelta(hours=8),
+		},
+		settings.SECRET_KEY,
+		algorithm="HS256",
+	)
+
+
+def get_admin_user(request):
+	auth_header = request.headers.get("Authorization", "")
+	scheme, _, raw_token = auth_header.partition(" ")
+	if scheme.lower() != "bearer" or not raw_token:
+		return None
+	try:
+		payload = jwt.decode(raw_token, settings.SECRET_KEY, algorithms=["HS256"])
+	except jwt.PyJWTError:
+		return None
+	if payload.get("type") != "admin":
+		return None
+	return User.objects.filter(id=payload.get("sub"), is_active=True, is_staff=True).first()
 
 
 class HealthView(APIView):
@@ -138,6 +169,84 @@ class AuthLoginView(APIView):
 					"address": address,
 					"business_category": business_category,
 				},
+			}
+		)
+
+
+class AdminLoginView(APIView):
+	def post(self, request):
+		username = (request.data.get("username") or "").strip()
+		password = request.data.get("password") or ""
+		if not username or not password:
+			return Response({"message": "Логин и пароль обязательны"}, status=400)
+
+		user = authenticate(request, username=username, password=password)
+		if user is None or not user.is_staff:
+			return Response({"message": "Неверный логин или пароль"}, status=401)
+
+		return Response(
+			{
+				"token": issue_admin_token(user),
+				"admin": {
+					"id": user.id,
+					"name": user.get_full_name() or user.username,
+					"username": user.username,
+					"email": user.email,
+				},
+			}
+		)
+
+
+class AdminDashboardView(APIView):
+	def get(self, request):
+		admin_user = get_admin_user(request)
+		if admin_user is None:
+			return Response({"message": "Требуется вход администратора"}, status=401)
+
+		from mobile_api.models import CustomerProfile
+		from partner_api.models import Booking
+
+		customers = CustomerProfile.objects.select_related("user", "city").order_by("-created_at")
+		partners = PartnerProfile.objects.select_related("user").order_by("-created_at")
+		bookings = Booking.objects.all()
+		recent_customers = [
+			{
+				"id": customer.id,
+				"name": customer.user.first_name or "Без имени",
+				"email": customer.user.email or "",
+				"phone": customer.phone,
+				"city_name": customer.city.name if customer.city_id else "",
+				"created_at": customer.created_at.isoformat(),
+			}
+			for customer in customers[:5]
+		]
+		partner_list = [
+			{
+				"id": partner.id,
+				"name": partner.company_name or partner.user.get_full_name() or partner.user.username,
+				"email": partner.user.email,
+				"category": partner.business_category,
+				"is_active": partner.user.is_active,
+			}
+			for partner in partners[:50]
+		]
+
+		return Response(
+			{
+				"admin": {
+					"id": admin_user.id,
+					"name": admin_user.get_full_name() or admin_user.username,
+					"email": admin_user.email,
+				},
+				"metrics": {
+					"customers_total": customers.count(),
+					"partners_total": partners.count(),
+					"partners_active": partners.filter(user__is_active=True).count(),
+					"bookings_total": bookings.count(),
+					"revenue_total": str(sum((booking.final_price for booking in bookings), start=0)),
+				},
+				"customers": recent_customers,
+				"partners": partner_list,
 			}
 		)
 
