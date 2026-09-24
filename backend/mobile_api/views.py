@@ -16,7 +16,6 @@ from common_api.views import normalize_ru_phone
 from .models import CustomerChild, CustomerProfile, MobileRefreshSession
 from .serializers import (
     AuthenticationResponseSerializer,
-    ChildRequestSerializer,
     CityListResponseSerializer,
     CustomerResponseSerializer,
     CustomerUpdateRequestSerializer,
@@ -52,7 +51,7 @@ def serialize_child(child):
         (today.month, today.day) < (child.date_of_birth.month, child.date_of_birth.day)
     )
     return {
-        "id": str(child.id),
+        "id": child.id,
         "name": child.name,
         "date_of_birth": child.date_of_birth.isoformat(),
         "age": age,
@@ -147,7 +146,7 @@ class MobileAuthenticatedView(APIView):
         payload = decode_token(raw_token, "access") if scheme.lower() == "bearer" else None
         if not payload:
             self.permission_denied(request, message="UNAUTHORIZED")
-        self.customer = CustomerProfile.objects.select_related("user").filter(id=payload["sub"]).first()
+        self.customer = CustomerProfile.objects.select_related("user", "city").filter(id=payload["sub"]).first()
         if not self.customer:
             self.permission_denied(request, message="UNAUTHORIZED")
 
@@ -289,7 +288,12 @@ class MobileCurrentUserView(MobileAuthenticatedView):
     @extend_schema(
         tags=['3. Профиль клиента'],
         summary='Заполнить или изменить профиль текущего клиента',
-        description='Для первого заполнения профиля после регистрации передайте как минимум `name` и `city_id`. Сначала получите допустимые ID через `GET /cities/`.',
+        description=(
+            'Для первого заполнения профиля после регистрации передайте как минимум `name` и `city_id`. '
+            'Сначала получите допустимые ID через `GET /cities/`. Поле `children` содержит полный '
+            'актуальный список детей: новые передавайте без `id`, существующие с `id`; отсутствующие '
+            'в массиве дети удаляются. Передавайте не более двух детей.'
+        ),
         auth=[{'MobileBearer': []}],
         request=CustomerUpdateRequestSerializer,
         responses={200: CustomerResponseSerializer, 400: None, 401: None},
@@ -307,6 +311,11 @@ class MobileCurrentUserView(MobileAuthenticatedView):
             if email and ("@" not in email or len(email) > 254):
                 return error_response(400, "VALIDATION_ERROR", "Некорректный email", "email")
             user.email = email
+        if "avatar_url" in request.data:
+            avatar_url = str(request.data.get("avatar_url") or "").strip()
+            if avatar_url and not avatar_url.startswith(("http://", "https://")):
+                return error_response(400, "VALIDATION_ERROR", "Некорректный URL фотографии", "avatar_url")
+            customer.avatar_url = avatar_url
         if "city_id" in request.data:
             city = City.objects.filter(id=request.data.get("city_id"), is_active=True).first()
             if not city:
@@ -317,74 +326,59 @@ class MobileCurrentUserView(MobileAuthenticatedView):
             if language not in {"ru", "kk", "en"}:
                 return error_response(400, "VALIDATION_ERROR", "Поддерживаются языки ru, kk, en", "language")
             customer.language = language
-        user.save()
-        customer.save()
+        if "agreement_accepted" in request.data:
+            customer.agreement_accepted = bool(request.data.get("agreement_accepted"))
+        if "agreement_version" in request.data:
+            customer.agreement_version = str(request.data.get("agreement_version") or "").strip()[:40]
+
+        children_data = request.data.get("children")
+        if children_data is not None:
+            if not isinstance(children_data, list):
+                return error_response(400, "VALIDATION_ERROR", "Дети должны передаваться массивом", "children")
+            if len(children_data) > MAX_CHILDREN:
+                return error_response(422, "MAX_CHILDREN_REACHED", "Можно указать не более 2 детей", "children")
+
+            existing_children = {child.id: child for child in customer.children.all()}
+            requested_child_ids = set()
+            children_to_save = []
+            today = timezone.localdate()
+            for child_data in children_data:
+                if not isinstance(child_data, dict):
+                    return error_response(400, "VALIDATION_ERROR", "Данные ребёнка должны быть объектом", "children")
+                child_id = child_data.get("id")
+                if child_id is not None:
+                    if not isinstance(child_id, int) or child_id not in existing_children or child_id in requested_child_ids:
+                        return error_response(400, "VALIDATION_ERROR", "Некорректный ID ребёнка", "children")
+                    child = existing_children[child_id]
+                    requested_child_ids.add(child_id)
+                else:
+                    child = CustomerChild(customer=customer)
+                name = str(child_data.get("name") or "").strip()
+                if not CHILD_NAME_RE.fullmatch(name):
+                    return error_response(400, "VALIDATION_ERROR", "Имя ребёнка должно содержать от 1 до 50 букв", "children")
+                try:
+                    date_of_birth = date.fromisoformat(str(child_data.get("date_of_birth") or ""))
+                except ValueError:
+                    return error_response(400, "VALIDATION_ERROR", "Дата ребёнка должна быть в формате YYYY-MM-DD", "children")
+                if date_of_birth >= today or date_of_birth < date(today.year - 18, today.month, today.day):
+                    return error_response(422, "INVALID_DATE", "Возраст ребёнка должен быть от 0 до 18 лет", "children")
+                child.name = name
+                child.date_of_birth = date_of_birth
+                children_to_save.append(child)
+
+            with transaction.atomic():
+                user.save()
+                customer.save()
+                customer.children.exclude(id__in=requested_child_ids).delete()
+                for child in children_to_save:
+                    child.save()
+        else:
+            user.save()
+            customer.save()
         return Response(serialize_customer(customer))
 
     @extend_schema(tags=['3. Профиль клиента'], summary='Удалить аккаунт текущего клиента', auth=[{'MobileBearer': []}], responses={204: None, 401: None})
     def delete(self, request):
         MobileRefreshSession.objects.filter(customer=self.customer).update(revoked_at=timezone.now())
         self.customer.user.delete()
-        return Response(status=204)
-
-
-class MobileChildrenView(MobileAuthenticatedView):
-    @extend_schema(tags=['4. Дети'], summary='Получить детей текущего клиента', auth=[{'MobileBearer': []}], responses={200: None, 401: None})
-    def get(self, request):
-        return Response({"data": [serialize_child(child) for child in self.customer.children.order_by("id")], "max_children": MAX_CHILDREN})
-
-    @extend_schema(
-        tags=['4. Дети'],
-        summary='Добавить ребёнка',
-        description='Для одного клиента можно добавить не более двух детей.',
-        auth=[{'MobileBearer': []}],
-        request=ChildRequestSerializer,
-        responses={201: None, 400: None, 401: None, 422: None},
-    )
-    def post(self, request):
-        if self.customer.children.count() >= MAX_CHILDREN:
-            return error_response(422, "MAX_CHILDREN_REACHED", "Уже добавлено 2 ребёнка")
-        name = str(request.data.get("name") or "").strip()
-        raw_date_of_birth = str(request.data.get("date_of_birth") or "")
-        if not CHILD_NAME_RE.fullmatch(name):
-            return error_response(400, "VALIDATION_ERROR", "Имя ребёнка должно содержать от 1 до 50 букв", "name")
-        try:
-            date_of_birth = date.fromisoformat(raw_date_of_birth)
-        except ValueError:
-            return error_response(400, "VALIDATION_ERROR", "Дата должна быть в формате YYYY-MM-DD", "date_of_birth")
-        today = timezone.localdate()
-        if date_of_birth >= today or date_of_birth < date(today.year - 18, today.month, today.day):
-            return error_response(422, "INVALID_DATE", "Возраст ребёнка должен быть от 0 до 18 лет", "date_of_birth")
-        child = CustomerChild.objects.create(customer=self.customer, name=name, date_of_birth=date_of_birth)
-        return Response(serialize_child(child), status=201)
-
-
-class MobileChildDetailView(MobileAuthenticatedView):
-    @extend_schema(tags=['4. Дети'], summary='Изменить данные ребёнка', auth=[{'MobileBearer': []}], request=ChildRequestSerializer, responses={200: None, 400: None, 401: None, 404: None})
-    def patch(self, request, child_id):
-        child = self.customer.children.filter(id=child_id).first()
-        if not child:
-            return error_response(404, "NOT_FOUND", "Ребёнок не найден")
-        if "name" in request.data:
-            name = str(request.data.get("name") or "").strip()
-            if not CHILD_NAME_RE.fullmatch(name):
-                return error_response(400, "VALIDATION_ERROR", "Имя ребёнка должно содержать от 1 до 50 букв", "name")
-            child.name = name
-        if "date_of_birth" in request.data:
-            try:
-                date_of_birth = date.fromisoformat(str(request.data.get("date_of_birth") or ""))
-            except ValueError:
-                return error_response(400, "VALIDATION_ERROR", "Дата должна быть в формате YYYY-MM-DD", "date_of_birth")
-            if date_of_birth >= timezone.localdate():
-                return error_response(422, "INVALID_DATE", "Дата рождения должна быть в прошлом", "date_of_birth")
-            child.date_of_birth = date_of_birth
-        child.save()
-        return Response(serialize_child(child))
-
-    @extend_schema(tags=['4. Дети'], summary='Удалить ребёнка', auth=[{'MobileBearer': []}], responses={204: None, 401: None, 404: None})
-    def delete(self, request, child_id):
-        child = self.customer.children.filter(id=child_id).first()
-        if not child:
-            return error_response(404, "NOT_FOUND", "Ребёнок не найден")
-        child.delete()
         return Response(status=204)

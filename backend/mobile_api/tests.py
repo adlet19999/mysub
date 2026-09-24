@@ -63,41 +63,59 @@ class MobileAuthAndProfileTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["data"], [{"id": city.id, "name": "Алматы"}])
 
-    def test_customer_can_have_at_most_two_children(self):
+    def test_customer_can_update_profile_and_children_in_one_request(self):
+        city = City.objects.create(name="Алматы", display_order=1)
         headers = self.authorization()
-        for name in ("Амир", "Амина"):
-            response = self.client.post(
-                "/api/v1/mobile/users/me/children/",
-                {"name": name, "date_of_birth": "2019-05-12"},
-                format="json",
-                **headers,
-            )
-            self.assertEqual(response.status_code, 201)
-        response = self.client.post(
-            "/api/v1/mobile/users/me/children/",
-            {"name": "Али", "date_of_birth": "2020-05-12"},
+        response = self.client.patch(
+            "/api/v1/mobile/users/me/",
+            {
+                "name": "Иван",
+                "city_id": city.id,
+                "avatar_url": "https://cdn.mysub.kz/avatars/user.jpg",
+                "agreement_accepted": True,
+                "agreement_version": "1.0",
+                "children": [
+                    {"name": "Амир", "date_of_birth": "2019-05-12"},
+                    {"name": "Амина", "date_of_birth": "2020-05-12"},
+                ],
+            },
+            format="json",
+            **headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["avatar_url"], "https://cdn.mysub.kz/avatars/user.jpg")
+        self.assertTrue(response.data["agreement_accepted"])
+        self.assertEqual(len(response.data["children"]), 2)
+
+    def test_profile_replaces_children_list(self):
+        headers = self.authorization()
+        response = self.client.patch(
+            "/api/v1/mobile/users/me/",
+            {"children": [{"name": "Амир", "date_of_birth": "2019-05-12"}]},
+            format="json",
+            **headers,
+        )
+        child_id = response.data["children"][0]["id"]
+        response = self.client.patch(
+            "/api/v1/mobile/users/me/",
+            {"children": [{"id": child_id, "name": "Али", "date_of_birth": "2019-05-12"}]},
+            format="json",
+            **headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["children"][0]["name"], "Али")
+
+    def test_customer_cannot_set_more_than_two_children(self):
+        headers = self.authorization()
+        response = self.client.patch(
+            "/api/v1/mobile/users/me/",
+            {"children": [
+                {"name": "Амир", "date_of_birth": "2019-05-12"},
+                {"name": "Амина", "date_of_birth": "2020-05-12"},
+                {"name": "Али", "date_of_birth": "2021-05-12"},
+            ]},
             format="json",
             **headers,
         )
         self.assertEqual(response.status_code, 422)
         self.assertEqual(response.data["error"]["code"], "MAX_CHILDREN_REACHED")
-
-    def test_customer_can_edit_and_delete_child(self):
-        headers = self.authorization()
-        response = self.client.post(
-            "/api/v1/mobile/users/me/children/",
-            {"name": "Амир", "date_of_birth": "2019-05-12"},
-            format="json",
-            **headers,
-        )
-        child_id = response.data["id"]
-        response = self.client.patch(
-            f"/api/v1/mobile/users/me/children/{child_id}/",
-            {"name": "Али"},
-            format="json",
-            **headers,
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["name"], "Али")
-        response = self.client.delete(f"/api/v1/mobile/users/me/children/{child_id}/", **headers)
-        self.assertEqual(response.status_code, 204)

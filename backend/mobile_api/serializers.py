@@ -27,11 +27,11 @@ class TokenPairSerializer(serializers.Serializer):
     expires_in = serializers.IntegerField(help_text='Срок действия access token в секундах')
 
 
-class ChildResponseSerializer(serializers.Serializer):
-    id = serializers.CharField()
-    name = serializers.CharField()
-    date_of_birth = serializers.DateField()
-    age = serializers.IntegerField()
+class ChildSerializer(serializers.Serializer):
+    id = serializers.IntegerField(required=False, help_text='Передавайте только для уже созданного ребёнка')
+    name = serializers.CharField(help_text='Имя ребёнка от 1 до 50 букв')
+    date_of_birth = serializers.DateField(help_text='Дата в формате YYYY-MM-DD')
+    age = serializers.IntegerField(required=False, read_only=True)
 
 
 class CityResponseSerializer(serializers.Serializer):
@@ -55,7 +55,7 @@ class CustomerResponseSerializer(serializers.Serializer):
     is_profile_complete = serializers.BooleanField(help_text='true, если заполнены имя и город')
     agreement_accepted = serializers.BooleanField()
     agreement_version = serializers.CharField(allow_null=True)
-    children = ChildResponseSerializer(many=True)
+    children = ChildSerializer(many=True)
     max_children = serializers.IntegerField()
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
@@ -74,10 +74,9 @@ class RefreshTokenResponseSerializer(serializers.Serializer):
 class CustomerUpdateRequestSerializer(serializers.Serializer):
     name = serializers.CharField(required=False, help_text='Имя от 2 до 100 символов')
     email = serializers.EmailField(required=False, allow_blank=True)
+    avatar_url = serializers.URLField(required=False, allow_blank=True, help_text='URL фотографии пользователя')
     city_id = serializers.IntegerField(required=False, min_value=1, help_text='ID города из GET /cities/')
     language = serializers.ChoiceField(choices=['ru', 'kk', 'en'], required=False)
-
-
-class ChildRequestSerializer(serializers.Serializer):
-    name = serializers.CharField()
-    date_of_birth = serializers.DateField(help_text='Дата в формате YYYY-MM-DD')
+    agreement_accepted = serializers.BooleanField(required=False)
+    agreement_version = serializers.CharField(required=False, allow_blank=True, max_length=40)
+    children = ChildSerializer(required=False, many=True, help_text='Полный актуальный список детей, не более двух')
