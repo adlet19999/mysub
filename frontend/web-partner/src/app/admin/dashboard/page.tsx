@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { Eye, LockKeyhole, UnlockKeyhole } from "lucide-react";
 import partnerStyles from "../../partner/dashboard/layout.module.css";
 import styles from "./page.module.css";
@@ -42,11 +42,26 @@ function formatDate(value: string) {
 }
 
 export default function AdminDashboardPage() {
+  return <Suspense fallback={<main className={partnerStyles.screen}><section className={partnerStyles.contentArea}><div className={styles.content}><div className={styles.state}>Загружаем данные панели...</div></div></section></main>}><AdminDashboardContent /></Suspense>;
+}
+
+function AdminDashboardContent() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [data, setData] = useState<DashboardData | null>(null);
-  const [activeTab, setActiveTab] = useState("dashboard");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const requestedTab = searchParams.get("tab");
+  const activeTab = requestedTab && navigation.some((item) => item.id === requestedTab) ? requestedTab : "dashboard";
+
+  function setActiveTab(tab: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (tab === "dashboard") params.delete("tab");
+    else params.set("tab", tab);
+    const query = params.toString();
+    router.push(query ? `${pathname}?${query}` : pathname);
+  }
 
   async function loadDashboard() {
     setLoading(true);
