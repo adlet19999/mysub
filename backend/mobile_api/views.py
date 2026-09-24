@@ -509,6 +509,7 @@ class MobileCatalogSpecialistAvailabilityView(APIView):
 class MobileBookingsView(MobileAuthenticatedView):
     @extend_schema(
         tags=["4. Каталог и запись"],
+        auth=[{"MobileBearer": []}],
         summary="Получить мои записи",
         description="Возвращает записи только авторизованного клиента, включая отменённые для истории.",
         responses={200: MobileBookingListResponseSerializer, 401: None},
@@ -527,6 +528,7 @@ class MobileBookingsView(MobileAuthenticatedView):
 
     @extend_schema(
         tags=["4. Каталог и запись"],
+        auth=[{"MobileBearer": []}],
         summary="Записаться к специалисту",
         description=(
             "Создаёт запись для авторизованного клиента. Сервер повторно проверяет активность партнёра, "
@@ -629,6 +631,7 @@ class MobileBookingsView(MobileAuthenticatedView):
 class MobileBookingCancelView(MobileAuthenticatedView):
     @extend_schema(
         tags=["4. Каталог и запись"],
+        auth=[{"MobileBearer": []}],
         summary="Отменить мою запись",
         description="Отменяет будущую активную запись авторизованного клиента. Повторный вызов для уже отменённой записи безопасен и возвращает её текущее состояние.",
         responses={200: MobileBookingSerializer, 401: None, 404: None, 409: None},
