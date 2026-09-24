@@ -77,7 +77,7 @@ export default function AdminDashboardPage() {
     <main className={partnerStyles.screen}>
       <header className={partnerStyles.header}>
         <div className={partnerStyles.logoCell}><img src="/logo.svg" alt="MySub" className={partnerStyles.logoImage} /></div>
-        <div className={partnerStyles.headerMain}><h1 className={partnerStyles.headerTitle}>{data?.admin.name || "Администратор"}</h1><p className={partnerStyles.headerSubtitle}>Администратор</p></div>
+        <div className={partnerStyles.headerMain}><h1 className={partnerStyles.headerTitle}>Дашборд</h1><p className={partnerStyles.headerSubtitle}>Админ</p></div>
         <div className={partnerStyles.headerActions}><button className={partnerStyles.notifyButton} aria-label="Уведомления"><img src="/notifications.svg" alt="" /></button><div className={partnerStyles.avatarPill}>{(data?.admin.name || "A").slice(0, 1).toUpperCase()}</div></div>
       </header>
       <aside className={partnerStyles.sidebar}>
