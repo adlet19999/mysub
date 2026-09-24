@@ -36,6 +36,23 @@ class CustomerProfile(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
+class CustomerSubscription(models.Model):
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Активна"
+        PAUSED = "paused", "Приостановлена"
+
+    customer = models.OneToOneField(
+        CustomerProfile,
+        on_delete=models.CASCADE,
+        related_name="subscription",
+    )
+    plan_name = models.CharField(max_length=120, default="Базовая")
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+    expires_at = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 class CustomerChild(models.Model):
     customer = models.ForeignKey(
         CustomerProfile,

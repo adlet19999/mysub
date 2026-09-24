@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth.models import User
@@ -7,7 +8,7 @@ from rest_framework.test import APIClient
 from django.test import TestCase
 
 from partner_api.models import Booking, Manager
-from mobile_api.models import CustomerProfile
+from mobile_api.models import CustomerProfile, CustomerSubscription
 
 from .models import PartnerProfile
 
@@ -177,3 +178,36 @@ class AdminApiTests(TestCase):
 		self.assertEqual(response.data["subscription"], None)
 		self.assertEqual(response.data["visits"][0]["company"], "Тестовая компания")
 		self.assertEqual(response.data["visits"][0]["final_price"], "1500.00")
+
+	def test_staff_user_can_pause_and_extend_customer_subscription(self):
+		customer_user = User.objects.create_user(username="customer@example.com", password="password123")
+		customer = CustomerProfile.objects.create(user=customer_user, phone="+77005556677")
+		subscription = CustomerSubscription.objects.create(
+			customer=customer,
+			plan_name="Базовая",
+			expires_at=date(2027, 1, 1),
+		)
+		login = self.client.post(
+			"/api/v1/common/admin/login/",
+			{"username": self.staff_user.username, "password": "password123"},
+			format="json",
+		)
+		self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['token']}")
+
+		pause_response = self.client.post(
+			f"/api/v1/common/admin/customers/{customer.id}/subscription/",
+			{"action": "pause"},
+			format="json",
+		)
+		subscription.refresh_from_db()
+		self.assertEqual(pause_response.status_code, 200)
+		self.assertEqual(subscription.status, CustomerSubscription.Status.PAUSED)
+
+		extend_response = self.client.post(
+			f"/api/v1/common/admin/customers/{customer.id}/subscription/",
+			{"action": "extend", "expires_at": "2027-12-31"},
+			format="json",
+		)
+		subscription.refresh_from_db()
+		self.assertEqual(extend_response.status_code, 200)
+		self.assertEqual(subscription.expires_at, date(2027, 12, 31))

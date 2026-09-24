@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import timedelta
+from datetime import date, timedelta
 from uuid import uuid4
 
 import jwt
@@ -58,6 +58,17 @@ def get_admin_user(request):
 	if payload.get("type") != "admin":
 		return None
 	return User.objects.filter(id=payload.get("sub"), is_active=True, is_staff=True).first()
+
+
+def serialize_admin_subscription(subscription):
+	if subscription is None:
+		return None
+	return {
+		"id": subscription.id,
+		"plan_name": subscription.plan_name,
+		"status": subscription.status,
+		"expires_at": subscription.expires_at.isoformat() if subscription.expires_at else None,
+	}
 
 
 class HealthView(APIView):
@@ -297,13 +308,14 @@ class AdminCustomerDetailView(APIView):
 		if get_admin_user(request) is None:
 			return Response({"message": "Требуется вход администратора"}, status=status.HTTP_401_UNAUTHORIZED)
 
-		from mobile_api.models import CustomerProfile
+		from mobile_api.models import CustomerProfile, CustomerSubscription
 		from partner_api.models import Booking
 
 		customer = CustomerProfile.objects.select_related("user", "city").filter(id=customer_id).first()
 		if customer is None:
 			return Response({"message": "Пользователь не найден"}, status=status.HTTP_404_NOT_FOUND)
 
+		subscription = CustomerSubscription.objects.filter(customer=customer).first()
 		visits = Booking.objects.filter(client_phone=customer.phone).select_related("partner_profile", "partner_profile__user").order_by("-starts_at")
 		return Response(
 			{
@@ -317,7 +329,7 @@ class AdminCustomerDetailView(APIView):
 					"created_at": customer.created_at.isoformat(),
 					"is_active": customer.user.is_active,
 				},
-				"subscription": None,
+				"subscription": serialize_admin_subscription(subscription),
 				"visits": [
 					{
 						"id": visit.id,
@@ -337,6 +349,40 @@ class AdminCustomerDetailView(APIView):
 				],
 			}
 		)
+
+
+class AdminCustomerSubscriptionView(APIView):
+	def post(self, request, customer_id: int):
+		if get_admin_user(request) is None:
+			return Response({"message": "Требуется вход администратора"}, status=status.HTTP_401_UNAUTHORIZED)
+
+		from mobile_api.models import CustomerProfile, CustomerSubscription
+
+		customer = CustomerProfile.objects.filter(id=customer_id).first()
+		if customer is None:
+			return Response({"message": "Пользователь не найден"}, status=status.HTTP_404_NOT_FOUND)
+		subscription = CustomerSubscription.objects.filter(customer=customer).first()
+		if subscription is None:
+			return Response({"message": "У пользователя нет подписки"}, status=status.HTTP_409_CONFLICT)
+
+		action = request.data.get("action")
+		if action == "pause":
+			subscription.status = CustomerSubscription.Status.PAUSED
+			subscription.save(update_fields=["status", "updated_at"])
+		elif action == "extend":
+			expires_at_raw = str(request.data.get("expires_at") or "")
+			try:
+				expires_at = date.fromisoformat(expires_at_raw)
+			except ValueError:
+				return Response({"message": "Укажите дату окончания в формате YYYY-MM-DD"}, status=status.HTTP_400_BAD_REQUEST)
+			if expires_at < timezone.localdate():
+				return Response({"message": "Дата окончания не может быть в прошлом"}, status=status.HTTP_400_BAD_REQUEST)
+			subscription.expires_at = expires_at
+			subscription.save(update_fields=["expires_at", "updated_at"])
+		else:
+			return Response({"message": "Неизвестное действие с подпиской"}, status=status.HTTP_400_BAD_REQUEST)
+
+		return Response({"subscription": serialize_admin_subscription(subscription)})
 
 
 class AuthForgotPasswordView(APIView):

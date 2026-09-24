@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { ArrowLeft, Eye, LockKeyhole, UnlockKeyhole } from "lucide-react";
+import { ArrowLeft, CalendarDays, Eye, LockKeyhole, Pause, UnlockKeyhole } from "lucide-react";
 import { formatRuPhone } from "../../../lib/phone";
 import partnerStyles from "../../partner/dashboard/layout.module.css";
 import styles from "./page.module.css";
@@ -14,9 +14,11 @@ type DashboardData = {
   partners: Array<{ id: number; name: string; contact_name: string; email: string; phone: string; category: string; is_active: boolean; created_at: string }>;
 };
 
+type CustomerSubscription = { id: number; plan_name: string; status: "active" | "paused"; expires_at: string | null };
+
 type CustomerDetail = {
   customer: { id: number; name: string; email: string; phone: string; city_name: string; avatar_url: string | null; created_at: string; is_active: boolean };
-  subscription: null;
+  subscription: CustomerSubscription | null;
   visits: Array<{ id: number; starts_at: string; company: string; service_name: string; final_price: string; status: string }>;
 };
 
@@ -167,6 +169,10 @@ function CustomerProfile({ customerId, onBack }: { customerId: number; onBack: (
   const [profile, setProfile] = useState<CustomerDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [dialog, setDialog] = useState<"pause" | "extend" | null>(null);
+  const [extensionDate, setExtensionDate] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -191,6 +197,34 @@ function CustomerProfile({ customerId, onBack }: { customerId: number; onBack: (
   if (loading) return <div className={styles.state}>Загружаем профиль пользователя...</div>;
   if (error || !profile) return <div className={styles.state}><p>{error || "Профиль пользователя не найден"}</p><button onClick={onBack}>Вернуться к пользователям</button></div>;
 
+  const subscription = profile.subscription;
+  const isSubscriptionActive = subscription?.status === "active";
+
+  function openDialog(nextDialog: "pause" | "extend") {
+    if (!subscription) return;
+    setActionError("");
+    setExtensionDate(nextDialog === "extend" ? subscription.expires_at || "" : "");
+    setDialog(nextDialog);
+  }
+
+  async function saveSubscriptionAction() {
+    if (!dialog || !subscription) return;
+    setSaving(true);
+    setActionError("");
+    try {
+      const body = dialog === "pause" ? { action: "pause" } : { action: "extend", expires_at: extensionDate };
+      const response = await fetch(`/api/admin/customers/${customerId}/subscription`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const payload = (await response.json()) as { subscription?: CustomerSubscription; message?: string };
+      if (!response.ok || !payload.subscription) throw new Error(payload.message || "Не удалось обновить подписку");
+      setProfile((current) => current ? { ...current, subscription: payload.subscription || current.subscription } : current);
+      setDialog(null);
+    } catch (saveError) {
+      setActionError(saveError instanceof Error ? saveError.message : "Не удалось обновить подписку");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return <section className={styles.customerProfilePage}>
     <button className={styles.profileBack} onClick={onBack}><ArrowLeft size={18} strokeWidth={1.8} /> Профиль пользователя</button>
     <div className={styles.profileSummary}>
@@ -201,12 +235,13 @@ function CustomerProfile({ customerId, onBack }: { customerId: number; onBack: (
       </article>
       <article className={styles.subscriptionCard}>
         <h2>Статус подписки</h2>
-        <div className={styles.subscriptionCurrent}><p>Текущая подписка</p><strong>Отсутствует</strong></div>
-        <div className={styles.subscriptionExpiry}><span>Срок действия до</span><strong>—</strong></div>
-        <div className={styles.subscriptionActions}><button disabled title="Подписки пока не подключены">Приостановить</button><button disabled title="Подписки пока не подключены">Продлить подписку</button></div>
+        <div className={styles.subscriptionCurrent}><p>Текущая подписка</p><strong>{subscription?.plan_name || "Отсутствует"}</strong>{subscription ? <span className={isSubscriptionActive ? styles.subscriptionActive : styles.subscriptionPaused}>{isSubscriptionActive ? "Активна" : "Приостановлена"}</span> : null}</div>
+        <div className={styles.subscriptionExpiry}><span>Срок действия до</span><strong>{subscription?.expires_at ? formatDate(subscription.expires_at) : "—"}</strong></div>
+        <div className={styles.subscriptionActions}><button disabled={!isSubscriptionActive} title={subscription ? "Приостановить подписку" : "У пользователя нет подписки"} onClick={() => openDialog("pause")}>Приостановить</button><button disabled={!subscription} title={subscription ? "Продлить подписку" : "У пользователя нет подписки"} onClick={() => openDialog("extend")}>Продлить подписку</button></div>
       </article>
     </div>
     <section className={styles.visitHistory}><h2>История визитов</h2>{profile.visits.length ? <div className={styles.historyTable}><div className={styles.historyTableHead}><span>Дата и время</span><span>Компания</span><span>Услуги</span><span>Итоговая стоимость</span></div>{profile.visits.map((visit) => <div className={styles.historyTableRow} key={visit.id}><span><b>{formatDate(visit.starts_at)}</b><small>{new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(new Date(visit.starts_at))}</small></span><span>{visit.company}</span><span>{visit.service_name}</span><span>{Number(visit.final_price) > 0 ? formatMoney(visit.final_price) : "—"}</span></div>)}</div> : <div className={styles.profileEmpty}>Визитов пока нет.</div>}</section>
+    {dialog ? <div className={styles.subscriptionModalBackdrop} role="presentation"><section className={styles.subscriptionModal} role="dialog" aria-modal="true" aria-labelledby="subscription-dialog-title"><div className={styles.subscriptionModalIcon}>{dialog === "pause" ? <Pause size={31} strokeWidth={1.8} /> : <CalendarDays size={29} strokeWidth={1.8} />}</div><h2 id="subscription-dialog-title">{dialog === "pause" ? "Приостановить подписку" : "Продлить подписку"}</h2>{dialog === "pause" ? <p>Вы точно хотите приостановить подписку пользователя<br />«{profile.customer.name}»?</p> : <p>До какого числа вы хотите продлить подписку?</p>}{dialog === "extend" ? <label className={styles.subscriptionDateInput}><CalendarDays size={16} strokeWidth={1.8} /><input type="date" value={extensionDate} min={new Date().toISOString().slice(0, 10)} onChange={(event) => setExtensionDate(event.target.value)} /></label> : null}{actionError ? <p className={styles.subscriptionActionError}>{actionError}</p> : null}<div className={styles.subscriptionModalActions}><button disabled={saving} onClick={() => setDialog(null)}>Отменить</button><button className={styles.subscriptionConfirm} disabled={saving || (dialog === "extend" && !extensionDate)} onClick={() => void saveSubscriptionAction()}>{saving ? "Сохраняем..." : dialog === "pause" ? "Да, приостановить" : "Сохранить"}</button></div></section></div> : null}
   </section>;
 }
 
