@@ -1,17 +1,10 @@
-.page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #edf1ed; }
-.panel { width: min(100%, 430px); padding: 34px; border: 1px solid #dce4de; border-radius: 8px; background: #fff; box-shadow: 0 18px 45px rgba(20, 46, 32, .1); }
-.brand { display: flex; align-items: center; gap: 9px; color: #1d3629; font-family: Georgia, serif; font-size: 20px; }
-.crown { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 6px; background: #20684f; color: #f4c75e; font: 700 15px Georgia, serif; }
-.formArea { margin-top: 52px; }
-.eyebrow { margin: 0 0 7px; color: #20684f; font-size: 13px; font-weight: 700; text-transform: uppercase; }
-.formArea h1 { margin: 0; color: #1f2933; font-size: 27px; line-height: 1.15; }
-.copy { margin: 11px 0 28px; color: #6b7280; }
-.formArea label { display: block; margin: 18px 0 7px; color: #344054; font-size: 14px; font-weight: 600; }
-.inputWrap { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 12px; border: 1px solid #d6ded8; border-radius: 6px; color: #708078; }
-.inputWrap:focus-within { border-color: #20684f; box-shadow: 0 0 0 3px rgba(32, 104, 79, .1); }
-.inputWrap input { width: 100%; min-width: 0; border: 0; outline: 0; color: #1f2933; background: transparent; }
-.inputWrap button { display: grid; place-items: center; border: 0; color: inherit; background: transparent; cursor: pointer; }
-.error { margin: 14px 0 0; color: #b42318; font-size: 14px; }
-.submit { width: 100%; height: 46px; margin-top: 28px; border: 0; border-radius: 6px; color: #fff; background: #20684f; font-weight: 700; cursor: pointer; }
-.submit:disabled { opacity: .65; cursor: progress; }
-@media (max-width: 520px) { .page { padding: 0; background: #fff; } .panel { min-height: 100vh; padding: 26px 20px; border: 0; border-radius: 0; box-shadow: none; } }
+.shell { min-height: 100vh; padding: 12px; background: #ececec; }
+.panel { display: grid; min-height: calc(100vh - 24px); grid-template-columns: 46% 54%; overflow: hidden; border-radius: 24px; background: #fff; box-shadow: 0 10px 40px rgba(0, 0, 0, .06), 0 2px 8px rgba(0, 0, 0, .03); }
+.left { display: flex; flex-direction: column; justify-content: space-between; padding: 28px 40px 24px; }.brandRow { display: flex; align-items: center; }
+.formWrap { width: 100%; max-width: 420px; margin: 0 auto; }.title { margin: 0 0 12px; color: #252525; font-size: clamp(1.65rem, 1.45vw, 2.1rem); line-height: 1.1; white-space: nowrap; }.subtitle { margin: 0 0 32px; color: #76808a; font-size: 1.02rem; }
+.label { display: block; margin: 0 0 10px; color: #2b2b2b; font-weight: 600; }.input { width: 100%; height: 50px; margin-bottom: 18px; padding: 0 16px; border: 1px solid #e5e5e5; border-radius: 12px; outline: 0; font-size: 1rem; transition: .2s; }.input:focus { border-color: #1f6b52; box-shadow: 0 0 0 4px rgba(31, 107, 82, .08); }
+.passwordRow { position: relative; }.passwordRow .input { margin-bottom: 8px; padding-right: 56px; }.eyeButton { position: absolute; top: 9px; right: 9px; display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; padding: 0; border: 0; background: transparent; color: #6b7280; cursor: pointer; }.eyeButton:hover { color: #445160; }.error { margin: 0 0 12px; color: #b42318; font-size: .92rem; }
+.loginButton { width: 100%; height: 50px; border: 0; border-radius: 12px; background: #1f6b52; color: #fff; font-size: 1.05rem; font-weight: 700; cursor: pointer; transition: .2s; }.loginButton:hover { background: #185340; transform: translateY(-1px); }.loginButton:disabled { cursor: not-allowed; opacity: .7; transform: none; }.footer { color: #8d8d8d; font-size: .8rem; }
+.right { position: relative; background: #fff; }.heroMedia { position: absolute; inset: 24px; background: url("/partner-login-left.webp") right center / contain no-repeat; }
+@media (max-width: 1080px) { .panel { grid-template-columns: 1fr; }.right { display: none; }.footer { margin-top: 32px; } }
+@media (max-width: 600px) { .shell { min-height: 100dvh; padding: 0; background: #fff; }.panel { min-height: 100dvh; border-radius: 0; box-shadow: none; }.left { min-height: 100dvh; padding: 24px 20px 20px; justify-content: flex-start; }.brandRow { padding-bottom: 22px; border-bottom: 1px solid #e7ece9; }.brandRow img { width: 106px; height: auto; }.formWrap { max-width: none; margin: 44px 0 0; }.title { font-size: 28px; line-height: 34px; letter-spacing: 0; white-space: normal; }.subtitle { margin-bottom: 30px; font-size: 15px; line-height: 22px; }.label { margin-bottom: 8px; font-size: 14px; }.input, .loginButton { height: 52px; border-radius: 10px; }.input { margin-bottom: 16px; font-size: 16px; }.passwordRow .input { margin-bottom: 10px; }.eyeButton { top: 10px; }.loginButton { margin-top: 4px; font-size: 16px; }.footer { margin-top: auto; padding-top: 34px; text-align: center; font-size: 11px; line-height: 16px; } }
