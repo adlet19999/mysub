@@ -2,7 +2,7 @@ import re
 import uuid
 from io import BytesIO
 from pathlib import Path
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 import jwt
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -10,18 +10,25 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import transaction
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from common_api.models import PartnerProfile
 from common_api.views import normalize_ru_phone
+from partner_api.models import Service, Specialist
+from partner_api.views import booking_schedule_error, has_booking_overlap
 
 from .models import CustomerChild, CustomerProfile, MobileRefreshSession
 from .serializers import (
     AuthenticationResponseSerializer,
     AvatarUploadRequestSerializer,
     AvatarUploadResponseSerializer,
+    AvailabilityResponseSerializer,
+    CatalogPartnerListResponseSerializer,
+    CatalogServiceListResponseSerializer,
+    CatalogSpecialistListResponseSerializer,
     CityListResponseSerializer,
     CustomerResponseSerializer,
     CustomerUpdateRequestSerializer,
@@ -89,6 +96,69 @@ def serialize_customer(customer, request=None):
         "created_at": customer.created_at.isoformat(),
         "updated_at": customer.updated_at.isoformat(),
     }
+
+
+def catalog_public_url(request, value):
+    if value and value.startswith("/"):
+        return request.build_absolute_uri(value)
+    return value or ""
+
+
+def catalog_partner_name(partner):
+    return partner.company_name or partner.user.get_full_name() or partner.user.username
+
+
+def serialize_catalog_partner(partner, request):
+    photo_urls = [
+        catalog_public_url(request, item)
+        for item in (partner.business_photo_urls or [])
+        if isinstance(item, str) and item
+    ]
+    primary_photo = catalog_public_url(request, partner.business_photo_url)
+    if primary_photo and primary_photo not in photo_urls:
+        photo_urls.insert(0, primary_photo)
+    return {
+        "id": partner.id,
+        "name": catalog_partner_name(partner),
+        "category": partner.business_category or "",
+        "city": partner.city or "",
+        "address": partner.address or "",
+        "description": partner.description or "",
+        "photo_urls": photo_urls,
+    }
+
+
+def serialize_catalog_service(service, request):
+    partner = service.partner_profile
+    return {
+        "id": service.id,
+        "partner_id": partner.id,
+        "partner_name": catalog_partner_name(partner),
+        "name": service.name,
+        "category": service.category.name,
+        "kind": service.kind.name if service.kind_id else None,
+        "description": service.description or "",
+        "duration_minutes": service.duration_minutes or 60,
+        "price": str(service.price) if service.price is not None else None,
+        "service_type": service.service_type,
+        "image_url": catalog_public_url(request, service.image_url),
+    }
+
+
+def serialize_catalog_specialist(specialist, request):
+    capabilities = [capability for capability in specialist.capabilities.all() if capability.service.is_active]
+    return {
+        "id": specialist.id,
+        "full_name": specialist.full_name,
+        "description": specialist.description or "",
+        "photo_url": catalog_public_url(request, specialist.photo_url),
+        "service_ids": [capability.service_id for capability in capabilities],
+        "service_names": [capability.service.name for capability in capabilities],
+    }
+
+
+def active_catalog_partners():
+    return PartnerProfile.objects.select_related("user").filter(user_type="partner", user__is_active=True)
 
 
 def delete_stored_avatar(avatar_url):
@@ -219,6 +289,183 @@ class MobileCitiesView(APIView):
     def get(self, request):
         cities = City.objects.filter(is_active=True)
         return Response({"data": [{"id": city.id, "name": city.name} for city in cities]})
+
+
+class MobileCatalogPartnersView(APIView):
+    @extend_schema(
+        tags=["4. Каталог и запись"],
+        summary="Получить партнёров",
+        description="Публичный каталог активных партнёров. Можно отфильтровать по городу, категории бизнеса или части названия.",
+        parameters=[
+            OpenApiParameter(name="city", type=str, location=OpenApiParameter.QUERY, required=False),
+            OpenApiParameter(name="category", type=str, location=OpenApiParameter.QUERY, required=False),
+            OpenApiParameter(name="search", type=str, location=OpenApiParameter.QUERY, required=False),
+        ],
+        responses={200: CatalogPartnerListResponseSerializer},
+    )
+    def get(self, request):
+        items = active_catalog_partners()
+        city = (request.query_params.get("city") or "").strip()
+        category = (request.query_params.get("category") or "").strip()
+        search = (request.query_params.get("search") or "").strip()
+        if city:
+            items = items.filter(city__iexact=city)
+        if category:
+            items = items.filter(business_category__iexact=category)
+        if search:
+            items = items.filter(company_name__icontains=search)
+        return Response({"data": [serialize_catalog_partner(item, request) for item in items.order_by("company_name", "id")]})
+
+
+class MobileCatalogServicesView(APIView):
+    @extend_schema(
+        tags=["4. Каталог и запись"],
+        summary="Получить услуги всех партнёров",
+        description="Возвращает активные услуги активных партнёров. Фильтры можно комбинировать.",
+        parameters=[
+            OpenApiParameter(name="partner_id", type=int, location=OpenApiParameter.QUERY, required=False),
+            OpenApiParameter(name="category", type=str, location=OpenApiParameter.QUERY, required=False),
+            OpenApiParameter(name="city", type=str, location=OpenApiParameter.QUERY, required=False),
+        ],
+        responses={200: CatalogServiceListResponseSerializer},
+    )
+    def get(self, request):
+        items = Service.objects.filter(
+            tenant_slug="public",
+            is_active=True,
+            partner_profile__user_type="partner",
+            partner_profile__user__is_active=True,
+        ).select_related("partner_profile__user", "category", "kind")
+        partner_id = request.query_params.get("partner_id")
+        category = (request.query_params.get("category") or "").strip()
+        city = (request.query_params.get("city") or "").strip()
+        if partner_id:
+            try:
+                items = items.filter(partner_profile_id=int(partner_id))
+            except ValueError:
+                return Response({"message": "partner_id должен быть числом"}, status=400)
+        if category:
+            items = items.filter(category__name__iexact=category)
+        if city:
+            items = items.filter(partner_profile__city__iexact=city)
+        return Response({"data": [serialize_catalog_service(item, request) for item in items.order_by("partner_profile__company_name", "name", "id")]})
+
+
+class MobileCatalogPartnerServicesView(APIView):
+    @extend_schema(
+        tags=["4. Каталог и запись"],
+        summary="Получить услуги партнёра",
+        responses={200: CatalogServiceListResponseSerializer, 404: None},
+    )
+    def get(self, request, partner_id: int):
+        partner = active_catalog_partners().filter(id=partner_id).first()
+        if partner is None:
+            return Response({"message": "Партнёр не найден"}, status=404)
+        items = Service.objects.filter(
+            tenant_slug="public", partner_profile=partner, is_active=True
+        ).select_related("partner_profile__user", "category", "kind")
+        return Response({"data": [serialize_catalog_service(item, request) for item in items.order_by("name", "id")]})
+
+
+class MobileCatalogPartnerSpecialistsView(APIView):
+    @extend_schema(
+        tags=["4. Каталог и запись"],
+        summary="Получить специалистов партнёра",
+        parameters=[OpenApiParameter(name="service_id", type=int, location=OpenApiParameter.QUERY, required=False)],
+        responses={200: CatalogSpecialistListResponseSerializer, 400: None, 404: None},
+    )
+    def get(self, request, partner_id: int):
+        partner = active_catalog_partners().filter(id=partner_id).first()
+        if partner is None:
+            return Response({"message": "Партнёр не найден"}, status=404)
+        items = Specialist.objects.filter(
+            tenant_slug="public",
+            partner_profile=partner,
+            is_active=True,
+            capabilities__service__is_active=True,
+        ).prefetch_related("capabilities__service")
+        service_id = request.query_params.get("service_id")
+        if service_id:
+            try:
+                items = items.filter(capabilities__service_id=int(service_id))
+            except ValueError:
+                return Response({"message": "service_id должен быть числом"}, status=400)
+        return Response({"data": [serialize_catalog_specialist(item, request) for item in items.distinct().order_by("full_name", "id")]})
+
+
+class MobileCatalogSpecialistAvailabilityView(APIView):
+    @extend_schema(
+        tags=["4. Каталог и запись"],
+        summary="Получить свободное время специалиста",
+        description="Слоты рассчитываются с учётом рабочего графика, перерывов, длительности выбранной услуги и активных записей. Шаг слотов — 30 минут.",
+        parameters=[
+            OpenApiParameter(
+                name="date",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Дата в формате YYYY-MM-DD",
+            ),
+            OpenApiParameter(name="service_id", type=int, location=OpenApiParameter.QUERY, required=True),
+        ],
+        responses={200: AvailabilityResponseSerializer, 400: None, 404: None},
+    )
+    def get(self, request, partner_id: int, specialist_id: int):
+        partner = active_catalog_partners().filter(id=partner_id).first()
+        if partner is None:
+            return Response({"message": "Партнёр не найден"}, status=404)
+        specialist = Specialist.objects.filter(
+            id=specialist_id,
+            tenant_slug="public",
+            partner_profile=partner,
+            is_active=True,
+        ).first()
+        if specialist is None:
+            return Response({"message": "Специалист не найден"}, status=404)
+        try:
+            service_id = int(request.query_params.get("service_id") or "")
+        except ValueError:
+            return Response({"message": "service_id обязателен и должен быть числом"}, status=400)
+        service = Service.objects.filter(
+            id=service_id,
+            tenant_slug="public",
+            partner_profile=partner,
+            is_active=True,
+        ).first()
+        if service is None or not specialist.capabilities.filter(service_id=service.id).exists():
+            return Response({"message": "Услуга недоступна у выбранного специалиста"}, status=404)
+        try:
+            requested_date = date.fromisoformat(request.query_params.get("date") or "")
+        except ValueError:
+            return Response({"message": "date обязателен и должен быть в формате YYYY-MM-DD"}, status=400)
+        if requested_date < timezone.localdate():
+            return Response({"message": "Нельзя получать слоты за прошедшую дату"}, status=400)
+
+        duration_minutes = service.duration_minutes or 60
+        day_start = timezone.make_aware(
+            datetime.combine(requested_date, time.min), timezone.get_current_timezone()
+        )
+        slots = []
+        for minute_offset in range(0, 24 * 60 - duration_minutes + 1, 30):
+            starts_at = day_start + timedelta(minutes=minute_offset)
+            if booking_schedule_error(specialist, starts_at, duration_minutes) is not None:
+                continue
+            if has_booking_overlap(
+                specialist.tenant_slug,
+                specialist.full_name,
+                starts_at,
+                duration_minutes,
+                partner_profile=partner,
+            ):
+                continue
+            slots.append(timezone.localtime(starts_at).strftime("%H:%M"))
+
+        return Response({
+            "date": requested_date.isoformat(),
+            "duration_minutes": duration_minutes,
+            "slot_interval_minutes": 30,
+            "slots": slots,
+        })
 
 
 class MobileAuthSendCodeView(APIView):

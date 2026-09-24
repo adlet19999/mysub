@@ -88,3 +88,55 @@ class AvatarUploadRequestSerializer(serializers.Serializer):
 
 class AvatarUploadResponseSerializer(serializers.Serializer):
     avatar_url = serializers.URLField(help_text='Абсолютная ссылка на сохранённую фотографию')
+
+
+class CatalogPartnerSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    category = serializers.CharField()
+    city = serializers.CharField()
+    address = serializers.CharField()
+    description = serializers.CharField()
+    photo_urls = serializers.ListField(child=serializers.URLField())
+
+
+class CatalogPartnerListResponseSerializer(serializers.Serializer):
+    data = CatalogPartnerSerializer(many=True)
+
+
+class CatalogServiceSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    partner_id = serializers.IntegerField()
+    partner_name = serializers.CharField()
+    name = serializers.CharField()
+    category = serializers.CharField()
+    kind = serializers.CharField(allow_null=True)
+    description = serializers.CharField()
+    duration_minutes = serializers.IntegerField()
+    price = serializers.CharField(allow_null=True)
+    service_type = serializers.CharField()
+    image_url = serializers.URLField(allow_blank=True)
+
+
+class CatalogServiceListResponseSerializer(serializers.Serializer):
+    data = CatalogServiceSerializer(many=True)
+
+
+class CatalogSpecialistSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    full_name = serializers.CharField()
+    description = serializers.CharField()
+    photo_url = serializers.URLField(allow_blank=True)
+    service_ids = serializers.ListField(child=serializers.IntegerField())
+    service_names = serializers.ListField(child=serializers.CharField())
+
+
+class CatalogSpecialistListResponseSerializer(serializers.Serializer):
+    data = CatalogSpecialistSerializer(many=True)
+
+
+class AvailabilityResponseSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    duration_minutes = serializers.IntegerField()
+    slot_interval_minutes = serializers.IntegerField()
+    slots = serializers.ListField(child=serializers.TimeField(format="%H:%M"))

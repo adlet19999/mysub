@@ -799,6 +799,8 @@ def has_booking_overlap(
 		items = items.exclude(id=exclude_booking_id)
 
 	for existing in items:
+		if (existing.status or "").strip().lower() in CLOSED_BOOKING_STATUSES:
+			continue
 		existing_start = to_aware_datetime(existing.starts_at)
 		if existing_start is None:
 			continue

@@ -5,6 +5,11 @@ from .views import (
     MobileAuthRegisterView,
     MobileAuthSendCodeView,
     MobileAuthVerifyCodeView,
+    MobileCatalogPartnersView,
+    MobileCatalogPartnerServicesView,
+    MobileCatalogPartnerSpecialistsView,
+    MobileCatalogServicesView,
+    MobileCatalogSpecialistAvailabilityView,
     MobileCitiesView,
     MobileCurrentUserAvatarView,
     MobileCurrentUserView,
@@ -13,6 +18,11 @@ from .views import (
 
 urlpatterns = [
     path("cities/", MobileCitiesView.as_view(), name="mobile-cities"),
+    path("catalog/partners/", MobileCatalogPartnersView.as_view(), name="mobile-catalog-partners"),
+    path("catalog/services/", MobileCatalogServicesView.as_view(), name="mobile-catalog-services"),
+    path("catalog/partners/<int:partner_id>/services/", MobileCatalogPartnerServicesView.as_view(), name="mobile-catalog-partner-services"),
+    path("catalog/partners/<int:partner_id>/specialists/", MobileCatalogPartnerSpecialistsView.as_view(), name="mobile-catalog-partner-specialists"),
+    path("catalog/partners/<int:partner_id>/specialists/<int:specialist_id>/availability/", MobileCatalogSpecialistAvailabilityView.as_view(), name="mobile-catalog-specialist-availability"),
     path("auth/send-code/", MobileAuthSendCodeView.as_view(), name="mobile-auth-send-code"),
     path("auth/register/", MobileAuthRegisterView.as_view(), name="mobile-auth-register"),
     path("auth/verify-code/", MobileAuthVerifyCodeView.as_view(), name="mobile-auth-verify-code"),

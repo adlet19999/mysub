@@ -1,13 +1,18 @@
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from datetime import datetime, time, timedelta
 
+from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APIClient
 
+from common_api.models import PartnerProfile
 from mobile_api.models import City, CustomerProfile
+from partner_api.models import Booking, Category, Service, ServiceKind, Specialist, SpecialistService
 
 
 def image_upload():
@@ -181,3 +186,129 @@ class MobileAvatarUploadTests(TestCase):
 
         self.assertEqual(response.status_code, 405)
         self.assertTrue(CustomerProfile.objects.exists())
+
+
+class MobileCatalogTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.category = Category.objects.create(tenant_slug="public", name="Красота")
+        self.kind = ServiceKind.objects.create(tenant_slug="public", category=self.category, name="Стрижка")
+        self.partner = self.create_partner("salon-active", "Салон Актив")
+        self.inactive_partner = self.create_partner("salon-hidden", "Салон Скрытый", is_active=False)
+        self.service = self.create_service(self.partner, "Стрижка")
+        self.hidden_service = self.create_service(self.inactive_partner, "Скрытая услуга")
+
+    def create_partner(self, username, company_name, is_active=True):
+        user = User.objects.create_user(username=username, is_active=is_active)
+        return PartnerProfile.objects.create(
+            user=user,
+            phone="+77001234567",
+            company_name=company_name,
+            business_category="Красота",
+            city="Алматы",
+        )
+
+    def create_service(self, partner, name):
+        return Service.objects.create(
+            tenant_slug="public",
+            partner_profile=partner,
+            name=name,
+            category=self.category,
+            kind=self.kind,
+            duration_minutes=60,
+            price="5000.00",
+        )
+
+    def test_catalog_excludes_inactive_partner_and_returns_active_service(self):
+        response = self.client.get("/api/v1/mobile/catalog/services/?city=Алматы")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item["id"] for item in response.data["data"]], [self.service.id])
+        self.assertEqual(response.data["data"][0]["partner_id"], self.partner.id)
+        self.assertNotIn(self.hidden_service.id, [item["id"] for item in response.data["data"]])
+
+    def test_specialists_can_be_filtered_by_service(self):
+        other_service = self.create_service(self.partner, "Окрашивание")
+        specialist = Specialist.objects.create(
+            tenant_slug="public",
+            partner_profile=self.partner,
+            full_name="Анна Мастер",
+            phone="+77007654321",
+        )
+        SpecialistService.objects.create(specialist=specialist, service=self.service)
+        other_specialist = Specialist.objects.create(
+            tenant_slug="public",
+            partner_profile=self.partner,
+            full_name="Мария Колорист",
+            phone="+77001112233",
+        )
+        SpecialistService.objects.create(specialist=other_specialist, service=other_service)
+
+        response = self.client.get(
+            f"/api/v1/mobile/catalog/partners/{self.partner.id}/specialists/?service_id={self.service.id}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item["id"] for item in response.data["data"]], [specialist.id])
+
+    def test_availability_excludes_active_booking_but_not_cancelled_booking(self):
+        requested_date = timezone.localdate() + timedelta(days=1)
+        weekday = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"][requested_date.weekday()]
+        specialist = Specialist.objects.create(
+            tenant_slug="public",
+            partner_profile=self.partner,
+            full_name="Алина Стилист",
+            phone="+77005554433",
+            working_schedule=[{
+                "day": weekday,
+                "is_day_off": False,
+                "start_time": "09:00",
+                "end_time": "12:00",
+                "breaks": [{"name": "Обед", "start_time": "11:00", "end_time": "11:30"}],
+            }],
+        )
+        SpecialistService.objects.create(specialist=specialist, service=self.service)
+        day_start = timezone.make_aware(datetime.combine(requested_date, time.min))
+        Booking.objects.create(
+            tenant_slug="public",
+            partner_profile=self.partner,
+            service_name=self.service.name,
+            manager_name=specialist.full_name,
+            starts_at=day_start + timedelta(hours=10),
+            client_name="Клиент",
+            client_phone="+77000000001",
+        )
+        Booking.objects.create(
+            tenant_slug="public",
+            partner_profile=self.partner,
+            service_name=self.service.name,
+            manager_name=specialist.full_name,
+            starts_at=day_start + timedelta(hours=9),
+            client_name="Отменённый клиент",
+            client_phone="+77000000002",
+            status="cancelled",
+        )
+
+        response = self.client.get(
+            f"/api/v1/mobile/catalog/partners/{self.partner.id}/specialists/{specialist.id}/availability/",
+            {"date": requested_date.isoformat(), "service_id": self.service.id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["slots"], ["09:00"])
+        self.assertEqual(response.data["duration_minutes"], 60)
+
+    def test_availability_requires_valid_parameters(self):
+        specialist = Specialist.objects.create(
+            tenant_slug="public",
+            partner_profile=self.partner,
+            full_name="Наталья Мастер",
+            phone="+77003334455",
+        )
+        SpecialistService.objects.create(specialist=specialist, service=self.service)
+        response = self.client.get(
+            f"/api/v1/mobile/catalog/partners/{self.partner.id}/specialists/{specialist.id}/availability/",
+            {"date": "not-a-date", "service_id": self.service.id},
+        )
+
+        self.assertEqual(response.status_code, 400)
