@@ -10,6 +10,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
+from django.db.models import Count, Max, Sum
 from django.conf import settings
 from django.utils import timezone
 from django.utils.encoding import force_bytes, force_str
@@ -209,6 +210,14 @@ class AdminDashboardView(APIView):
 		customers = CustomerProfile.objects.select_related("user", "city").order_by("-created_at")
 		partners = PartnerProfile.objects.select_related("user").order_by("-created_at")
 		bookings = Booking.objects.all()
+		bookings_by_phone = {
+			row["client_phone"]: row
+			for row in bookings.values("client_phone").annotate(
+				visits=Count("id"),
+				last_visit=Max("starts_at"),
+				total_amount=Sum("final_price"),
+			)
+		}
 		recent_customers = [
 			{
 				"id": customer.id,
@@ -217,6 +226,13 @@ class AdminDashboardView(APIView):
 				"phone": customer.phone,
 				"city_name": customer.city.name if customer.city_id else "",
 				"created_at": customer.created_at.isoformat(),
+				"visits": bookings_by_phone.get(customer.phone, {}).get("visits", 0),
+				"last_visit": (
+					bookings_by_phone[customer.phone]["last_visit"].isoformat()
+					if bookings_by_phone.get(customer.phone, {}).get("last_visit")
+					else None
+				),
+				"total_amount": str(bookings_by_phone.get(customer.phone, {}).get("total_amount") or 0),
 			}
 			for customer in customers[:5]
 		]
@@ -240,6 +256,9 @@ class AdminDashboardView(APIView):
 				},
 				"metrics": {
 					"customers_total": customers.count(),
+					"subscriptions_active": 0,
+					"customers_without_subscription": customers.count(),
+					"customers_turnover": str(bookings.aggregate(total=Sum("final_price"))["total"] or 0),
 					"partners_total": partners.count(),
 					"partners_active": partners.filter(user__is_active=True).count(),
 					"bookings_total": bookings.count(),
