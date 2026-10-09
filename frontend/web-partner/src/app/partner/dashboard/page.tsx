@@ -11,6 +11,8 @@ type Booking = {
   client_name: string;
   client_phone: string;
   status: string;
+  final_price: string;
+  subscription_active: boolean;
 };
 
 type Service = {
@@ -167,24 +169,18 @@ export default function PartnerDashboardPage() {
   }, [partnerEmail]);
 
   const rows = useMemo<RowItem[]>(() => {
-    const servicesByName = new Map(services.map((service) => [service.name.trim().toLowerCase(), service]));
     return bookings.map((booking) => {
       const bookedServices = parseServiceNames(booking.service_name);
-      const relatedServices = bookedServices.map((name) => servicesByName.get(name.toLowerCase())).filter(Boolean) as Service[];
-      const calculatedSum = relatedServices.reduce((total, service) => {
-        const price = Number(service.price || 0);
-        return total + price * (1 - Math.min(100, Math.max(0, service.discount_percent || 0)) / 100);
-      }, 0);
       return {
         ...booking,
         date: formatDateTime(booking.starts_at),
         service: bookedServices.join(", ") || "Не указана",
-        subscription: relatedServices.length > 0 && relatedServices.every((service) => service.is_subscription) ? "Доступна" : "Нет",
-        sum: booking.status === "no_show" ? null : calculatedSum,
+        subscription: booking.subscription_active ? "Доступна" : "Нет",
+        sum: ["no_show", "cancelled"].includes(booking.status) ? null : Number(booking.final_price),
         statusLabel: STATUS_LABELS[booking.status] || booking.status || "Запланирована",
       };
     });
-  }, [bookings, services]);
+  }, [bookings]);
 
   const calendarDays = useMemo(() => {
     const monthStart = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);

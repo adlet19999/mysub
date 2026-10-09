@@ -38,6 +38,7 @@ CLOSED_BOOKING_STATUSES = {
 	"missed",
 	"неявка",
 }
+BOOKING_STATUSES = CLOSED_BOOKING_STATUSES | {"booked", "pending", "записан", "записана"}
 
 
 def tenant_from_request(request) -> str:
@@ -94,6 +95,8 @@ def get_partner_profile(request):
 		profile = manager_partner_profile_from_request(request)
 	if not profile:
 		return None, Response({"message": "Партнер не найден"}, status=401)
+	if not profile.user.is_active:
+		return None, Response({"message": "Аккаунт партнёра заблокирован"}, status=403)
 	return profile, None
 
 
@@ -120,6 +123,29 @@ def parse_positive_int(value, field_name: str):
 	if parsed <= 0:
 		return None, f"{field_name} должен быть больше 0"
 	return parsed, None
+
+
+def normalize_service_numbers(payload, item=None):
+	duration, duration_error = parse_positive_int(
+		payload.get("duration_minutes", item.duration_minutes if item else 60), "duration_minutes",
+	)
+	if duration_error or duration is None:
+		return None, duration_error or "duration_minutes обязателен"
+	try:
+		price = Decimal(str(payload.get("price", (item.price or 0) if item else 0)))
+		if not price.is_finite() or price < 0 or price >= Decimal("10000000000"):
+			return None, "Стоимость должна быть неотрицательным числом меньше 10000000000"
+		if price != price.quantize(MONEY_QUANTUM):
+			return None, "Стоимость должна содержать не более двух знаков после запятой"
+	except (InvalidOperation, TypeError, ValueError):
+		return None, "Стоимость должна быть числом"
+	try:
+		discount = int(str(payload.get("discount_percent", item.discount_percent if item else 0)))
+	except (TypeError, ValueError):
+		return None, "Скидка должна быть целым числом"
+	if not 0 <= discount <= 100:
+		return None, "Скидка должна быть от 0 до 100"
+	return {"duration_minutes": duration, "price": price, "discount_percent": discount}, None
 
 
 def normalize_service_image_url(value: str) -> str:
@@ -904,6 +930,8 @@ def group_service_for_booking(services):
 
 
 def group_booking_error(services):
+	if any(not service.is_active for service in services):
+		return "Одна или несколько услуг недоступны"
 	groups = [service for service in services if service.service_type == "group"]
 	if groups and len(services) != 1:
 		return "Групповое занятие оформляется отдельной записью"
@@ -1396,8 +1424,10 @@ class ServiceListCreateView(APIView):
 		if not kind:
 			return Response({"message": "Направление услуги не найдено для выбранной категории"}, status=400)
 
-		discount_percent = int(request.data.get("discount_percent") or 0)
-		discount_percent = max(0, min(100, discount_percent))
+		numbers, numbers_error = normalize_service_numbers(request.data)
+		if numbers_error:
+			return Response({"message": numbers_error}, status=400)
+		discount_percent = numbers["discount_percent"]
 		service_type = str(request.data.get("service_type") or "individual").strip().lower()
 		if service_type not in {"individual", "group"}:
 			return Response({"message": "service_type должен быть individual или group"}, status=400)
@@ -1426,9 +1456,9 @@ class ServiceListCreateView(APIView):
 			kind=kind,
 			details=normalized_details,
 			description=(request.data.get("description") or "").strip(),
-			duration_minutes=int(request.data.get("duration_minutes") or 60),
+			duration_minutes=numbers["duration_minutes"],
 			service_type=service_type,
-			price=request.data.get("price") or 0,
+			price=numbers["price"],
 			discount_percent=discount_percent,
 			is_subscription=is_subscription,
 			image_url=image_url,
@@ -1483,6 +1513,9 @@ class ServiceDetailView(APIView):
 			return Response({"message": "Услуга недоступна для текущей категории бизнеса"}, status=403)
 		previous_type = item.service_type
 		previous_duration = item.duration_minutes
+		numbers, numbers_error = normalize_service_numbers(request.data, item)
+		if numbers_error:
+			return Response({"message": numbers_error}, status=400)
 
 		name = request.data.get("name")
 		if name is not None:
@@ -1528,7 +1561,7 @@ class ServiceDetailView(APIView):
 
 		duration_minutes = request.data.get("duration_minutes")
 		if duration_minutes is not None:
-			item.duration_minutes = int(duration_minutes)
+			item.duration_minutes = numbers["duration_minutes"]
 
 		service_type = request.data.get("service_type")
 		if service_type is not None:
@@ -1539,12 +1572,11 @@ class ServiceDetailView(APIView):
 
 		price = request.data.get("price")
 		if price is not None:
-			item.price = price
+			item.price = numbers["price"]
 
 		discount_percent = request.data.get("discount_percent")
 		if discount_percent is not None:
-			parsed_discount = int(discount_percent)
-			item.discount_percent = max(0, min(100, parsed_discount))
+			item.discount_percent = numbers["discount_percent"]
 
 		is_subscription = request.data.get("is_subscription")
 		if is_subscription is not None:
@@ -1972,6 +2004,7 @@ class SpecialistDetailView(APIView):
 			}
 		)
 
+	@transaction.atomic
 	def patch(self, request, specialist_id: int):
 		partner_profile, error_response = get_partner_profile(request)
 		if error_response is not None:
@@ -2066,10 +2099,6 @@ class SpecialistDetailView(APIView):
 		if is_active is not None:
 			item.is_active = requested_is_active
 
-		item.save()
-		if item.photo_url != previous_photo_url:
-			delete_managed_image(previous_photo_url)
-
 		service_ids = request.data.get("service_ids")
 		if service_ids is not None:
 			if not isinstance(service_ids, list):
@@ -2107,6 +2136,10 @@ class SpecialistDetailView(APIView):
 			if to_create:
 				SpecialistService.objects.bulk_create(to_create)
 
+		item.save()
+		if item.photo_url != previous_photo_url:
+			delete_managed_image(previous_photo_url)
+
 		assigned_capabilities = list(item.capabilities.select_related("service"))
 		return Response(
 			{
@@ -2143,14 +2176,21 @@ class BookingListCreateView(APIView):
 
 		tenant = tenant_from_request(request)
 		starts_at_raw = request.data.get("starts_at")
-		starts_at = parse_datetime(str(starts_at_raw)) if starts_at_raw else None
+		starts_at = to_aware_datetime(parse_datetime(str(starts_at_raw))) if starts_at_raw else None
 		if starts_at is None:
 			return Response({"message": "starts_at должен быть в ISO формате"}, status=400)
+		if to_aware_datetime(starts_at) < timezone.now():
+			return Response({"message": "Нельзя записаться на прошедшее время"}, status=400)
+		booking_status = str(request.data.get("status") or "booked").strip().lower()
+		if booking_status not in BOOKING_STATUSES:
+			return Response({"message": "Некорректный статус записи"}, status=400)
 
 		required = ["service_name", "client_name", "client_phone"]
 		for field in required:
 			if not str(request.data.get(field) or "").strip():
 				return Response({"message": f"{field} обязателен"}, status=400)
+		if not PHONE_RU_RE.fullmatch(normalize_ru_phone(str(request.data.get("client_phone")))):
+			return Response({"message": "Телефон должен быть в формате +7XXXXXXXXXX"}, status=400)
 
 		service_name = str(request.data.get("service_name")).strip()
 		manager_name = str(request.data.get("manager_name") or "").strip() or None
@@ -2224,7 +2264,7 @@ class BookingListCreateView(APIView):
 
 		pricing = calculate_booking_pricing(
 			pricing_services, specialist, starts_at,
-			client_phone=str(request.data.get("client_phone")).strip(),
+			client_phone=normalize_ru_phone(str(request.data.get("client_phone"))),
 		)
 		item = Booking.objects.create(
 			tenant_slug=tenant,
@@ -2233,8 +2273,8 @@ class BookingListCreateView(APIView):
 			manager_name=manager_name,
 			starts_at=starts_at,
 			client_name=str(request.data.get("client_name")).strip(),
-			client_phone=str(request.data.get("client_phone")).strip(),
-			status=str(request.data.get("status") or "booked").strip(),
+			client_phone=normalize_ru_phone(str(request.data.get("client_phone"))),
+			status=booking_status,
 			**pricing,
 		)
 		return Response(serialize_booking(item), status=201)
@@ -2304,9 +2344,11 @@ class BookingDetailView(APIView):
 
 		if "starts_at" in request.data:
 			starts_at_raw = request.data.get("starts_at")
-			starts_at = parse_datetime(str(starts_at_raw)) if starts_at_raw else None
+			starts_at = to_aware_datetime(parse_datetime(str(starts_at_raw))) if starts_at_raw else None
 			if starts_at is None:
 				return Response({"message": "starts_at должен быть в ISO формате"}, status=400)
+			if to_aware_datetime(starts_at) < timezone.now():
+				return Response({"message": "Нельзя перенести запись на прошедшее время"}, status=400)
 			item.starts_at = starts_at
 
 		if "client_name" in request.data:
@@ -2319,10 +2361,14 @@ class BookingDetailView(APIView):
 			value = str(request.data.get("client_phone") or "").strip()
 			if not value:
 				return Response({"message": "client_phone обязателен"}, status=400)
-			item.client_phone = value
+			if not PHONE_RU_RE.fullmatch(normalize_ru_phone(value)):
+				return Response({"message": "Телефон должен быть в формате +7XXXXXXXXXX"}, status=400)
+			item.client_phone = normalize_ru_phone(value)
 
 		if "status" in request.data:
 			item.status = str(request.data.get("status") or "booked").strip() or "booked"
+			if item.status not in BOOKING_STATUSES:
+				return Response({"message": "Некорректный статус записи"}, status=400)
 
 		pricing_requires_refresh = any(
 			field in request.data for field in ("service_name", "service_ids", "manager_name", "starts_at", "client_phone")

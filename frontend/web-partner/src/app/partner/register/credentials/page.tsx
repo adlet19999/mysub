@@ -163,7 +163,7 @@ export default function PartnerRegisterCredentialsPage() {
                   }}
                   inputMode="tel"
                   placeholder="+7 (XXX) XXX-XX-XX"
-                  pattern="\+7[0-9\s\-()]{10,20}"
+                  pattern="\+7[0-9\s\-\(\)]{10,20}"
                   title="Введите телефон, который начинается с +7"
                 />
               </div>

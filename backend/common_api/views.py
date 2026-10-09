@@ -239,20 +239,30 @@ class AdminDashboardView(APIView):
 		if admin_user is None:
 			return Response({"message": "Требуется вход администратора"}, status=401)
 
-		from mobile_api.models import CustomerProfile
+		from mobile_api.models import CustomerProfile, CustomerSubscription
 		from partner_api.models import Booking
 
-		customers = CustomerProfile.objects.select_related("user", "city").order_by("-created_at")
+		customers = CustomerProfile.objects.select_related("user", "city", "subscription").order_by("-created_at")
 		partners = PartnerProfile.objects.select_related("user").order_by("-created_at")
 		bookings = Booking.objects.all()
-		bookings_by_phone = {
-			row["client_phone"]: row
-			for row in bookings.values("client_phone").annotate(
+		completed_bookings = bookings.filter(status__in={"completed", "done", "завершен", "завершена"})
+		bookings_by_phone = {}
+		for row in completed_bookings.values("client_phone").annotate(
 				visits=Count("id"),
 				last_visit=Max("starts_at"),
 				total_amount=Sum("final_price"),
-			)
-		}
+			):
+			phone = normalize_ru_phone(row["client_phone"])
+			if phone in bookings_by_phone:
+				previous = bookings_by_phone[phone]
+				row["visits"] += previous["visits"]
+				row["total_amount"] += previous["total_amount"]
+				row["last_visit"] = max(row["last_visit"], previous["last_visit"])
+			bookings_by_phone[phone] = row
+		active_subscriptions = CustomerSubscription.objects.filter(
+			customer__user__is_active=True, status=CustomerSubscription.Status.ACTIVE,
+		).filter(Q(expires_at__isnull=True) | Q(expires_at__gte=timezone.localdate()))
+		active_customer_ids = set(active_subscriptions.values_list("customer_id", flat=True))
 		recent_customers = [
 			{
 				"id": customer.id,
@@ -262,6 +272,8 @@ class AdminDashboardView(APIView):
 				"city_name": customer.city.name if customer.city_id else "",
 				"avatar_url": customer.avatar_url or None,
 				"created_at": customer.created_at.isoformat(),
+				"subscription": serialize_admin_subscription(getattr(customer, "subscription", None)),
+				"subscription_active": customer.id in active_customer_ids,
 				"visits": bookings_by_phone.get(customer.phone, {}).get("visits", 0),
 				"last_visit": (
 					bookings_by_phone[customer.phone]["last_visit"].isoformat()
@@ -295,13 +307,13 @@ class AdminDashboardView(APIView):
 				},
 				"metrics": {
 					"customers_total": customers.count(),
-					"subscriptions_active": 0,
-					"customers_without_subscription": customers.count(),
-					"customers_turnover": str(bookings.aggregate(total=Sum("final_price"))["total"] or 0),
+					"subscriptions_active": len(active_customer_ids),
+					"customers_without_subscription": customers.count() - len(active_customer_ids),
+					"customers_turnover": str(completed_bookings.aggregate(total=Sum("final_price"))["total"] or 0),
 					"partners_total": partners.count(),
 					"partners_active": partners.filter(user__is_active=True).count(),
 					"bookings_total": bookings.count(),
-					"revenue_total": str(sum((booking.final_price for booking in bookings), start=0)),
+					"revenue_total": str(completed_bookings.aggregate(total=Sum("final_price"))["total"] or 0),
 				},
 				"customers": recent_customers,
 				"partners": partner_list,
@@ -344,12 +356,17 @@ class AdminSubscriptionManagementView(APIView):
 		if not name:
 			return Response({"message": "Укажите название"}, status=status.HTTP_400_BAD_REQUEST)
 		if resource == "categories":
+			from partner_api.models import Category
+
 			allows_group_services = request.data.get("allows_group_services", False)
 			if not isinstance(allows_group_services, bool):
 				return Response({"message": "Укажите, разрешены ли групповые услуги"}, status=status.HTTP_400_BAD_REQUEST)
 			if BusinessCategory.objects.filter(name__iexact=name).exists():
 				return Response({"message": "Такая категория уже существует"}, status=status.HTTP_409_CONFLICT)
-			return Response({"category": serialize_business_category(BusinessCategory.objects.create(name=name, allows_group_services=allows_group_services))}, status=status.HTTP_201_CREATED)
+			with transaction.atomic():
+				category = BusinessCategory.objects.create(name=name, allows_group_services=allows_group_services)
+				Category.objects.get_or_create(tenant_slug="public", name=name)
+			return Response({"category": serialize_business_category(category)}, status=status.HTTP_201_CREATED)
 		if resource == "plans":
 			try:
 				monthly_price = int(request.data.get("monthly_price"))
@@ -430,7 +447,9 @@ class AdminCustomerDetailView(APIView):
 			return Response({"message": "Пользователь не найден"}, status=status.HTTP_404_NOT_FOUND)
 
 		subscription = CustomerSubscription.objects.filter(customer=customer).first()
-		visits = Booking.objects.filter(client_phone=customer.phone).select_related("partner_profile", "partner_profile__user").order_by("-starts_at")
+		phone_digits = re.sub(r"\D", "", customer.phone)
+		phone_pattern = r"^\D*" + r"\D*".join(phone_digits) + r"\D*$"
+		visits = Booking.objects.filter(client_phone__regex=phone_pattern).select_related("partner_profile", "partner_profile__user").order_by("-starts_at")
 		return Response(
 			{
 				"customer": {

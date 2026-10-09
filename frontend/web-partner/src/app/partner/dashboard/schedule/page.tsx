@@ -110,7 +110,7 @@ function GroupBookingDetails({ booking, selectedIds, disabled, onToggle }: { boo
       <div><dt>Групповая услуга</dt><dd>{group.service_name}</dd></div>
       <div><dt>Количество мест</dt><dd>{group.capacity}</dd></div>
       <div><dt>Свободных мест</dt><dd>{group.available_places}</dd></div>
-      <div><dt>Общая сумма</dt><dd>{total.toLocaleString("ru-RU")} ₸</dd></div>
+      <div><dt>Сумма выбранных участников</dt><dd>{total.toLocaleString("ru-RU")} ₸</dd></div>
       <div className={styles.groupSummaryBorder}><dt>Дата и время</dt><dd>{formatDateTitle(startsAt)}, {formatTime(startsAt)} - {formatTime(endsAt)}</dd></div>
       <div><dt>Ресурс</dt><dd>{booking.manager_name || "Не назначен"}</dd></div>
       <div className={styles.groupSummaryBorder}><dt>Статус</dt><dd>{getStatusLabel(booking.status)}</dd></div>
@@ -701,6 +701,7 @@ export default function SchedulePage() {
     ALL_SPECIALISTS_VALUE,
   );
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+  const [isAddingGroupParticipant, setIsAddingGroupParticipant] = useState(false);
   const [bookingModalMode, setBookingModalMode] = useState<"create" | "edit">(
     "create",
   );
@@ -1360,6 +1361,7 @@ export default function SchedulePage() {
   }, [partnerEmail, tenant]);
 
   function openBookingModal() {
+    setIsAddingGroupParticipant(false);
     setBookingClientName("");
     setBookingPhone("");
     setBookingSpecialistId("");
@@ -1374,6 +1376,7 @@ export default function SchedulePage() {
   }
 
   function openEditBookingModal(target: Booking) {
+    setIsAddingGroupParticipant(false);
     const startsAt = parseBookingDateTime(target.starts_at);
     const listedNames = parseServiceNames(target.service_name);
     const matchedServices = listedNames
@@ -1381,9 +1384,9 @@ export default function SchedulePage() {
         (listedName) =>
           bookableServices.find(
             (item) =>
-              item.name.trim().toLowerCase() === listedName.toLowerCase() ||
-              (item.kind_name || "").trim().toLowerCase() ===
-                listedName.toLowerCase(),
+              target.group_session ? item.id === target.group_session.service_id :
+                item.name.trim().toLowerCase() === listedName.toLowerCase() ||
+                (item.kind_name || "").trim().toLowerCase() === listedName.toLowerCase(),
           ) ?? null,
       )
       .filter((item): item is Service => Boolean(item));
@@ -1425,6 +1428,22 @@ export default function SchedulePage() {
     setDetailsBooking(target);
     setSelectedParticipantIds([]);
     setDetailsError("");
+  }
+
+  function openGroupParticipantModal(target: Booking) {
+    const group = target.group_session;
+    if (!group || !bookableServices.some((service) => service.id === group.service_id) ||
+        !activeSpecialists.some((specialist) => specialist.full_name === target.manager_name)) {
+      setDetailsError("Услуга или специалист недоступны для новой записи.");
+      return;
+    }
+    openEditBookingModal(target);
+    setBookingModalMode("create");
+    setEditingBookingId(null);
+    setBookingClientName("");
+    setBookingPhone("");
+    setIsAddingGroupParticipant(true);
+    setDetailsBooking(null);
   }
 
   async function deleteBooking() {
@@ -2547,7 +2566,7 @@ export default function SchedulePage() {
           role="dialog"
           aria-modal="true"
           aria-label={
-            bookingModalMode === "edit"
+            isAddingGroupParticipant ? "Добавить участника" : bookingModalMode === "edit"
               ? "Редактировать запись"
               : "Добавить запись"
           }
@@ -2569,7 +2588,7 @@ export default function SchedulePage() {
                   className={styles.bookingHeaderIcon}
                 />
                 <h3>
-                  {bookingModalMode === "edit"
+                  {isAddingGroupParticipant ? "Добавить участника" : bookingModalMode === "edit"
                     ? "Редактировать запись"
                     : "Добавить запись"}
                 </h3>
@@ -2651,6 +2670,7 @@ export default function SchedulePage() {
                       <label className={styles.fieldBlock}>
                         <span>Услуга{index === 0 ? "" : ` ${index + 1}`}</span>
                         <select
+                          disabled={isAddingGroupParticipant}
                           value={line.serviceId}
                           onChange={(event) =>
                             onServiceChange(line.id, event.target.value)
@@ -2675,6 +2695,7 @@ export default function SchedulePage() {
                       >
                         <span>Сумма</span>
                         <input
+                          readOnly={isAddingGroupParticipant}
                           value={line.sum}
                           onChange={(event) =>
                             onSumChange(line.id, event.target.value)
@@ -2701,6 +2722,7 @@ export default function SchedulePage() {
                       <label className={styles.fieldBlock}>
                         <span>Специалист</span>
                         <select
+                          disabled={isAddingGroupParticipant}
                           value={lineSpecialistId}
                           onChange={(event) =>
                             bookingModalMode === "edit"
@@ -2745,6 +2767,7 @@ export default function SchedulePage() {
                         <div className={styles.iconInputWrap}>
                           <img src="/calendar.svg" alt="" aria-hidden />
                           <input
+                            disabled={isAddingGroupParticipant}
                             type="date"
                             value={lineDate}
                             onChange={(event) =>
@@ -2764,6 +2787,7 @@ export default function SchedulePage() {
                         <div className={styles.iconInputWrap}>
                           <img src="/schedule.svg" alt="" aria-hidden />
                           <select
+                            disabled={isAddingGroupParticipant}
                             value={lineStartTime}
                             onChange={(event) =>
                               bookingModalMode === "edit"
@@ -2800,14 +2824,14 @@ export default function SchedulePage() {
                 );
               })}
 
-              <button
+              {!isAddingGroupParticipant ? <button
                 type="button"
                 className={styles.addMoreButton}
                 onClick={addBookingLine}
               >
                 <span>+</span>
                 Добавить ещё
-              </button>
+              </button> : <p className={styles.discountHint}>Запись в выбранное групповое занятие. Цена и свободное место проверяются при сохранении.</p>}
 
               {modalError ? (
                 <p className={styles.modalError}>{modalError}</p>
@@ -3059,6 +3083,14 @@ export default function SchedulePage() {
               </div>
               </>}
               {detailsError ? <p className={styles.modalError} role="alert">{detailsError}</p> : null}
+              {detailsBooking.group_session ? (
+                <button type="button" className={styles.addMoreButton}
+                  onClick={() => openGroupParticipantModal(detailsBooking)}
+                  disabled={isUpdatingStatus || detailsBooking.group_session.available_places <= 0 ||
+                    new Date(detailsBooking.starts_at).getTime() <= Date.now() ||
+                    !detailsBooking.group_session.participants.some((participant) => getStatusTone(participant.status) === "warning")}
+                >Добавить участника</button>
+              ) : null}
             </div>
 
             <footer className={styles.detailsFooter}>

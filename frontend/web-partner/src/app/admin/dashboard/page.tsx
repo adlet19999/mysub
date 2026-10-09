@@ -10,7 +10,7 @@ import styles from "./page.module.css";
 type DashboardData = {
   admin: { name: string; email: string };
   metrics: { customers_total: number; subscriptions_active: number; customers_without_subscription: number; customers_turnover: string; partners_total: number; partners_active: number; bookings_total: number; revenue_total: string };
-  customers: Array<{ id: number; name: string; email: string; phone: string; city_name: string; avatar_url: string; created_at: string; visits: number; last_visit: string | null; total_amount: string }>;
+  customers: Array<{ id: number; name: string; email: string; phone: string; city_name: string; avatar_url: string; created_at: string; visits: number; last_visit: string | null; total_amount: string; subscription: CustomerSubscription | null; subscription_active: boolean }>;
   partners: Array<{ id: number; name: string; contact_name: string; email: string; phone: string; category: string; is_active: boolean; created_at: string }>;
 };
 
@@ -163,10 +163,15 @@ function Metric({ label, value }: { label: string; value: string }) {
   return <article className={styles.metric}><div><p>{label}</p><strong>{value}</strong></div></article>;
 }
 
+function SubscriptionStatus({ customer }: { customer: DashboardData["customers"][number] }) {
+  const label = customer.subscription_active ? "Активна" : customer.subscription?.status === "paused" ? "Приостановлена" : customer.subscription ? "Истекла" : "Отсутствует";
+  return <span className={customer.subscription_active ? styles.subscriptionActive : styles.subscriptionNone}>{label}</span>;
+}
+
 function UsersTable({ customers, onOpenProfile }: { customers: DashboardData["customers"]; onOpenProfile: (customerId: number) => void }) {
   return <section className={styles.usersPage}>
     <div className={styles.usersHeading}><h2>Пользователи</h2><p>Управление пользователями, их подписками и статусами</p></div>
-    {customers.length ? <div className={styles.usersTable}><div className={styles.usersTableHeader}><span>Пользователь</span><span>Контакты</span><span>Статус подписки</span><span>Дата регистрации</span><span>Дата окончания</span><span>Визиты</span><span>Сумма</span></div>{customers.map((customer) => <div className={`${styles.usersTableRow} ${styles.userProfileRow}`} key={customer.id} role="button" tabIndex={0} onClick={() => onOpenProfile(customer.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpenProfile(customer.id); }}><span className={styles.userIdentity}>{customer.avatar_url ? <img src={customer.avatar_url} alt="" className={styles.userAvatar} /> : <i className={styles.userAvatar}>{customer.name.slice(0, 1).toUpperCase()}</i>}<span><b>{customer.name}</b><small>{customer.email || "Email не указан"}</small></span></span><span>{formatRuPhone(customer.phone)}</span><span className={styles.subscriptionNone}>Отсутствует</span><span>{formatDate(customer.created_at)}</span><span>-</span><span>{customer.visits}</span><span>{formatMoney(customer.total_amount)}</span></div>)}</div> : <div className={styles.empty}>Пользователей пока нет.</div>}
+    {customers.length ? <div className={styles.usersTable}><div className={styles.usersTableHeader}><span>Пользователь</span><span>Контакты</span><span>Статус подписки</span><span>Дата регистрации</span><span>Дата окончания</span><span>Визиты</span><span>Сумма</span></div>{customers.map((customer) => <div className={`${styles.usersTableRow} ${styles.userProfileRow}`} key={customer.id} role="button" tabIndex={0} onClick={() => onOpenProfile(customer.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpenProfile(customer.id); }}><span className={styles.userIdentity}>{customer.avatar_url ? <img src={customer.avatar_url} alt="" className={styles.userAvatar} /> : <i className={styles.userAvatar}>{customer.name.slice(0, 1).toUpperCase()}</i>}<span><b>{customer.name}</b><small>{customer.email || "Email не указан"}</small></span></span><span>{formatRuPhone(customer.phone)}</span><SubscriptionStatus customer={customer} /><span>{formatDate(customer.created_at)}</span><span>{customer.subscription?.expires_at ? formatDate(customer.subscription.expires_at) : "-"}</span><span>{customer.visits}</span><span>{formatMoney(customer.total_amount)}</span></div>)}</div> : <div className={styles.empty}>Пользователей пока нет.</div>}
   </section>;
 }
 
@@ -253,7 +258,7 @@ function CustomerProfile({ customerId, onBack }: { customerId: number; onBack: (
 function CustomersTable({ customers, onOpenUsers }: { customers: DashboardData["customers"]; onOpenUsers: () => void }) {
   return <section className={styles.customersSection}>
     <h2>Пользователи</h2>
-    {customers.length ? <div className={styles.customerTable}><div className={styles.customerTableHeader}><span>ФИО пользователей</span><span>Телефон</span><span>Подписка</span><span>Последний визит</span><span>Визиты</span><span>Сумма</span></div>{customers.map((customer) => <div className={styles.customerTableRow} key={customer.id}><span className={styles.customerIdentity}>{customer.avatar_url ? <img src={customer.avatar_url} alt="" className={styles.customerAvatar} /> : <i className={styles.customerAvatar}>{customer.name.slice(0, 1).toUpperCase()}</i>}<span><b>{customer.name}</b><small>{customer.email || "Email не указан"}</small></span></span><span>{formatRuPhone(customer.phone)}</span><span className={styles.noSubscription}>Нет</span><span>{formatDateTime(customer.last_visit)}</span><span>{customer.visits}</span><span>{formatMoney(customer.total_amount)}</span></div>)}</div> : <div className={styles.empty}>Пользователей пока нет.</div>}
+    {customers.length ? <div className={styles.customerTable}><div className={styles.customerTableHeader}><span>ФИО пользователей</span><span>Телефон</span><span>Подписка</span><span>Последний визит</span><span>Визиты</span><span>Сумма</span></div>{customers.map((customer) => <div className={styles.customerTableRow} key={customer.id}><span className={styles.customerIdentity}>{customer.avatar_url ? <img src={customer.avatar_url} alt="" className={styles.customerAvatar} /> : <i className={styles.customerAvatar}>{customer.name.slice(0, 1).toUpperCase()}</i>}<span><b>{customer.name}</b><small>{customer.email || "Email не указан"}</small></span></span><span>{formatRuPhone(customer.phone)}</span><SubscriptionStatus customer={customer} /><span>{formatDateTime(customer.last_visit)}</span><span>{customer.visits}</span><span>{formatMoney(customer.total_amount)}</span></div>)}</div> : <div className={styles.empty}>Пользователей пока нет.</div>}
     <button className={styles.allUsersButton} onClick={onOpenUsers}>Все пользователи</button>
   </section>;
 }

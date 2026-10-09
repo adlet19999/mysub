@@ -248,6 +248,8 @@ class BookingPricingTests(TestCase):
 
 class BookingPricingApiTests(TestCase):
 	def setUp(self):
+		self.booking_date = timezone.localdate() + timedelta(days=7)
+		self.booking_date += timedelta(days=(-self.booking_date.weekday()) % 7)
 		customer = CustomerProfile.objects.create(
 			user=User.objects.create_user(username="api-pricing-customer"),
 			phone="+77000000000",
@@ -295,6 +297,9 @@ class BookingPricingApiTests(TestCase):
 			"HTTP_X_PARTNER_EMAIL": "partner@example.com",
 		}
 
+	def at(self, hour, minute=0):
+		return timezone.make_aware(datetime.combine(self.booking_date, datetime.min.time()).replace(hour=hour, minute=minute))
+
 	def test_booking_price_snapshot_is_created_and_recalculated_on_move(self):
 		created = self.client.post(
 			"/api/v1/partner/bookings/",
@@ -302,7 +307,7 @@ class BookingPricingApiTests(TestCase):
 				"service_name": self.service.name,
 				"service_ids": [self.service.id],
 				"manager_name": self.specialist.full_name,
-				"starts_at": "2026-04-20T15:00:00+05:00",
+				"starts_at": self.at(15).isoformat(),
 				"client_name": "Клиент",
 				"client_phone": "+77000000000",
 			},
@@ -317,7 +322,7 @@ class BookingPricingApiTests(TestCase):
 		updated = self.client.patch(
 			f"/api/v1/partner/bookings/{created.data['id']}/",
 			{
-				"starts_at": "2026-04-20T12:00:00+05:00",
+				"starts_at": self.at(12).isoformat(),
 				"service_ids": [self.service.id],
 			},
 			format="json",
@@ -337,7 +342,7 @@ class BookingPricingApiTests(TestCase):
 				"service_name": self.service.name,
 				"service_ids": [self.service.id],
 				"manager_name": self.specialist.full_name,
-				"starts_at": "2026-04-20T15:00:00+05:00",
+				"starts_at": self.at(15).isoformat(),
 				"client_name": "Клиент",
 				"client_phone": "+7 (700) 000-00-00",
 			}, format="json", **self.headers,
@@ -366,7 +371,7 @@ class BookingPricingApiTests(TestCase):
 					"service_name": self.service.name,
 					"service_ids": [self.service.id],
 					"manager_name": self.specialist.full_name,
-					"starts_at": "2026-04-20T15:00:00+05:00",
+					"starts_at": self.at(15).isoformat(),
 					"client_name": "Клиент",
 					"client_phone": phone,
 				}, format="json", **self.headers,
@@ -383,7 +388,7 @@ class BookingPricingApiTests(TestCase):
 				"service_name": self.service.name,
 				"service_ids": [self.service.id],
 				"manager_name": self.specialist.full_name,
-				"starts_at": "2026-04-20T15:00:00+05:00",
+				"starts_at": self.at(15).isoformat(),
 				"client_name": "Клиент",
 				"client_phone": "+77000000000",
 			}, format="json", **self.headers,
@@ -419,7 +424,7 @@ class BookingPricingApiTests(TestCase):
 		self.service.service_type = "group"
 		self.service.details = {"min_people": 1, "max_people": 2}
 		self.service.save()
-		payload = {"service_name": self.service.name, "service_ids": [self.service.id], "manager_name": self.specialist.full_name, "starts_at": "2026-04-20T15:00:00+05:00", "client_name": "Клиент"}
+		payload = {"service_name": self.service.name, "service_ids": [self.service.id], "manager_name": self.specialist.full_name, "starts_at": self.at(15).isoformat(), "client_name": "Клиент"}
 		first = self.client.post("/api/v1/partner/bookings/", {**payload, "client_phone": "+77000000001"}, format="json", **self.headers)
 		second = self.client.post("/api/v1/partner/bookings/", {**payload, "client_phone": "+77000000002"}, format="json", **self.headers)
 		self.assertEqual(first.status_code, 201)
@@ -431,24 +436,24 @@ class BookingPricingApiTests(TestCase):
 		Booking.objects.filter(id=first.data["id"]).update(status="cancelled")
 		third = self.client.post("/api/v1/partner/bookings/", {**payload, "client_phone": "+77000000003"}, format="json", **self.headers)
 		self.assertEqual(third.status_code, 201)
-		overlap = self.client.post("/api/v1/partner/bookings/", {**payload, "client_phone": "+77000000004", "starts_at": "2026-04-20T15:30:00+05:00"}, format="json", **self.headers)
+		overlap = self.client.post("/api/v1/partner/bookings/", {**payload, "client_phone": "+77000000004", "starts_at": self.at(15, 30).isoformat()}, format="json", **self.headers)
 		self.assertEqual(overlap.status_code, 409)
 		movable = self.client.post(
 			"/api/v1/partner/bookings/",
-			{**payload, "client_phone": "+77000000005", "starts_at": "2026-04-20T16:00:00+05:00"},
+			{**payload, "client_phone": "+77000000005", "starts_at": self.at(16).isoformat()},
 			format="json",
 			**self.headers,
 		)
 		self.assertEqual(movable.status_code, 201)
 		move_to_full_group = self.client.patch(
 			f"/api/v1/partner/bookings/{movable.data['id']}/",
-			{"starts_at": "2026-04-20T15:00:00+05:00"},
+			{"starts_at": self.at(15).isoformat()},
 			format="json",
 			**self.headers,
 		)
 		self.assertEqual(move_to_full_group.status_code, 409)
 		movable_booking = Booking.objects.get(id=movable.data["id"])
-		self.assertEqual(movable_booking.starts_at, timezone.make_aware(datetime(2026, 4, 20, 16)))
+		self.assertEqual(movable_booking.starts_at, self.at(16))
 
 	def test_group_completion_updates_each_participant(self):
 		from common_api.models import BusinessCategory

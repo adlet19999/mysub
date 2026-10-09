@@ -29,7 +29,7 @@ class ArchivedManagerLoginTests(TestCase):
 		)
 
 		response = APIClient().post(
-			"/api/v1/auth/login/",
+			"/api/v1/common/auth/login/",
 			{"username": "manager@example.com", "password": "password123"},
 			format="json",
 		)
