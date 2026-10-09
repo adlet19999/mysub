@@ -7,6 +7,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from common_api.models import PartnerProfile
+from mobile_api.models import CustomerProfile, CustomerSubscription
 
 from .models import Booking, Category, Service, ServiceKind, Specialist, SpecialistService
 from .views import (
@@ -128,6 +129,12 @@ class BookingScheduleValidationTests(TestCase):
 
 class BookingPricingTests(TestCase):
 	def setUp(self):
+		self.phone = "+77000000000"
+		customer = CustomerProfile.objects.create(
+			user=User.objects.create_user(username="pricing-customer"),
+			phone=self.phone,
+		)
+		self.subscription = CustomerSubscription.objects.create(customer=customer)
 		category = Category.objects.create(tenant_slug="public", name="Салон")
 		kind = ServiceKind.objects.create(tenant_slug="public", category=category, name="Стрижки")
 		schedule = default_working_schedule()
@@ -164,19 +171,19 @@ class BookingPricingTests(TestCase):
 		return timezone.make_aware(datetime(2026, 4, 20, hour, minute))
 
 	def test_pricing_applies_discount_inside_any_promotion_window(self):
-		pricing = calculate_booking_pricing([self.service], self.specialist, self.at(15))
+		pricing = calculate_booking_pricing([self.service], self.specialist, self.at(15), client_phone=self.phone)
 		self.assertEqual(pricing["base_price"], Decimal("1000.00"))
 		self.assertEqual(pricing["discount_amount"], Decimal("200.00"))
 		self.assertEqual(pricing["final_price"], Decimal("800.00"))
 		self.assertEqual(pricing["pricing_details"][0]["discount_percent"], 20)
 
 	def test_pricing_keeps_full_price_outside_promotion_windows(self):
-		pricing = calculate_booking_pricing([self.service], self.specialist, self.at(12))
+		pricing = calculate_booking_pricing([self.service], self.specialist, self.at(12), client_phone=self.phone)
 		self.assertEqual(pricing["discount_amount"], Decimal("0.00"))
 		self.assertEqual(pricing["final_price"], Decimal("1000.00"))
 
 	def test_booking_serializer_returns_price_snapshot(self):
-		pricing = calculate_booking_pricing([self.service], self.specialist, self.at(10))
+		pricing = calculate_booking_pricing([self.service], self.specialist, self.at(10), client_phone=self.phone)
 		booking = Booking.objects.create(
 			tenant_slug="public",
 			service_name=self.service.name,
@@ -191,9 +198,61 @@ class BookingPricingTests(TestCase):
 		self.assertEqual(payload["discount_amount"], "200.00")
 		self.assertEqual(payload["final_price"], "800.00")
 
+	def test_pricing_requires_subscription_for_each_customer(self):
+		for phone in ("", "+77000000001"):
+			with self.subTest(phone=phone):
+				pricing = calculate_booking_pricing([self.service], self.specialist, self.at(15), client_phone=phone)
+				self.assertEqual(pricing["final_price"], Decimal("1000.00"))
+				self.assertEqual(pricing["pricing_details"][0]["discount_percent"], 0)
+
+	def test_paused_expired_and_inactive_customers_pay_full_price(self):
+		self.subscription.status = CustomerSubscription.Status.PAUSED
+		self.subscription.save()
+		pricing = calculate_booking_pricing([self.service], self.specialist, self.at(15), client_phone=self.phone)
+		self.assertEqual(pricing["discount_amount"], Decimal("0.00"))
+		self.subscription.status = CustomerSubscription.Status.ACTIVE
+		self.subscription.expires_at = timezone.localdate() - timedelta(days=1)
+		self.subscription.save()
+		pricing = calculate_booking_pricing([self.service], self.specialist, self.at(15), client_phone=self.phone)
+		self.assertEqual(pricing["discount_amount"], Decimal("0.00"))
+		self.subscription.expires_at = None
+		self.subscription.save()
+		user = self.subscription.customer.user
+		user.is_active = False
+		user.save()
+		pricing = calculate_booking_pricing([self.service], self.specialist, self.at(15), client_phone=self.phone)
+		self.assertEqual(pricing["discount_amount"], Decimal("0.00"))
+
+	def test_subscription_must_cover_visit_date_inclusively(self):
+		visit_date = timezone.localdate() + timedelta(days=14)
+		visit_date += timedelta(days=(-visit_date.weekday()) % 7)
+		starts_at = timezone.make_aware(datetime.combine(visit_date, datetime.min.time()).replace(hour=15))
+		for expires_at, expected in (
+			(visit_date - timedelta(days=1), "1000.00"),
+			(visit_date, "800.00"),
+		):
+			with self.subTest(expires_at=expires_at):
+				self.subscription.expires_at = expires_at
+				self.subscription.save()
+				pricing = calculate_booking_pricing([self.service], self.specialist, starts_at, client_phone=self.phone)
+				self.assertEqual(pricing["final_price"], Decimal(expected))
+
+	def test_formatted_phone_matches_subscription(self):
+		pricing = calculate_booking_pricing([self.service], self.specialist, self.at(15), client_phone="+7 (700) 000-00-00")
+		self.assertEqual(pricing["final_price"], Decimal("800.00"))
+
+	def test_entire_service_must_fit_discount_window(self):
+		pricing = calculate_booking_pricing([self.service], self.specialist, self.at(10, 30), client_phone=self.phone)
+		self.assertEqual(pricing["final_price"], Decimal("1000.00"))
+
 
 class BookingPricingApiTests(TestCase):
 	def setUp(self):
+		customer = CustomerProfile.objects.create(
+			user=User.objects.create_user(username="api-pricing-customer"),
+			phone="+77000000000",
+		)
+		CustomerSubscription.objects.create(customer=customer)
 		user = User.objects.create_user(username="partner@example.com", email="partner@example.com")
 		self.partner_profile = PartnerProfile.objects.create(user=user, phone="+77000000000", user_type="partner")
 		category = Category.objects.create(tenant_slug="public", name="Салон")
@@ -271,6 +330,73 @@ class BookingPricingApiTests(TestCase):
 		booking = Booking.objects.get(id=created.data["id"])
 		self.assertEqual(booking.final_price, Decimal("1000.00"))
 
+	def test_changing_customer_recalculates_subscription_discount(self):
+		created = self.client.post(
+			"/api/v1/partner/bookings/",
+			{
+				"service_name": self.service.name,
+				"service_ids": [self.service.id],
+				"manager_name": self.specialist.full_name,
+				"starts_at": "2026-04-20T15:00:00+05:00",
+				"client_name": "Клиент",
+				"client_phone": "+7 (700) 000-00-00",
+			}, format="json", **self.headers,
+		)
+		self.assertEqual(created.status_code, 201)
+		self.assertEqual(created.data["final_price"], "800.00")
+		updated = self.client.patch(
+			f"/api/v1/partner/bookings/{created.data['id']}/",
+			{"client_phone": "+77000000001"}, format="json", **self.headers,
+		)
+		self.assertEqual(updated.status_code, 200)
+		self.assertEqual(updated.data["final_price"], "1000.00")
+		self.assertFalse(updated.data["subscription_active"])
+
+	def test_group_participants_have_individual_subscription_prices(self):
+		from common_api.models import BusinessCategory
+
+		BusinessCategory.objects.create(name="Салон", allows_group_services=True)
+		self.service.service_type = "group"
+		self.service.details = {"min_people": 1, "max_people": 3}
+		self.service.save()
+		for phone, expected in (("+77000000000", "800.00"), ("+77000000001", "1000.00")):
+			created = self.client.post(
+				"/api/v1/partner/bookings/",
+				{
+					"service_name": self.service.name,
+					"service_ids": [self.service.id],
+					"manager_name": self.specialist.full_name,
+					"starts_at": "2026-04-20T15:00:00+05:00",
+					"client_name": "Клиент",
+					"client_phone": phone,
+				}, format="json", **self.headers,
+			)
+			self.assertEqual(created.status_code, 201)
+			self.assertEqual(created.data["final_price"], expected)
+		participants = created.data["group_session"]["participants"]
+		self.assertEqual([(p["final_price"], p["subscription_active"]) for p in participants], [("800.00", True), ("1000.00", False)])
+
+	def test_status_change_preserves_price_snapshot(self):
+		created = self.client.post(
+			"/api/v1/partner/bookings/",
+			{
+				"service_name": self.service.name,
+				"service_ids": [self.service.id],
+				"manager_name": self.specialist.full_name,
+				"starts_at": "2026-04-20T15:00:00+05:00",
+				"client_name": "Клиент",
+				"client_phone": "+77000000000",
+			}, format="json", **self.headers,
+		)
+		self.assertEqual(created.status_code, 201)
+		CustomerSubscription.objects.all().delete()
+		updated = self.client.patch(
+			f"/api/v1/partner/bookings/{created.data['id']}/",
+			{"status": "completed"}, format="json", **self.headers,
+		)
+		self.assertEqual(updated.status_code, 200)
+		self.assertEqual(updated.data["final_price"], "800.00")
+
 	def test_group_format_requires_category_permission_and_capacity(self):
 		from common_api.models import BusinessCategory
 
@@ -336,7 +462,8 @@ class BookingPricingApiTests(TestCase):
 		payload = serialize_booking(members[0])
 		self.assertEqual(payload["group_session"]["capacity"], 3)
 		self.assertEqual(len(payload["group_session"]["participants"]), 3)
-		self.assertFalse(payload["group_session"]["participants"][0]["subscription_active"])
+		self.assertTrue(payload["group_session"]["participants"][0]["subscription_active"])
+		self.assertFalse(payload["group_session"]["participants"][1]["subscription_active"])
 		foreign = self.client.patch(f"/api/v1/partner/bookings/{members[0].id}/", {"group_action": "complete", "participant_ids": [999999]}, format="json", **self.headers)
 		self.assertEqual(foreign.status_code, 409)
 		response = self.client.patch(f"/api/v1/partner/bookings/{members[0].id}/", {"group_action": "complete", "participant_ids": [members[0].id, members[1].id]}, format="json", **self.headers)

@@ -7,6 +7,20 @@ Backend API for partner frontend (Django + DRF).
 - Django REST Framework
 - PostgreSQL
 
+## Booking prices and availability
+
+- Working hours, breaks and occupied places determine available booking slots.
+  Discount windows do not restrict availability outside those windows.
+- A service discount applies only when its entire duration fits a specialist's
+  discount window and the customer's subscription is active and valid through
+  the visit date (inclusive). Missing, paused or expired subscriptions and
+  inactive customer accounts pay the full service price.
+- Partner bookings identify the customer by normalized phone; mobile bookings
+  use the authenticated customer's phone. The client cannot grant a discount.
+- Prices are stored per participant, including for group sessions. Moving a
+  booking or changing its customer recalculates the price; status-only updates
+  preserve the stored price. Existing bookings are not repriced on deployment.
+
 ## PostgreSQL env
 
 Set these environment variables before running migrations/start:

@@ -959,7 +959,7 @@ export default function SchedulePage() {
         finalPrice: hasPriceSnapshot ? snapshotFinalPrice : null,
         discountPercent: hasPriceSnapshot
           ? Math.max(0, Math.min(100, Number(pricingDetail?.discount_percent || 0)))
-          : isDiscountTime
+          : isDiscountTime && detailsBooking.subscription_active
             ? Math.max(0, Math.min(100, Number(service?.discount_percent || 0)))
             : 0,
         durationMinutes,
@@ -2790,9 +2790,10 @@ export default function SchedulePage() {
 
                     {lineDiscount && lineDiscount.discountPercent > 0 ? (
                       <p className={styles.discountHint}>
+                        <span>С действующей подпиской на дату визита:</span>
                         <strong>{`${Math.round(lineDiscount.price * (1 - lineDiscount.discountPercent / 100)).toLocaleString("ru-RU")} т`}</strong>
-                        <s>{`${lineDiscount.price.toLocaleString("ru-RU")} т`}</s>
                         <span>{`скидка ${lineDiscount.discountPercent}%`}</span>
+                        <span>{`Без подписки — ${lineDiscount.price.toLocaleString("ru-RU")} т. Проверка подписки при сохранении.`}</span>
                       </p>
                     ) : null}
                   </div>

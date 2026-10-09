@@ -691,11 +691,12 @@ def discount_window_for_service(specialist: Specialist | None, starts_at, servic
 	return None
 
 
-def calculate_booking_pricing(services, specialist: Specialist | None, starts_at):
+def calculate_booking_pricing(services, specialist: Specialist | None, starts_at, *, client_phone=""):
 	base_price = Decimal("0.00")
 	discount_amount = Decimal("0.00")
 	pricing_details = []
 	service_offset_minutes = 0
+	subscription_active = client_phone in active_subscription_phones([client_phone], starts_at)
 
 	for service in services:
 		duration_minutes = service.duration_minutes if service.duration_minutes and service.duration_minutes > 0 else 60
@@ -707,7 +708,7 @@ def calculate_booking_pricing(services, specialist: Specialist | None, starts_at
 			service_offset_minutes,
 			duration_minutes,
 		)
-		applied_discount_percent = discount_percent if discount_window else 0
+		applied_discount_percent = discount_percent if discount_window and subscription_active else 0
 		service_discount_amount = (service_base_price * Decimal(applied_discount_percent) / Decimal("100")).quantize(
 			MONEY_QUANTUM,
 			rounding=ROUND_HALF_UP,
@@ -757,10 +758,21 @@ def group_booking_members(item):
 	return service, members
 
 
-def active_subscription_phones(phones):
+def active_subscription_phones(phones, starts_at=None):
 	from mobile_api.models import CustomerSubscription
 
-	return set(CustomerSubscription.objects.filter(customer__phone__in=phones, customer__user__is_active=True, status="active").filter(Q(expires_at__isnull=True) | Q(expires_at__gte=timezone.localdate())).values_list("customer__phone", flat=True))
+	reference_date = timezone.localdate()
+	if starts_at is not None:
+		reference_date = max(reference_date, timezone.localtime(to_aware_datetime(starts_at)).date())
+	normalized_phones = {phone: normalize_ru_phone(phone) for phone in phones if phone}
+	subscribed = set(CustomerSubscription.objects.filter(
+		customer__phone__in=normalized_phones.values(),
+		customer__user__is_active=True,
+		status=CustomerSubscription.Status.ACTIVE,
+	).filter(
+		Q(expires_at__isnull=True) | Q(expires_at__gte=reference_date)
+	).values_list("customer__phone", flat=True))
+	return {phone for phone, normalized in normalized_phones.items() if normalized in subscribed}
 
 
 def serialize_group_session(item):
@@ -770,7 +782,7 @@ def serialize_group_session(item):
 	snapshot = item.pricing_details[0] if item.pricing_details else {}
 	capacity = max(1, int((service.details or {}).get("max_people") or 1)) if service else max(1, int(snapshot.get("max_people") or 1))
 	occupied = sum(member.status not in {"no_show", "no-show", "missed", "неявка"} for member in members)
-	subscribed = active_subscription_phones([member.client_phone for member in members])
+	subscribed = active_subscription_phones([member.client_phone for member in members], item.starts_at)
 	return {
 		"service_id": service.id if service else snapshot.get("service_id"),
 		"service_name": item.service_name,
@@ -795,7 +807,7 @@ def serialize_booking(item: Booking):
 		"discount_amount": str(item.discount_amount),
 		"final_price": str(item.final_price),
 		"pricing_details": item.pricing_details or [],
-		"subscription_active": item.client_phone in active_subscription_phones([item.client_phone]),
+		"subscription_active": item.client_phone in active_subscription_phones([item.client_phone], item.starts_at),
 		"group_session": serialize_group_session(item),
 	}
 
@@ -2210,7 +2222,10 @@ class BookingListCreateView(APIView):
 		):
 			return Response({"message": "Этот клиент уже записан на пересекающееся время"}, status=409)
 
-		pricing = calculate_booking_pricing(pricing_services, specialist, starts_at)
+		pricing = calculate_booking_pricing(
+			pricing_services, specialist, starts_at,
+			client_phone=str(request.data.get("client_phone")).strip(),
+		)
 		item = Booking.objects.create(
 			tenant_slug=tenant,
 			partner_profile=partner_profile,
@@ -2310,7 +2325,7 @@ class BookingDetailView(APIView):
 			item.status = str(request.data.get("status") or "booked").strip() or "booked"
 
 		pricing_requires_refresh = any(
-			field in request.data for field in ("service_name", "service_ids", "manager_name", "starts_at")
+			field in request.data for field in ("service_name", "service_ids", "manager_name", "starts_at", "client_phone")
 		)
 		pricing_service_ids = (
 			parsed_service_ids
@@ -2372,7 +2387,9 @@ class BookingDetailView(APIView):
 					full_name__iexact=item.manager_name,
 					is_active=True,
 				).first()
-			pricing = calculate_booking_pricing(pricing_services, specialist, item.starts_at)
+			pricing = calculate_booking_pricing(
+				pricing_services, specialist, item.starts_at, client_phone=item.client_phone,
+			)
 			item.base_price = pricing["base_price"]
 			item.discount_amount = pricing["discount_amount"]
 			item.final_price = pricing["final_price"]

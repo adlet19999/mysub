@@ -11,7 +11,7 @@ from PIL import Image
 from rest_framework.test import APIClient
 
 from common_api.models import PartnerProfile
-from mobile_api.models import City, CustomerProfile
+from mobile_api.models import City, CustomerProfile, CustomerSubscription
 from partner_api.models import Booking, Category, Service, ServiceKind, Specialist, SpecialistService
 
 
@@ -436,6 +436,54 @@ class MobileBookingTests(TestCase):
         self.assertEqual(cancellation.status_code, 404)
         other_booking.refresh_from_db()
         self.assertEqual(other_booking.status, "booked")
+
+    def test_discount_requires_subscription_valid_on_visit_date(self):
+        self.service.discount_percent = 20
+        self.service.save()
+        schedule = self.specialist.working_schedule
+        schedule[0]["discount_windows"] = [{"start_time": "10:00", "end_time": "11:00"}]
+        self.specialist.working_schedule = schedule
+        self.specialist.save()
+        subscription = CustomerSubscription.objects.create(customer=self.customer)
+        cases = [
+            (CustomerSubscription.Status.PAUSED, None, "5000.00"),
+            (CustomerSubscription.Status.ACTIVE, self.booking_date - timedelta(days=1), "5000.00"),
+            (CustomerSubscription.Status.ACTIVE, self.booking_date, "4000.00"),
+        ]
+        for status, expires_at, expected in cases:
+            with self.subTest(status=status, expires_at=expires_at):
+                subscription.status = status
+                subscription.expires_at = expires_at
+                subscription.save()
+                created = self.create_booking()
+                self.assertEqual(created.status_code, 201)
+                self.assertEqual(created.data["final_price"], expected)
+                Booking.objects.get(id=created.data["id"]).delete()
+        subscription.delete()
+        created = self.create_booking()
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.data["discount_amount"], "0.00")
+        self.assertEqual(created.data["final_price"], "5000.00")
+
+    def test_discount_windows_do_not_restrict_full_price_slots(self):
+        self.service.discount_percent = 20
+        self.service.save()
+        schedule = self.specialist.working_schedule
+        schedule[0]["discount_windows"] = [{"start_time": "10:00", "end_time": "11:00"}]
+        self.specialist.working_schedule = schedule
+        self.specialist.save()
+        CustomerSubscription.objects.create(customer=self.customer, expires_at=self.booking_date)
+        availability = self.client.get(
+            f"/api/v1/mobile/catalog/partners/{self.partner.id}/specialists/{self.specialist.id}/availability/",
+            {"date": self.booking_date.isoformat(), "service_id": self.service.id},
+        )
+        self.assertEqual(availability.status_code, 200)
+        self.assertIn("09:00", availability.data["slots"])
+        self.assertIn("10:00", availability.data["slots"])
+        self.assertIn("11:00", availability.data["slots"])
+        outside_window = self.create_booking(self.starts_at + timedelta(hours=1))
+        self.assertEqual(outside_window.status_code, 201)
+        self.assertEqual(outside_window.data["final_price"], "5000.00")
 
     def test_group_availability_capacity_and_cancellation(self):
         from common_api.models import BusinessCategory
