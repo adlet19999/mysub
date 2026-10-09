@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./page.module.css";
 
@@ -56,6 +56,24 @@ function formatRuPhone(rawPhone: string): string {
 export default function PartnerRegisterCredentialsPage() {
   const router = useRouter();
   const [phone, setPhone] = useState("+7");
+  const [categories, setCategories] = useState<Array<{ id: number; name: string }>>([]);
+  const [categoryError, setCategoryError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadCategories() {
+      try {
+        const response = await fetch("/api/partner/categories", { signal: controller.signal, cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.message || "Не удалось загрузить категории");
+        setCategories(payload.categories);
+      } catch {
+        if (!controller.signal.aborted) setCategoryError("Не удалось загрузить категории. Обновите страницу.");
+      }
+    }
+    void loadCategories();
+    return () => controller.abort();
+  }, []);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -187,15 +205,11 @@ export default function PartnerRegisterCredentialsPage() {
 
             <div className={styles.formGroup}>
               <label htmlFor="business-type">Категория бизнеса *</label>
-              <select id="business-type" defaultValue="Кафе и рестораны" required>
-                <option value="Кафе и рестораны">Кафе и рестораны</option>
-                <option value="Медицинские услуги">Медицинские услуги</option>
-                <option value="Спорт">Спорт</option>
-                <option value="Автоуслуги">Автоуслуги</option>
-                <option value="Кружки и курсы">Кружки и курсы</option>
-                <option value="Салон красоты">Салон красоты</option>
-                <option value="Досуг">Досуг</option>
+              <select id="business-type" defaultValue="" required>
+                <option value="" disabled>{categories.length ? "Выберите категорию" : "Нет доступных категорий"}</option>
+                {categories.map((category) => <option key={category.id} value={category.name}>{category.name}</option>)}
               </select>
+              {categoryError ? <p role="alert">{categoryError}</p> : null}
             </div>
 
             <div className={styles.formGroup}>

@@ -10,6 +10,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
+from django.db import transaction
 from django.db.models import Count, Max, Sum
 from django.conf import settings
 from django.utils import timezone
@@ -91,6 +92,11 @@ class HealthView(APIView):
 		return Response({"ok": True, "service": "django-backend"})
 
 
+class BusinessCategoryListView(APIView):
+	def get(self, request):
+		return Response({"categories": [serialize_business_category(category) for category in BusinessCategory.objects.filter(is_archived=False)]})
+
+
 class AuthRegisterView(APIView):
 	def post(self, request):
 		full_name = (request.data.get("full_name") or "").strip()
@@ -101,6 +107,9 @@ class AuthRegisterView(APIView):
 		company_name = (request.data.get("company_name") or "").strip()
 		address = (request.data.get("address") or "").strip()
 		business_category = (request.data.get("business_category") or "").strip()
+
+		if user_type == "partner" and business_category and not BusinessCategory.objects.filter(name=business_category, is_archived=False).exists():
+			return Response({"message": "Выберите доступную категорию бизнеса"}, status=status.HTTP_400_BAD_REQUEST)
 
 		if not full_name or not phone or not email or not password:
 			return Response({"message": "full_name, phone, email, password обязательны"}, status=400)
@@ -374,8 +383,10 @@ class AdminSubscriptionManagementDetailView(APIView):
 				return Response({"message": "Укажите название"}, status=status.HTTP_400_BAD_REQUEST)
 			if BusinessCategory.objects.filter(name__iexact=name).exclude(id=item.id).exists():
 				return Response({"message": "Такая категория уже существует"}, status=status.HTTP_409_CONFLICT)
-			item.name = name
-			item.save(update_fields=["name", "updated_at"])
+			with transaction.atomic():
+				PartnerProfile.objects.filter(business_category=item.name).update(business_category=name)
+				item.name = name
+				item.save(update_fields=["name", "updated_at"])
 		else:
 			name = (request.data.get("name") or "").strip()
 			try:

@@ -154,7 +154,7 @@ class AdminApiTests(TestCase):
 		)
 		create_category = self.client.post(
 			"/api/v1/common/admin/subscriptions/",
-			{"resource": "categories", "name": "Автоуслуги"},
+			{"resource": "categories", "name": "Новая категория"},
 			format="json",
 		)
 		self.assertEqual(create_plan.status_code, 201)
@@ -163,7 +163,39 @@ class AdminApiTests(TestCase):
 		archive_plan = self.client.patch(f"/api/v1/common/admin/subscriptions/plans/{plan.id}/", {"is_archived": True}, format="json")
 		self.assertEqual(archive_plan.status_code, 200)
 		self.assertTrue(archive_plan.data["plan"]["is_archived"])
-		self.assertEqual(BusinessCategory.objects.count(), 1)
+		self.assertTrue(BusinessCategory.objects.filter(name="Новая категория").exists())
+
+	def test_categories_share_registration_and_admin_catalog(self):
+		from .views import issue_admin_token
+
+		category = BusinessCategory.objects.get(name="Автоуслуги")
+		partner = PartnerProfile.objects.create(user=self.regular_user, business_category=category.name)
+		self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {issue_admin_token(self.staff_user)}")
+		detail_url = f"/api/v1/common/admin/subscriptions/categories/{category.id}/"
+		response = self.client.patch(detail_url, {"name": "Автосервисы"}, format="json")
+		self.assertEqual(response.status_code, 200)
+		partner.refresh_from_db()
+		self.assertEqual(partner.business_category, "Автосервисы")
+		for archived in (True, False):
+			response = self.client.patch(detail_url, {"is_archived": archived}, format="json")
+			self.assertEqual(response.status_code, 200)
+			public = APIClient().get("/api/v1/common/business-categories/")
+			self.assertEqual(public.status_code, 200)
+			self.assertEqual(any(item["id"] == category.id for item in public.data["categories"]), not archived)
+
+	def test_archived_category_cannot_be_selected_during_registration(self):
+		BusinessCategory.objects.filter(name="Автоуслуги").update(is_archived=True)
+		response = self.client.post("/api/v1/common/auth/register/", {
+			"full_name": "Партнёр", "phone": "+77009991122", "email": "new-partner@example.com",
+			"password": "password123", "business_category": "Автоуслуги",
+		}, format="json")
+		self.assertEqual(response.status_code, 400)
+		self.assertFalse(User.objects.filter(username="new-partner@example.com").exists())
+
+	def test_subscription_catalog_requires_admin_token(self):
+		self.assertEqual(self.client.get("/api/v1/common/admin/subscriptions/").status_code, 401)
+		category = BusinessCategory.objects.first()
+		self.assertEqual(self.client.patch(f"/api/v1/common/admin/subscriptions/categories/{category.id}/", {"is_archived": True}, format="json").status_code, 401)
 
 	def test_staff_user_can_read_customer_profile_and_visits(self):
 		customer_user = User.objects.create_user(

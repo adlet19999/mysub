@@ -1,9 +1,10 @@
 from django.urls import path
 
-from .views import AdminCustomerDetailView, AdminCustomerSubscriptionView, AdminDashboardView, AdminLoginView, AdminPartnerStatusView, AdminSubscriptionManagementDetailView, AdminSubscriptionManagementView, AuthForgotPasswordView, AuthInitialPasswordChangeView, AuthLoginView, AuthRegisterView, AuthResetPasswordView, HealthView
+from .views import AdminCustomerDetailView, AdminCustomerSubscriptionView, AdminDashboardView, AdminLoginView, AdminPartnerStatusView, AdminSubscriptionManagementDetailView, AdminSubscriptionManagementView, AuthForgotPasswordView, AuthInitialPasswordChangeView, AuthLoginView, AuthRegisterView, AuthResetPasswordView, BusinessCategoryListView, HealthView
 
 urlpatterns = [
     path("health/", HealthView.as_view(), name="common-health"),
+    path("business-categories/", BusinessCategoryListView.as_view(), name="business-categories"),
     path("auth/login/", AuthLoginView.as_view(), name="common-auth-login"),
     path("auth/register/", AuthRegisterView.as_view(), name="common-auth-register"),
     path("auth/forgot-password/", AuthForgotPasswordView.as_view(), name="common-auth-forgot-password"),
