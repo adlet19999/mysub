@@ -197,6 +197,29 @@ class AdminApiTests(TestCase):
 		category = BusinessCategory.objects.first()
 		self.assertEqual(self.client.patch(f"/api/v1/common/admin/subscriptions/categories/{category.id}/", {"is_archived": True}, format="json").status_code, 401)
 
+	def test_group_category_setting_cannot_disable_active_group_services(self):
+		from partner_api.models import Category, Service, ServiceKind
+		from .views import issue_admin_token
+
+		self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {issue_admin_token(self.staff_user)}")
+		category = BusinessCategory.objects.get(name="Кружки и курсы")
+		self.assertTrue(category.allows_group_services)
+		partner = PartnerProfile.objects.create(user=self.regular_user, business_category=category.name)
+		service_category = Category.objects.get(tenant_slug="public", name=category.name)
+		kind = ServiceKind.objects.filter(category=service_category).first()
+		service = Service.objects.create(tenant_slug="public", partner_profile=partner, name="Курс", category=service_category, kind=kind, service_type="group", details={"min_people": 1, "max_people": 8})
+		url = f"/api/v1/common/admin/subscriptions/categories/{category.id}/"
+		response = self.client.patch(url, {"name": category.name, "allows_group_services": False}, format="json")
+		self.assertEqual(response.status_code, 409)
+		service.is_active = False
+		service.save()
+		response = self.client.patch(url, {"name": category.name, "allows_group_services": False}, format="json")
+		self.assertEqual(response.status_code, 200)
+		self.assertFalse(response.data["category"]["allows_group_services"])
+		created = self.client.post("/api/v1/common/admin/subscriptions/", {"resource": "categories", "name": "Обучение", "allows_group_services": True}, format="json")
+		self.assertEqual(created.status_code, 201)
+		self.assertTrue(created.data["category"]["allows_group_services"])
+
 	def test_staff_user_can_read_customer_profile_and_visits(self):
 		customer_user = User.objects.create_user(
 			username="customer@example.com",

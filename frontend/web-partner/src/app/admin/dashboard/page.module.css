@@ -70,5 +70,7 @@
 .catalogArchiveModal > p { overflow-wrap: anywhere; }
 .catalogNotice { top: auto; bottom: 24px; pointer-events: none; }
 .catalogNotice button { pointer-events: auto; }
+.catalogModal > .catalogGroupToggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; }
+.catalogGroupToggle input { width: 18px; height: 18px; accent-color: #1f6a53; cursor: pointer; }
 @media (max-width: 850px) { .subscriptionGrid { grid-template-columns: 1fr; gap: 22px; }.categoryList { min-height: 0; } }
 @media (max-width: 600px) { .planList { grid-template-columns: 1fr; }.categoryList { padding: 10px; } }

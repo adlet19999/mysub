@@ -11,7 +11,7 @@ from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
 from django.db import transaction
-from django.db.models import Count, Max, Sum
+from django.db.models import Count, Max, Q, Sum
 from django.conf import settings
 from django.utils import timezone
 from django.utils.encoding import force_bytes, force_str
@@ -84,7 +84,7 @@ def serialize_subscription_plan(plan):
 
 
 def serialize_business_category(category):
-	return {"id": category.id, "name": category.name, "is_archived": category.is_archived}
+	return {"id": category.id, "name": category.name, "is_archived": category.is_archived, "allows_group_services": category.allows_group_services}
 
 
 class HealthView(APIView):
@@ -344,9 +344,12 @@ class AdminSubscriptionManagementView(APIView):
 		if not name:
 			return Response({"message": "Укажите название"}, status=status.HTTP_400_BAD_REQUEST)
 		if resource == "categories":
+			allows_group_services = request.data.get("allows_group_services", False)
+			if not isinstance(allows_group_services, bool):
+				return Response({"message": "Укажите, разрешены ли групповые услуги"}, status=status.HTTP_400_BAD_REQUEST)
 			if BusinessCategory.objects.filter(name__iexact=name).exists():
 				return Response({"message": "Такая категория уже существует"}, status=status.HTTP_409_CONFLICT)
-			return Response({"category": serialize_business_category(BusinessCategory.objects.create(name=name))}, status=status.HTTP_201_CREATED)
+			return Response({"category": serialize_business_category(BusinessCategory.objects.create(name=name, allows_group_services=allows_group_services))}, status=status.HTTP_201_CREATED)
 		if resource == "plans":
 			try:
 				monthly_price = int(request.data.get("monthly_price"))
@@ -378,15 +381,26 @@ class AdminSubscriptionManagementDetailView(APIView):
 			item.is_archived = request.data["is_archived"]
 			item.save(update_fields=["is_archived", "updated_at"])
 		elif resource == "categories":
+			from partner_api.models import Category, Service
+
 			name = (request.data.get("name") or "").strip()
+			allows_group_services = request.data.get("allows_group_services", item.allows_group_services)
+			if not isinstance(allows_group_services, bool):
+				return Response({"message": "Укажите, разрешены ли групповые услуги"}, status=status.HTTP_400_BAD_REQUEST)
 			if not name:
 				return Response({"message": "Укажите название"}, status=status.HTTP_400_BAD_REQUEST)
 			if BusinessCategory.objects.filter(name__iexact=name).exclude(id=item.id).exists():
 				return Response({"message": "Такая категория уже существует"}, status=status.HTTP_409_CONFLICT)
+			if not allows_group_services and Service.objects.filter(is_active=True, service_type="group").filter(Q(category__name=item.name) | Q(partner_profile__business_category=item.name)).exists():
+				return Response({"message": "Сначала архивируйте или переведите в индивидуальный формат активные групповые услуги этой категории"}, status=status.HTTP_409_CONFLICT)
+			if name != item.name and Category.objects.filter(name=name, tenant_slug__in=Category.objects.filter(name=item.name).values("tenant_slug")).exists():
+				return Response({"message": "Такое название уже используется в справочнике услуг"}, status=status.HTTP_409_CONFLICT)
 			with transaction.atomic():
 				PartnerProfile.objects.filter(business_category=item.name).update(business_category=name)
+				Category.objects.filter(name=item.name).update(name=name)
 				item.name = name
-				item.save(update_fields=["name", "updated_at"])
+				item.allows_group_services = allows_group_services
+				item.save(update_fields=["name", "allows_group_services", "updated_at"])
 		else:
 			name = (request.data.get("name") or "").strip()
 			try:

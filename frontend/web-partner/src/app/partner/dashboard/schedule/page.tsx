@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Info, Phone, Plus, Trash2 } from "lucide-react";
 import styles from "./page.module.css";
 import { formatRuPhone } from "../../../../lib/phone";
 import { useDraggableModal } from "../../../../lib/useDraggableModal";
@@ -82,7 +82,42 @@ type Booking = {
   discount_amount?: string;
   final_price?: string;
   pricing_details?: BookingPricingDetail[];
+  subscription_active?: boolean;
+  group_session?: GroupSession | null;
 };
+
+type GroupParticipant = { id: number; client_name: string; client_phone: string; final_price: string; status: string; subscription_active: boolean };
+type GroupSession = { service_id: number; service_name: string; capacity: number; occupied_places: number; available_places: number; duration_minutes: number; participants: GroupParticipant[] };
+
+function GroupBookingDetails({ booking, selectedIds, disabled, onToggle }: { booking: Booking; selectedIds: number[]; disabled: boolean; onToggle: (id: number) => void }) {
+  const group = booking.group_session;
+  if (!group) return null;
+  const startsAt = new Date(booking.starts_at);
+  const endsAt = new Date(startsAt.getTime() + group.duration_minutes * 60_000);
+  const total = group.participants.filter((participant) => selectedIds.includes(participant.id)).reduce((sum, participant) => sum + Number(participant.final_price || 0), 0);
+  const formatTime = (value: Date) => new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(value);
+  return <section className={styles.groupDetails}>
+    <div className={styles.groupParticipants}><span>Участники услуги</span><div>{group.participants.map((participant) => {
+      const closed = ["completed", "done", "no_show", "no-show", "missed", "cancelled", "canceled"].includes(participant.status.toLowerCase());
+      return <label className={styles.groupParticipant} key={participant.id}>
+        <div className={styles.groupParticipantIdentity}><strong>{participant.client_name}</strong><small><Phone size={13} />{formatRuPhone(participant.client_phone)}</small>{closed ? <small>{getStatusLabel(participant.status)}</small> : null}</div>
+        <div><span>Сумма</span><strong>{Number(participant.final_price || 0).toLocaleString("ru-RU")} ₸</strong></div>
+        <div><span>Подписка</span><small className={participant.subscription_active ? styles.groupSubscriptionActive : ""}>{participant.subscription_active ? "Активна" : "Нет"}</small></div>
+        <input type="checkbox" aria-label={`Посетил ${participant.client_name}`} checked={selectedIds.includes(participant.id)} disabled={disabled || closed} onChange={() => onToggle(participant.id)} />
+      </label>;
+    })}</div></div>
+    <dl className={styles.groupSummary}>
+      <div><dt>Групповая услуга</dt><dd>{group.service_name}</dd></div>
+      <div><dt>Количество мест</dt><dd>{group.capacity}</dd></div>
+      <div><dt>Свободных мест</dt><dd>{group.available_places}</dd></div>
+      <div><dt>Общая сумма</dt><dd>{total.toLocaleString("ru-RU")} ₸</dd></div>
+      <div className={styles.groupSummaryBorder}><dt>Дата и время</dt><dd>{formatDateTitle(startsAt)}, {formatTime(startsAt)} - {formatTime(endsAt)}</dd></div>
+      <div><dt>Ресурс</dt><dd>{booking.manager_name || "Не назначен"}</dd></div>
+      <div className={styles.groupSummaryBorder}><dt>Статус</dt><dd>{getStatusLabel(booking.status)}</dd></div>
+    </dl>
+    <p className={styles.groupAttendanceNotice}><Info size={16} /> Отметьте участников, которые посетили занятие.</p>
+  </section>;
+}
 
 type BookingPricingDetail = {
   service_id: number;
@@ -92,6 +127,7 @@ type BookingPricingDetail = {
   discount_amount: string;
   final_price: string;
   discount_window: PromotionWindow | null;
+  duration_minutes?: number;
 };
 
 type BookingStatusTone = "success" | "warning" | "danger" | "muted";
@@ -658,6 +694,8 @@ export default function SchedulePage() {
   const [isDetailsMenuOpen, setIsDetailsMenuOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isDeletingBooking, setIsDeletingBooking] = useState(false);
+  const [selectedParticipantIds, setSelectedParticipantIds] = useState<number[]>([]);
+  const [detailsError, setDetailsError] = useState("");
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [scheduleViewSpecialistId, setScheduleViewSpecialistId] = useState(
     ALL_SPECIALISTS_VALUE,
@@ -1134,7 +1172,10 @@ export default function SchedulePage() {
       );
     }
 
-    for (const booking of bookings) {
+    for (const sourceBooking of bookings) {
+      const group = sourceBooking.group_session;
+      if (group && group.participants[0]?.id !== sourceBooking.id) continue;
+      const booking = group ? { ...sourceBooking, status: group.participants.some((participant) => getStatusTone(participant.status) === "warning") ? "booked" : group.participants.some((participant) => getStatusTone(participant.status) === "success") ? "completed" : "no_show" } : sourceBooking;
       const parsedStartsAt = parseBookingDateTime(booking.starts_at);
       if (!parsedStartsAt) {
         continue;
@@ -1163,7 +1204,8 @@ export default function SchedulePage() {
       const key = `${hour}-${columnKey}`;
       const list = map.get(key) ?? [];
       const listedNames = parseServiceNames(booking.service_name);
-      const durationMinutes = listedNames.length
+      const snapshotDuration = (booking.pricing_details || []).reduce((total, detail) => total + (detail.duration_minutes || 0), 0);
+      const durationMinutes = group?.duration_minutes || snapshotDuration || (listedNames.length
         ? listedNames.reduce(
             (sum, name) =>
               sum + (serviceDurationByName.get(name.toLowerCase()) ?? 60),
@@ -1171,7 +1213,7 @@ export default function SchedulePage() {
           )
         : (serviceDurationByName.get(
             booking.service_name.trim().toLowerCase(),
-          ) ?? 60);
+          ) ?? 60));
       list.push({ booking, minutes, durationMinutes });
       map.set(key, list);
     }
@@ -1186,6 +1228,10 @@ export default function SchedulePage() {
   ]);
 
   function getBookingPrices(booking: Booking) {
+    if (booking.group_session) {
+      const total = booking.group_session.participants.filter((participant) => getStatusTone(participant.status) !== "danger").reduce((sum, participant) => sum + Number(participant.final_price || 0), 0);
+      return { basePrice: total, finalPrice: total };
+    }
     const details = booking.pricing_details || [];
     const detailBasePrice = details.reduce(
       (sum, detail) => sum + Number(detail.base_price || 0),
@@ -1377,6 +1423,8 @@ export default function SchedulePage() {
     setIsDetailsMenuOpen(false);
     setIsDeleteConfirmOpen(false);
     setDetailsBooking(target);
+    setSelectedParticipantIds([]);
+    setDetailsError("");
   }
 
   async function deleteBooking() {
@@ -1410,6 +1458,7 @@ export default function SchedulePage() {
     }
 
     setIsUpdatingStatus(true);
+    setDetailsError("");
     try {
       const response = await fetch(
         `/api/partner/bookings/${detailsBooking.id}/`,
@@ -1419,14 +1468,18 @@ export default function SchedulePage() {
             "Content-Type": "application/json",
             "X-Partner-Email": partnerEmail,
           },
-          body: JSON.stringify({ status }),
+          body: JSON.stringify(detailsBooking.group_session ? { groupAction: status === "completed" ? "complete" : "no_show", participantIds: selectedParticipantIds } : { status }),
         },
       );
       if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { message?: string } | null;
+        setDetailsError(payload?.message || "Не удалось обновить посещение");
         return;
       }
       setDetailsBooking(null);
       await loadDirectory();
+    } catch {
+      setDetailsError("Не удалось подключиться к серверу");
     } finally {
       setIsUpdatingStatus(false);
     }
@@ -2456,7 +2509,7 @@ export default function SchedulePage() {
                               {entry.booking.service_name}
                             </p>
                             <p className={styles.bookingClient}>
-                              {entry.booking.client_name}
+                              {entry.booking.group_session ? `Группа · ${entry.booking.group_session.occupied_places}/${entry.booking.group_session.capacity}` : entry.booking.client_name}
                             </p>
                             {basePrice != null ? (
                               <p className={styles.bookingPrice}>
@@ -2854,6 +2907,7 @@ export default function SchedulePage() {
             </header>
 
             <div className={styles.detailsBody}>
+              {detailsBooking.group_session ? <GroupBookingDetails booking={detailsBooking} selectedIds={selectedParticipantIds} disabled={isUpdatingStatus} onToggle={(id) => setSelectedParticipantIds((current) => current.includes(id) ? current.filter((selectedId) => selectedId !== id) : [...current, id])} /> : <>
               <div className={styles.clientSummary}>
                 <div className={styles.clientAvatar}>
                   {detailsBooking.client_name
@@ -2867,7 +2921,7 @@ export default function SchedulePage() {
                 </div>
                 <div className={styles.subscriptionStatus}>
                   <span>Подписка</span>
-                  <strong>Активна</strong>
+                  <strong>{detailsBooking.subscription_active ? "Активна" : "Нет"}</strong>
                 </div>
               </div>
 
@@ -3002,6 +3056,8 @@ export default function SchedulePage() {
                 <span>Комментарий</span>
                 <p>Комментарий не добавлен</p>
               </div>
+              </>}
+              {detailsError ? <p className={styles.modalError} role="alert">{detailsError}</p> : null}
             </div>
 
             <footer className={styles.detailsFooter}>
@@ -3009,17 +3065,17 @@ export default function SchedulePage() {
                 type="button"
                 className={styles.dangerButton}
                 onClick={() => void updateBookingStatus("no_show")}
-                disabled={isUpdatingStatus}
+                disabled={isUpdatingStatus || (Boolean(detailsBooking.group_session) && selectedParticipantIds.length === 0)}
               >
-                Неявка
+                {detailsBooking.group_session ? "Отметить неявку" : "Неявка"}
               </button>
               <button
                 type="button"
                 className={styles.completeButton}
                 onClick={() => void updateBookingStatus("completed")}
-                disabled={isUpdatingStatus}
+                disabled={isUpdatingStatus || (Boolean(detailsBooking.group_session) && selectedParticipantIds.length === 0)}
               >
-                {isUpdatingStatus ? "Сохранение..." : "Оплачен"}
+                {isUpdatingStatus ? "Сохранение..." : detailsBooking.group_session ? "Завершить визит" : "Оплачен"}
               </button>
             </footer>
           </section>

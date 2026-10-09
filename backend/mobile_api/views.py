@@ -23,6 +23,7 @@ from partner_api.views import (
     CLOSED_BOOKING_STATUSES,
     booking_schedule_error,
     calculate_booking_pricing,
+    group_booking_error,
     has_booking_overlap,
     has_client_booking_overlap,
     to_aware_datetime,
@@ -494,6 +495,7 @@ class MobileCatalogSpecialistAvailabilityView(APIView):
                 starts_at,
                 duration_minutes,
                 partner_profile=partner,
+                service=service,
             ):
                 continue
             slots.append(timezone.localtime(starts_at).strftime("%H:%M"))
@@ -598,6 +600,10 @@ class MobileBookingsView(MobileAuthenticatedView):
             if not specialist.capabilities.filter(service_id=service.id).exists():
                 return error_response(409, "SERVICE_UNAVAILABLE", "Специалист не оказывает выбранную услугу")
 
+            group_error = group_booking_error([service])
+            if group_error:
+                return error_response(409, "SERVICE_UNAVAILABLE", group_error)
+
             duration_minutes = service.duration_minutes or 60
             schedule_error = booking_schedule_error(specialist, starts_at, duration_minutes)
             if schedule_error:
@@ -608,6 +614,7 @@ class MobileBookingsView(MobileAuthenticatedView):
                 starts_at,
                 duration_minutes,
                 partner_profile=partner,
+                service=service,
             ):
                 return error_response(409, "SLOT_UNAVAILABLE", "У специалиста уже есть запись на это время", "starts_at")
             if has_client_booking_overlap(specialist.tenant_slug, customer.phone, starts_at, duration_minutes):

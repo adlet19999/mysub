@@ -1130,6 +1130,34 @@
   gap: 18px;
 }
 
+.groupDetails { display: grid; gap: 20px; min-width: 0; }
+.groupParticipants { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; }
+.groupParticipants > span { padding-top: 6px; color: #82909e; font-size: 12px; }
+.groupParticipants > div { display: grid; gap: 6px; }
+.groupParticipant { display: grid; grid-template-columns: minmax(0, 1fr) 54px 60px 18px; align-items: center; gap: 8px; min-height: 54px; padding: 9px 10px; border: 1px solid #e5e7eb; border-radius: 6px; cursor: pointer; }
+.groupParticipant > div { display: grid; gap: 6px; text-align: center; }
+.groupParticipant > .groupParticipantIdentity { text-align: left; }
+.groupParticipantIdentity strong { overflow-wrap: anywhere; }
+.groupParticipant strong { color: #303a34; font-size: 10px; font-weight: 500; }
+.groupParticipant span { color: #303a34; font-size: 10px; }
+.groupParticipant small { display: flex; align-items: center; justify-content: center; gap: 4px; color: #82909e; font-size: 9px; }
+.groupParticipantIdentity small { justify-content: flex-start; }
+.groupParticipant .groupSubscriptionActive { color: #16a76d; }
+.groupParticipant input { width: 17px; height: 17px; margin: 0; accent-color: #1f5f4d; cursor: pointer; }
+.groupParticipant input:disabled { cursor: not-allowed; }
+.groupSummary { display: grid; gap: 0; margin: 0; border-top: 1px solid #edf0ee; }
+.groupSummary > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 40px; }
+.groupSummary dt { color: #82909e; font-size: 12px; }
+.groupSummary dd { margin: 0; color: #303a34; font-size: 12px; font-weight: 500; text-align: right; overflow-wrap: anywhere; }
+.groupSummary .groupSummaryBorder { margin-top: 4px; border-top: 1px solid #edf0ee; }
+.groupAttendanceNotice { display: flex; align-items: center; gap: 8px; margin: 0; padding: 12px; border-radius: 8px; background: #eaf3ff; color: #3486ee; font-size: 11px; line-height: 16px; }
+.groupAttendanceNotice svg { flex-shrink: 0; }
+@media (max-width: 600px) {
+  .groupParticipants { grid-template-columns: minmax(0, 1fr); }
+  .groupParticipant { grid-template-columns: minmax(0, 1fr) 50px 58px 18px; gap: 5px; padding: 9px 7px; }
+  .groupSummary > div { gap: 10px; }
+}
+
 .clientSummary {
   display: flex;
   align-items: center;

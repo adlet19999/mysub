@@ -28,6 +28,8 @@ export async function PATCH(request: Request, { params }: Params) {
     clientPhone?: string;
     startTime?: string;
     status?: string;
+    groupAction?: "complete" | "no_show";
+    participantIds?: number[];
   };
   const updatePayload: Record<string, string | number[]> = {};
   if (body.specialist != null) updatePayload.manager_name = body.specialist.trim();
@@ -37,6 +39,8 @@ export async function PATCH(request: Request, { params }: Params) {
   if (body.clientName != null) updatePayload.client_name = body.clientName.trim();
   if (body.clientPhone != null) updatePayload.client_phone = body.clientPhone.trim();
   if (body.status != null) updatePayload.status = body.status.trim();
+  if (body.groupAction != null) updatePayload.group_action = body.groupAction;
+  if (Array.isArray(body.participantIds)) updatePayload.participant_ids = body.participantIds;
 
   try {
     const response = await fetch(`${BACKEND_BASE_URL}/api/v1/partner/bookings/${id}/`, {

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from django.contrib.auth.models import User
@@ -270,6 +270,98 @@ class BookingPricingApiTests(TestCase):
 		self.assertEqual(updated.data["final_price"], "1000.00")
 		booking = Booking.objects.get(id=created.data["id"])
 		self.assertEqual(booking.final_price, Decimal("1000.00"))
+
+	def test_group_format_requires_category_permission_and_capacity(self):
+		from common_api.models import BusinessCategory
+
+		category = BusinessCategory.objects.create(name="Салон", allows_group_services=False)
+		url = f"/api/v1/partner/services/{self.service.id}/"
+		response = self.client.patch(url, {"service_type": "group", "details": {"min_people": 1, "max_people": 3}}, format="json", **self.headers)
+		self.assertEqual(response.status_code, 400)
+		category.allows_group_services = True
+		category.save()
+		response = self.client.patch(url, {"service_type": "group"}, format="json", **self.headers)
+		self.assertEqual(response.status_code, 400)
+		response = self.client.patch(url, {"service_type": "group", "details": {"min_people": 1, "max_people": 3}}, format="json", **self.headers)
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["details"]["max_people"], 3)
+
+	def test_group_slot_capacity_and_cancelled_place(self):
+		from common_api.models import BusinessCategory
+
+		BusinessCategory.objects.create(name="Салон", allows_group_services=True)
+		self.service.service_type = "group"
+		self.service.details = {"min_people": 1, "max_people": 2}
+		self.service.save()
+		payload = {"service_name": self.service.name, "service_ids": [self.service.id], "manager_name": self.specialist.full_name, "starts_at": "2026-04-20T15:00:00+05:00", "client_name": "Клиент"}
+		first = self.client.post("/api/v1/partner/bookings/", {**payload, "client_phone": "+77000000001"}, format="json", **self.headers)
+		second = self.client.post("/api/v1/partner/bookings/", {**payload, "client_phone": "+77000000002"}, format="json", **self.headers)
+		self.assertEqual(first.status_code, 201)
+		self.assertEqual(second.status_code, 201)
+		duplicate = self.client.post("/api/v1/partner/bookings/", {**payload, "client_phone": "+77000000002"}, format="json", **self.headers)
+		self.assertEqual(duplicate.status_code, 409)
+		third = self.client.post("/api/v1/partner/bookings/", {**payload, "client_phone": "+77000000003"}, format="json", **self.headers)
+		self.assertEqual(third.status_code, 409)
+		Booking.objects.filter(id=first.data["id"]).update(status="cancelled")
+		third = self.client.post("/api/v1/partner/bookings/", {**payload, "client_phone": "+77000000003"}, format="json", **self.headers)
+		self.assertEqual(third.status_code, 201)
+		overlap = self.client.post("/api/v1/partner/bookings/", {**payload, "client_phone": "+77000000004", "starts_at": "2026-04-20T15:30:00+05:00"}, format="json", **self.headers)
+		self.assertEqual(overlap.status_code, 409)
+		movable = self.client.post(
+			"/api/v1/partner/bookings/",
+			{**payload, "client_phone": "+77000000005", "starts_at": "2026-04-20T16:00:00+05:00"},
+			format="json",
+			**self.headers,
+		)
+		self.assertEqual(movable.status_code, 201)
+		move_to_full_group = self.client.patch(
+			f"/api/v1/partner/bookings/{movable.data['id']}/",
+			{"starts_at": "2026-04-20T15:00:00+05:00"},
+			format="json",
+			**self.headers,
+		)
+		self.assertEqual(move_to_full_group.status_code, 409)
+		movable_booking = Booking.objects.get(id=movable.data["id"])
+		self.assertEqual(movable_booking.starts_at, timezone.make_aware(datetime(2026, 4, 20, 16)))
+
+	def test_group_completion_updates_each_participant(self):
+		from common_api.models import BusinessCategory
+
+		BusinessCategory.objects.create(name="Салон", allows_group_services=True)
+		self.service.service_type = "group"
+		self.service.details = {"min_people": 1, "max_people": 3}
+		self.service.save()
+		pricing = calculate_booking_pricing([self.service], self.specialist, timezone.make_aware(datetime(2026, 4, 20, 15)))
+		members = [Booking.objects.create(tenant_slug="public", partner_profile=self.partner_profile, service_name=self.service.name, manager_name=self.specialist.full_name, starts_at=timezone.make_aware(datetime(2026, 4, 20, 15)), client_name=f"Клиент {index}", client_phone=f"+7700000000{index}", **pricing) for index in range(3)]
+		payload = serialize_booking(members[0])
+		self.assertEqual(payload["group_session"]["capacity"], 3)
+		self.assertEqual(len(payload["group_session"]["participants"]), 3)
+		self.assertFalse(payload["group_session"]["participants"][0]["subscription_active"])
+		foreign = self.client.patch(f"/api/v1/partner/bookings/{members[0].id}/", {"group_action": "complete", "participant_ids": [999999]}, format="json", **self.headers)
+		self.assertEqual(foreign.status_code, 409)
+		response = self.client.patch(f"/api/v1/partner/bookings/{members[0].id}/", {"group_action": "complete", "participant_ids": [members[0].id, members[1].id]}, format="json", **self.headers)
+		self.assertEqual(response.status_code, 200)
+		for index, member in enumerate(members):
+			member.refresh_from_db()
+			self.assertEqual(member.status, "completed" if index < 2 else "no_show")
+
+	def test_service_capacity_and_format_changes_preserve_upcoming_bookings(self):
+		from common_api.models import BusinessCategory
+
+		BusinessCategory.objects.create(name="Салон", allows_group_services=True)
+		self.service.service_type = "group"
+		self.service.details = {"min_people": 1, "max_people": 3}
+		self.service.save()
+		starts_at = timezone.now() + timedelta(days=2)
+		pricing = calculate_booking_pricing([self.service], self.specialist, starts_at)
+		for index in range(2):
+			Booking.objects.create(tenant_slug="public", partner_profile=self.partner_profile, service_name=self.service.name, manager_name=self.specialist.full_name, starts_at=starts_at, client_name="Клиент", client_phone=f"+7700000000{index}", **pricing)
+		url = f"/api/v1/partner/services/{self.service.id}/"
+		for changes in ({"details": {"min_people": 1, "max_people": 1}}, {"service_type": "individual"}, {"duration_minutes": 30}):
+			response = self.client.patch(url, changes, format="json", **self.headers)
+			self.assertEqual(response.status_code, 409)
+		response = self.client.patch(url, {"details": {"min_people": 1, "max_people": 4}}, format="json", **self.headers)
+		self.assertEqual(response.status_code, 200)
 
 
 class SpecialistArchivingApiTests(TestCase):

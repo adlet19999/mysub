@@ -17,6 +17,7 @@ class SubscriptionPlan(models.Model):
 
 class BusinessCategory(models.Model):
 	name = models.CharField(max_length=120, unique=True)
+	allows_group_services = models.BooleanField(default=False)
 	is_archived = models.BooleanField(default=False)
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)

@@ -436,3 +436,30 @@ class MobileBookingTests(TestCase):
         self.assertEqual(cancellation.status_code, 404)
         other_booking.refresh_from_db()
         self.assertEqual(other_booking.status, "booked")
+
+    def test_group_availability_capacity_and_cancellation(self):
+        from common_api.models import BusinessCategory
+
+        BusinessCategory.objects.create(name="Красота", allows_group_services=True)
+        self.service.service_type = "group"
+        self.service.details = {"min_people": 1, "max_people": 2}
+        self.service.save()
+        first = self.create_booking()
+        self.assertEqual(first.status_code, 201)
+        availability_url = f"/api/v1/mobile/catalog/partners/{self.partner.id}/specialists/{self.specialist.id}/availability/"
+        params = {"date": self.booking_date.isoformat(), "service_id": self.service.id}
+        available = self.client.get(availability_url, params)
+        self.assertIn("10:00", available.data["slots"])
+        self.assertNotIn("10:30", available.data["slots"])
+        other = self.client.post("/api/v1/mobile/auth/register/", {"phone": "+77001119900", "code": "11111"}, format="json")
+        customer = CustomerProfile.objects.get(phone="+77001119900")
+        customer.user.first_name = "Другой клиент"
+        customer.user.save()
+        second = self.client.post("/api/v1/mobile/bookings/", self.booking_payload(), format="json", HTTP_AUTHORIZATION=f"Bearer {other.data['tokens']['access_token']}")
+        self.assertEqual(second.status_code, 201)
+        full = self.client.get(availability_url, params)
+        self.assertNotIn("10:00", full.data["slots"])
+        cancelled = self.client.post(f"/api/v1/mobile/bookings/{first.data['id']}/cancel/", {}, format="json", **self.headers)
+        self.assertEqual(cancelled.status_code, 200)
+        available = self.client.get(availability_url, params)
+        self.assertIn("10:00", available.data["slots"])

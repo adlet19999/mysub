@@ -5,7 +5,7 @@ import styles from "./page.module.css";
 import { compressImageFileToDataUrl } from "../../../../lib/imageCompression";
 import { useDraggableModal } from "../../../../lib/useDraggableModal";
 
-type Category = { id: number; name: string; is_active: boolean };
+type Category = { id: number; name: string; is_active: boolean; allows_group_services: boolean };
 type ServiceKind = {
   id: number;
   name: string;
@@ -150,6 +150,8 @@ export default function PartnerManagePage() {
     }
     return categories.find((item) => String(item.id) === offerForm.categoryId)?.name ?? "";
   }, [categories, offerForm.categoryId]);
+
+  const allowsGroupServices = categories.find((item) => String(item.id) === offerForm.categoryId)?.allows_group_services === true;
 
   const discountedPrice = useMemo(() => {
     if (!offerForm.price.trim() || !offerForm.discountPercent.trim()) {
@@ -350,6 +352,10 @@ export default function PartnerManagePage() {
 
     const detailsPayload: Record<string, number> = {};
     if (offerForm.serviceType === "group") {
+      if (!allowsGroupServices) {
+        setOfferSaveError("В этой категории разрешены только индивидуальные услуги");
+        return;
+      }
       if (offerForm.maxPeople.trim()) {
         detailsPayload.max_people = Number(offerForm.maxPeople);
       }
@@ -705,7 +711,7 @@ export default function PartnerManagePage() {
                     }
                   >
                     <option value="individual">Индивидуальный</option>
-                    <option value="group">Групповой</option>
+                    {allowsGroupServices ? <option value="group">Групповой</option> : null}
                   </select>
                 </label>
 
@@ -714,6 +720,9 @@ export default function PartnerManagePage() {
                     <label>
                       Минимум участников
                       <input
+                        type="number"
+                        min="1"
+                        step="1"
                         value={offerForm.minPeople}
                         onChange={(event) => setOfferForm((prev) => ({ ...prev, minPeople: event.target.value }))}
                         inputMode="numeric"
@@ -725,6 +734,9 @@ export default function PartnerManagePage() {
                     <label>
                       Максимум участников
                       <input
+                        type="number"
+                        min={Number(offerForm.minPeople) || 1}
+                        step="1"
                         value={offerForm.maxPeople}
                         onChange={(event) => setOfferForm((prev) => ({ ...prev, maxPeople: event.target.value }))}
                         inputMode="numeric"

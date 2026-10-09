@@ -17,7 +17,7 @@ type DashboardData = {
 type CustomerSubscription = { id: number; plan_name: string; status: "active" | "paused"; expires_at: string | null };
 
 type SubscriptionPlan = { id: number; name: string; monthly_price: number; duration_months: number; description: string; is_archived: boolean };
-type BusinessCategory = { id: number; name: string; is_archived: boolean };
+type BusinessCategory = { id: number; name: string; is_archived: boolean; allows_group_services: boolean };
 type SubscriptionCatalog = { plans: SubscriptionPlan[]; categories: BusinessCategory[] };
 
 type CustomerDetail = {
@@ -325,7 +325,7 @@ function SubscriptionsPage() {
 
   useEffect(() => { void loadCatalog(); }, []);
 
-  async function saveItem(values: { name: string; monthly_price?: number; duration_months?: number; description?: string }) {
+  async function saveItem(values: { name: string; monthly_price?: number; duration_months?: number; description?: string; allows_group_services?: boolean }) {
     if (!dialog) return;
     setSaving(true);
     setActionError("");
@@ -461,19 +461,21 @@ function CatalogArchiveDialog({ target, saving, error, onClose, onConfirm }: { t
   </section></div>;
 }
 
-function CatalogDialog({ dialog, saving, error, onClose, onSave }: { dialog: { resource: "plans" | "categories"; item?: SubscriptionPlan | BusinessCategory }; saving: boolean; error: string; onClose: () => void; onSave: (values: { name: string; monthly_price?: number; duration_months?: number; description?: string }) => void }) {
+function CatalogDialog({ dialog, saving, error, onClose, onSave }: { dialog: { resource: "plans" | "categories"; item?: SubscriptionPlan | BusinessCategory }; saving: boolean; error: string; onClose: () => void; onSave: (values: { name: string; monthly_price?: number; duration_months?: number; description?: string; allows_group_services?: boolean }) => void }) {
   const { dragHandlers, positionStyle } = useDialogDrag(onClose);
   const plan = dialog.resource === "plans" ? dialog.item as SubscriptionPlan | undefined : undefined;
   const [name, setName] = useState(dialog.item?.name || "");
   const [price, setPrice] = useState(plan?.monthly_price.toString() || "");
   const [duration, setDuration] = useState(plan?.duration_months.toString() || "12");
   const [description, setDescription] = useState(plan?.description || "");
+  const [allowsGroups, setAllowsGroups] = useState(dialog.resource === "categories" ? (dialog.item as BusinessCategory | undefined)?.allows_group_services || false : false);
   const isPlan = dialog.resource === "plans";
-  function submit(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); onSave(isPlan ? { name, monthly_price: Number(price), duration_months: Number(duration), description } : { name }); }
+  function submit(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); onSave(isPlan ? { name, monthly_price: Number(price), duration_months: Number(duration), description } : { name, allows_group_services: allowsGroups }); }
   const title = `${dialog.item ? "Изменить" : "Добавить"} ${isPlan ? "подписку" : "категорию"}`;
   return <div className={styles.catalogModalBackdrop}><form className={styles.catalogModal} style={positionStyle} onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby="catalog-editor-title">
     <header className={styles.catalogDragHandle} {...dragHandlers}><Crown size={20} className={styles.catalogCrown} /><b id="catalog-editor-title">{title}</b><button type="button" disabled={saving} onClick={onClose} aria-label="Закрыть"><X size={18} /></button></header>
     <label>Название {isPlan ? "подписки" : "категории"}<input autoFocus value={name} disabled={saving} onChange={(event) => setName(event.target.value)} required maxLength={120} /></label>
+    {!isPlan ? <label className={styles.catalogGroupToggle}><span>Групповые занятия</span><input type="checkbox" role="switch" checked={allowsGroups} disabled={saving} onChange={(event) => setAllowsGroups(event.target.checked)} /></label> : null}
     {isPlan ? <><label>Стоимость (₸ / мес)<input type="number" value={price} disabled={saving} onChange={(event) => setPrice(event.target.value)} min="0" step="1" required /></label><label>Срок действия (мес)<input type="number" value={duration} disabled={saving} onChange={(event) => setDuration(event.target.value)} min="1" max="32767" step="1" required /></label><label>Описание<textarea value={description} disabled={saving} onChange={(event) => setDescription(event.target.value)} rows={4} /></label></> : null}
     {error ? <p className={styles.catalogDialogError} role="alert">{error}</p> : null}
     <footer><button type="button" disabled={saving} onClick={onClose}>Отменить</button><button className={styles.catalogSubmit} disabled={saving}>{saving ? "Сохраняем..." : dialog.item ? "Сохранить" : "Создать"}</button></footer>
