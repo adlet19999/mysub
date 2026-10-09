@@ -78,6 +78,7 @@ type Booking = {
   client_name: string;
   client_phone: string;
   status: string;
+  booking_source?: "unknown" | "manual" | "mobile";
   base_price?: string;
   discount_amount?: string;
   final_price?: string;
@@ -974,6 +975,9 @@ export default function SchedulePage() {
       { price: number; discountPercent: number }
     >();
     const isEditMode = bookingModalMode === "edit";
+    if (!isEditMode || bookings.find((booking) => booking.id === editingBookingId)?.booking_source !== "mobile") {
+      return result;
+    }
     let minutesBefore = 0;
 
     for (const line of bookingLines) {
@@ -1036,6 +1040,8 @@ export default function SchedulePage() {
     bookingDate,
     bookingStartTime,
     activeSpecialists,
+    bookings,
+    editingBookingId,
   ]);
 
   const detailsSpecialist = useMemo(
@@ -2824,6 +2830,7 @@ export default function SchedulePage() {
                 );
               })}
 
+              {bookingModalMode === "create" ? <p className={styles.discountHint}>Ручная запись — по полной стоимости, независимо от подписки и времени простоя.</p> : null}
               {!isAddingGroupParticipant ? <button
                 type="button"
                 className={styles.addMoreButton}
@@ -2831,7 +2838,7 @@ export default function SchedulePage() {
               >
                 <span>+</span>
                 Добавить ещё
-              </button> : <p className={styles.discountHint}>Запись в выбранное групповое занятие. Цена и свободное место проверяются при сохранении.</p>}
+              </button> : <p className={styles.discountHint}>Запись в выбранное групповое занятие. Свободное место проверяется при сохранении.</p>}
 
               {modalError ? (
                 <p className={styles.modalError}>{modalError}</p>

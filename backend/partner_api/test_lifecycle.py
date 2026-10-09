@@ -11,7 +11,7 @@ from rest_framework.test import APIClient
 
 from common_api.models import PartnerProfile
 from mobile_api.models import CustomerProfile, CustomerSubscription
-from .models import Booking, Category, Service, ServiceKind, Specialist
+from .models import Booking, Category, Manager, Service, ServiceKind, Specialist
 
 
 class LifecycleFixture:
@@ -80,7 +80,7 @@ class LifecycleFixture:
         self.assertEqual(specialist.status_code, 201)
         self.specialist = Specialist.objects.get(id=specialist.data["id"])
         self.customer = CustomerProfile.objects.create(
-            user=User.objects.create_user(username="launch-customer"),
+            user=User.objects.create_user(username="launch-customer", first_name="Launch customer"),
             phone="+77009990003",
         )
         self.subscription = CustomerSubscription.objects.create(
@@ -121,8 +121,86 @@ class LifecycleFixture:
         self.assertEqual(response.status_code, 200)
         return response.data["slots"]
 
+    def mobile_book(self, starts_at=None):
+        mobile = APIClient()
+        login = mobile.post(
+            "/api/v1/mobile/auth/verify-code/",
+            {"phone": self.customer.phone, "code": "11111"}, format="json",
+        )
+        self.assertEqual(login.status_code, 200)
+        return mobile.post(
+            "/api/v1/mobile/bookings/",
+            {"partner_id": self.partner.id, "service_id": self.service.id,
+             "specialist_id": self.specialist.id,
+             "starts_at": (starts_at or self.starts_at).isoformat(),
+             "booking_source": "manual"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {login.data['tokens']['access_token']}",
+        )
 
+@override_settings(MOBILE_SMS_TEST_CODE="11111", MOBILE_JWT_ACCESS_TTL_SECONDS=3600, MOBILE_JWT_REFRESH_TTL_SECONDS=2592000)
 class CrmLifecycleTests(LifecycleFixture, TestCase):
+    def test_manual_booking_never_receives_subscription_discount(self):
+        for service in [self.service, self.individual]:
+            with self.subTest(service_type=service.service_type):
+                response = self.book(service=service, booking_source="mobile", final_price="1.00")
+                self.assertEqual(response.status_code, 201)
+                self.assertEqual(response.data["final_price"], "10000.00")
+                self.assertEqual(response.data["discount_amount"], "0.00")
+                self.assertEqual(Booking.objects.get(id=response.data["id"]).booking_source, Booking.Source.MANUAL)
+                Booking.objects.get(id=response.data["id"]).delete()
+
+    def test_manager_manual_booking_and_move_remain_full_price(self):
+        manager = Manager.objects.create(
+            tenant_slug="public", partner_profile=self.partner, full_name="Launch manager",
+            phone="+77009990009", email="launch-manager@example.com",
+        )
+        self.headers["HTTP_X_PARTNER_EMAIL"] = manager.email
+        created = self.book()
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.data["final_price"], "10000.00")
+        moved = self.client.patch(
+            f"/api/v1/partner/bookings/{created.data['id']}/",
+            {"starts_at": self.starts_at.replace(hour=15).isoformat(), "booking_source": "mobile"},
+            format="json", **self.headers,
+        )
+        self.assertEqual(moved.status_code, 200)
+        self.assertEqual(moved.data["final_price"], "10000.00")
+        self.assertEqual(moved.data["booking_source"], "manual")
+
+    def test_group_mobile_discount_and_manual_subscriber_full_price(self):
+        first = self.mobile_book()
+        self.assertEqual(first.status_code, 201, first.data)
+        self.assertEqual(first.data["final_price"], "8000.00")
+        manual_customer = CustomerProfile.objects.create(
+            user=User.objects.create_user(username="manual-subscriber"), phone="+77009990004",
+        )
+        CustomerSubscription.objects.create(customer=manual_customer, expires_at=self.visit_date)
+        second = self.book(phone=manual_customer.phone)
+        self.assertEqual(second.status_code, 201)
+        participants = second.data["group_session"]["participants"]
+        self.assertEqual([p["final_price"] for p in participants], ["8000.00", "10000.00"])
+        self.assertTrue(all(p["subscription_active"] for p in participants))
+        self.assertEqual(second.data["group_session"]["occupied_places"], 2)
+
+    def test_legacy_booking_preserves_snapshot_until_repriced(self):
+        response = self.book()
+        self.assertEqual(response.status_code, 201)
+        booking = Booking.objects.get(id=response.data["id"])
+        booking.booking_source = Booking.Source.UNKNOWN
+        booking.discount_amount = Decimal("2000.00")
+        booking.final_price = Decimal("8000.00")
+        booking.save()
+        url = f"/api/v1/partner/bookings/{booking.id}/"
+        unchanged = self.client.patch(url, {"client_name": "Renamed"}, format="json", **self.headers)
+        self.assertEqual(unchanged.data["final_price"], "8000.00")
+        moved = self.client.patch(
+            url, {"starts_at": self.starts_at.replace(hour=15).isoformat()}, format="json", **self.headers,
+        )
+        self.assertEqual(moved.status_code, 200)
+        self.assertEqual(moved.data["final_price"], "10000.00")
+        self.assertEqual(moved.data["booking_source"], "unknown")
+
     def test_editing_legacy_unpriced_service_preserves_null_price(self):
         self.individual.price = None
         self.individual.save(update_fields=["price"])
@@ -169,7 +247,7 @@ class CrmLifecycleTests(LifecycleFixture, TestCase):
                 self.subscription.status = status
                 self.subscription.expires_at = expiry
                 self.subscription.save()
-                created = self.book(starts_at=self.starts_at.replace(hour=hour))
+                created = self.mobile_book(starts_at=self.starts_at.replace(hour=hour))
                 self.assertEqual(created.status_code, 201)
                 self.assertEqual(created.data["final_price"], expected)
                 Booking.objects.get(id=created.data["id"]).delete()
@@ -185,7 +263,7 @@ class CrmLifecycleTests(LifecycleFixture, TestCase):
         self.assertEqual(second.status_code, 201)
         self.assertEqual(second.data["group_session"]["occupied_places"], 2)
         self.assertEqual(second.data["group_session"]["available_places"], 0)
-        self.assertEqual([p["final_price"] for p in second.data["group_session"]["participants"]], ["8000.00", "10000.00"])
+        self.assertEqual([p["final_price"] for p in second.data["group_session"]["participants"]], ["10000.00", "10000.00"])
         self.assertNotIn("10:00", self.slots())
         self.assertEqual(self.book(phone="+77009990005").status_code, 409)
         cancelled = self.client.patch(
@@ -217,11 +295,11 @@ class CrmLifecycleTests(LifecycleFixture, TestCase):
             f"/api/v1/common/admin/customers/{self.customer.id}/", **self.admin_headers,
         )
         self.assertEqual(history.status_code, 200)
-        self.assertEqual(history.data["visits"][0]["final_price"], "8000.00")
+        self.assertEqual(history.data["visits"][0]["final_price"], "10000.00")
         dashboard = self.client.get("/api/v1/common/admin/dashboard/", **self.admin_headers)
         self.assertEqual(dashboard.status_code, 200)
         self.assertEqual(dashboard.data["metrics"]["subscriptions_active"], 1)
-        self.assertEqual(Decimal(dashboard.data["metrics"]["customers_turnover"]), Decimal("8000.00"))
+        self.assertEqual(Decimal(dashboard.data["metrics"]["customers_turnover"]), Decimal("10000.00"))
         customer = next(c for c in dashboard.data["customers"] if c["id"] == self.customer.id)
         self.assertTrue(customer["subscription_active"])
         self.assertEqual(customer["visits"], 1)
@@ -257,8 +335,14 @@ class CrmLifecycleTests(LifecycleFixture, TestCase):
         self.assertEqual(self.book(starts_at=next_day).status_code, 409)
 
     def test_move_reprices_and_service_edits_preserve_snapshot(self):
-        booking = self.book()
+        booking = self.mobile_book()
         self.assertEqual(booking.status_code, 201)
+        self.assertEqual(Booking.objects.get(id=booking.data["id"]).booking_source, Booking.Source.MOBILE)
+        manager = Manager.objects.create(
+            tenant_slug="public", partner_profile=self.partner, full_name="Launch manager",
+            phone="+77009990009", email="move-manager@example.com",
+        )
+        self.headers["HTTP_X_PARTNER_EMAIL"] = manager.email
         url = f"/api/v1/partner/bookings/{booking.data['id']}/"
         move = self.client.patch(
             url, {"starts_at": self.starts_at.replace(hour=9).isoformat()}, format="json", **self.headers,
@@ -270,6 +354,22 @@ class CrmLifecycleTests(LifecycleFixture, TestCase):
         )
         self.assertEqual(moved_back.status_code, 200)
         self.assertEqual(moved_back.data["final_price"], "8000.00")
+        self.assertEqual(moved_back.data["booking_source"], "mobile")
+        self.subscription.status = "paused"
+        self.subscription.save(update_fields=["status"])
+        paused_move = self.client.patch(
+            url, {"starts_at": self.starts_at.replace(hour=15).isoformat()}, format="json", **self.headers,
+        )
+        self.assertEqual(paused_move.status_code, 200)
+        self.assertEqual(paused_move.data["final_price"], "10000.00")
+        self.subscription.status = "active"
+        self.subscription.save(update_fields=["status"])
+        restored = self.client.patch(
+            url, {"starts_at": self.starts_at.isoformat()}, format="json", **self.headers,
+        )
+        self.assertEqual(restored.status_code, 200)
+        self.assertEqual(restored.data["final_price"], "8000.00")
+        self.headers["HTTP_X_PARTNER_EMAIL"] = self.email
         edit_price = self.client.patch(
             f"/api/v1/partner/services/{self.service.id}/", {"price": "20000.00"},
             format="json", **self.headers,

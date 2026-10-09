@@ -11,12 +11,21 @@ Backend API for partner frontend (Django + DRF).
 
 - Working hours, breaks and occupied places determine available booking slots.
   Discount windows do not restrict availability outside those windows.
-- A service discount applies only when its entire duration fits a specialist's
+- A service discount applies only to a customer's self-service mobile booking,
+  when its entire duration fits a specialist's
   discount window and the customer's subscription is active and valid through
   the visit date (inclusive). Missing, paused or expired subscriptions and
   inactive customer accounts pay the full service price.
 - Partner bookings identify the customer by normalized phone; mobile bookings
   use the authenticated customer's phone. The client cannot grant a discount.
+- Manual bookings made by partners or managers always use the full service
+  price, including manual additions to a group, even with an active subscription
+  inside a discount window. Subscription status does not itself imply a discount.
+- The server stores the booking source and does not accept a source override
+  from a request. CRM rescheduling preserves the original source: a mobile
+  booking remains eligible subject to the new visit date/window; a manual
+  booking never becomes eligible. Legacy bookings have source `unknown`:
+  migration preserves their price snapshots, but repricing applies full price.
 - Prices are stored per participant, including for group sessions. Moving a
   booking or changing its customer recalculates the price; status-only updates
   preserve the stored price. Existing bookings are not repriced on deployment.

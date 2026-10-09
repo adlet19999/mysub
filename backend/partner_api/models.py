@@ -102,6 +102,11 @@ class SpecialistService(models.Model):
 
 
 class Booking(models.Model):
+	class Source(models.TextChoices):
+		UNKNOWN = "unknown", "Unknown"
+		MANUAL = "manual", "Manual"
+		MOBILE = "mobile", "Mobile"
+
 	tenant_slug = models.CharField(max_length=80, db_index=True)
 	partner_profile = models.ForeignKey(
 		"common_api.PartnerProfile",
@@ -116,6 +121,7 @@ class Booking(models.Model):
 	client_name = models.CharField(max_length=120)
 	client_phone = models.CharField(max_length=32)
 	status = models.CharField(max_length=20, default="booked")
+	booking_source = models.CharField(max_length=20, choices=Source.choices, default=Source.UNKNOWN)
 	base_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 	discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 	final_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)

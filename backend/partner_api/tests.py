@@ -316,8 +316,8 @@ class BookingPricingApiTests(TestCase):
 		)
 		self.assertEqual(created.status_code, 201)
 		self.assertEqual(created.data["base_price"], "1000.00")
-		self.assertEqual(created.data["discount_amount"], "200.00")
-		self.assertEqual(created.data["final_price"], "800.00")
+		self.assertEqual(created.data["discount_amount"], "0.00")
+		self.assertEqual(created.data["final_price"], "1000.00")
 
 		updated = self.client.patch(
 			f"/api/v1/partner/bookings/{created.data['id']}/",
@@ -335,7 +335,7 @@ class BookingPricingApiTests(TestCase):
 		booking = Booking.objects.get(id=created.data["id"])
 		self.assertEqual(booking.final_price, Decimal("1000.00"))
 
-	def test_changing_customer_recalculates_subscription_discount(self):
+	def test_changing_customer_keeps_manual_booking_at_full_price(self):
 		created = self.client.post(
 			"/api/v1/partner/bookings/",
 			{
@@ -348,7 +348,7 @@ class BookingPricingApiTests(TestCase):
 			}, format="json", **self.headers,
 		)
 		self.assertEqual(created.status_code, 201)
-		self.assertEqual(created.data["final_price"], "800.00")
+		self.assertEqual(created.data["final_price"], "1000.00")
 		updated = self.client.patch(
 			f"/api/v1/partner/bookings/{created.data['id']}/",
 			{"client_phone": "+77000000001"}, format="json", **self.headers,
@@ -357,14 +357,14 @@ class BookingPricingApiTests(TestCase):
 		self.assertEqual(updated.data["final_price"], "1000.00")
 		self.assertFalse(updated.data["subscription_active"])
 
-	def test_group_participants_have_individual_subscription_prices(self):
+	def test_manual_group_subscribers_and_nonsubscribers_pay_full_price(self):
 		from common_api.models import BusinessCategory
 
 		BusinessCategory.objects.create(name="Салон", allows_group_services=True)
 		self.service.service_type = "group"
 		self.service.details = {"min_people": 1, "max_people": 3}
 		self.service.save()
-		for phone, expected in (("+77000000000", "800.00"), ("+77000000001", "1000.00")):
+		for phone, expected in (("+77000000000", "1000.00"), ("+77000000001", "1000.00")):
 			created = self.client.post(
 				"/api/v1/partner/bookings/",
 				{
@@ -379,7 +379,7 @@ class BookingPricingApiTests(TestCase):
 			self.assertEqual(created.status_code, 201)
 			self.assertEqual(created.data["final_price"], expected)
 		participants = created.data["group_session"]["participants"]
-		self.assertEqual([(p["final_price"], p["subscription_active"]) for p in participants], [("800.00", True), ("1000.00", False)])
+		self.assertEqual([(p["final_price"], p["subscription_active"]) for p in participants], [("1000.00", True), ("1000.00", False)])
 
 	def test_status_change_preserves_price_snapshot(self):
 		created = self.client.post(
@@ -400,7 +400,7 @@ class BookingPricingApiTests(TestCase):
 			{"status": "completed"}, format="json", **self.headers,
 		)
 		self.assertEqual(updated.status_code, 200)
-		self.assertEqual(updated.data["final_price"], "800.00")
+		self.assertEqual(updated.data["final_price"], "1000.00")
 
 	def test_group_format_requires_category_permission_and_capacity(self):
 		from common_api.models import BusinessCategory

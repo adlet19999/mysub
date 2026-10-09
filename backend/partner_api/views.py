@@ -717,7 +717,7 @@ def discount_window_for_service(specialist: Specialist | None, starts_at, servic
 	return None
 
 
-def calculate_booking_pricing(services, specialist: Specialist | None, starts_at, *, client_phone=""):
+def calculate_booking_pricing(services, specialist: Specialist | None, starts_at, *, client_phone="", allow_discount=True):
 	base_price = Decimal("0.00")
 	discount_amount = Decimal("0.00")
 	pricing_details = []
@@ -734,7 +734,7 @@ def calculate_booking_pricing(services, specialist: Specialist | None, starts_at
 			service_offset_minutes,
 			duration_minutes,
 		)
-		applied_discount_percent = discount_percent if discount_window and subscription_active else 0
+		applied_discount_percent = discount_percent if allow_discount and discount_window and subscription_active else 0
 		service_discount_amount = (service_base_price * Decimal(applied_discount_percent) / Decimal("100")).quantize(
 			MONEY_QUANTUM,
 			rounding=ROUND_HALF_UP,
@@ -829,6 +829,7 @@ def serialize_booking(item: Booking):
 		"client_name": item.client_name,
 		"client_phone": item.client_phone,
 		"status": item.status,
+		"booking_source": item.booking_source,
 		"base_price": str(item.base_price),
 		"discount_amount": str(item.discount_amount),
 		"final_price": str(item.final_price),
@@ -2265,6 +2266,7 @@ class BookingListCreateView(APIView):
 		pricing = calculate_booking_pricing(
 			pricing_services, specialist, starts_at,
 			client_phone=normalize_ru_phone(str(request.data.get("client_phone"))),
+			allow_discount=False,
 		)
 		item = Booking.objects.create(
 			tenant_slug=tenant,
@@ -2275,6 +2277,7 @@ class BookingListCreateView(APIView):
 			client_name=str(request.data.get("client_name")).strip(),
 			client_phone=normalize_ru_phone(str(request.data.get("client_phone"))),
 			status=booking_status,
+			booking_source=Booking.Source.MANUAL,
 			**pricing,
 		)
 		return Response(serialize_booking(item), status=201)
@@ -2435,6 +2438,7 @@ class BookingDetailView(APIView):
 				).first()
 			pricing = calculate_booking_pricing(
 				pricing_services, specialist, item.starts_at, client_phone=item.client_phone,
+				allow_discount=item.booking_source == Booking.Source.MOBILE,
 			)
 			item.base_price = pricing["base_price"]
 			item.discount_amount = pricing["discount_amount"]

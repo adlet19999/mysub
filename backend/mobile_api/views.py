@@ -620,7 +620,7 @@ class MobileBookingsView(MobileAuthenticatedView):
             if has_client_booking_overlap(specialist.tenant_slug, customer.phone, starts_at, duration_minutes):
                 return error_response(409, "CLIENT_TIME_CONFLICT", "У вас уже есть пересекающаяся запись", "starts_at")
 
-            pricing = calculate_booking_pricing([service], specialist, starts_at, client_phone=customer.phone)
+            pricing = calculate_booking_pricing([service], specialist, starts_at, client_phone=customer.phone, allow_discount=True)
             booking = Booking.objects.create(
                 tenant_slug=specialist.tenant_slug,
                 partner_profile=partner,
@@ -630,6 +630,7 @@ class MobileBookingsView(MobileAuthenticatedView):
                 client_name=client_name,
                 client_phone=customer.phone,
                 status="booked",
+                booking_source=Booking.Source.MOBILE,
                 **pricing,
             )
 
