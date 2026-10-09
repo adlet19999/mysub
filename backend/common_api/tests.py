@@ -10,7 +10,7 @@ from django.test import TestCase
 from partner_api.models import Booking, Manager
 from mobile_api.models import CustomerProfile, CustomerSubscription
 
-from .models import PartnerProfile
+from .models import BusinessCategory, PartnerProfile, SubscriptionPlan
 
 
 class ArchivedManagerLoginTests(TestCase):
@@ -139,6 +139,31 @@ class AdminApiTests(TestCase):
 		partner_user.refresh_from_db()
 		self.assertEqual(unblock_response.status_code, 200)
 		self.assertTrue(partner_user.is_active)
+
+	def test_staff_user_can_manage_subscription_catalog(self):
+		login = self.client.post(
+			"/api/v1/common/admin/login/",
+			{"username": self.staff_user.username, "password": "password123"},
+			format="json",
+		)
+		self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['token']}")
+		create_plan = self.client.post(
+			"/api/v1/common/admin/subscriptions/",
+			{"resource": "plans", "name": "VIP", "monthly_price": 29990, "duration_months": 12, "description": "Приоритетная запись"},
+			format="json",
+		)
+		create_category = self.client.post(
+			"/api/v1/common/admin/subscriptions/",
+			{"resource": "categories", "name": "Автоуслуги"},
+			format="json",
+		)
+		self.assertEqual(create_plan.status_code, 201)
+		self.assertEqual(create_category.status_code, 201)
+		plan = SubscriptionPlan.objects.get(name="VIP")
+		archive_plan = self.client.patch(f"/api/v1/common/admin/subscriptions/plans/{plan.id}/", {"is_archived": True}, format="json")
+		self.assertEqual(archive_plan.status_code, 200)
+		self.assertTrue(archive_plan.data["plan"]["is_archived"])
+		self.assertEqual(BusinessCategory.objects.count(), 1)
 
 	def test_staff_user_can_read_customer_profile_and_visits(self):
 		customer_user = User.objects.create_user(

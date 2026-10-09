@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import AdminCustomerDetailView, AdminCustomerSubscriptionView, AdminDashboardView, AdminLoginView, AdminPartnerStatusView, AuthForgotPasswordView, AuthInitialPasswordChangeView, AuthLoginView, AuthRegisterView, AuthResetPasswordView, HealthView
+from .views import AdminCustomerDetailView, AdminCustomerSubscriptionView, AdminDashboardView, AdminLoginView, AdminPartnerStatusView, AdminSubscriptionManagementDetailView, AdminSubscriptionManagementView, AuthForgotPasswordView, AuthInitialPasswordChangeView, AuthLoginView, AuthRegisterView, AuthResetPasswordView, HealthView
 
 urlpatterns = [
     path("health/", HealthView.as_view(), name="common-health"),
@@ -14,4 +14,6 @@ urlpatterns = [
     path("admin/customers/<int:customer_id>/", AdminCustomerDetailView.as_view(), name="admin-customer-detail"),
     path("admin/customers/<int:customer_id>/subscription/", AdminCustomerSubscriptionView.as_view(), name="admin-customer-subscription"),
     path("admin/partners/<int:partner_id>/status/", AdminPartnerStatusView.as_view(), name="admin-partner-status"),
+    path("admin/subscriptions/", AdminSubscriptionManagementView.as_view(), name="admin-subscriptions"),
+    path("admin/subscriptions/<str:resource>/<int:item_id>/", AdminSubscriptionManagementDetailView.as_view(), name="admin-subscription-detail"),
 ]

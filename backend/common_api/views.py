@@ -19,7 +19,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import PartnerProfile
+from .models import BusinessCategory, PartnerProfile, SubscriptionPlan
 
 
 logger = logging.getLogger(__name__)
@@ -69,6 +69,21 @@ def serialize_admin_subscription(subscription):
 		"status": subscription.status,
 		"expires_at": subscription.expires_at.isoformat() if subscription.expires_at else None,
 	}
+
+
+def serialize_subscription_plan(plan):
+	return {
+		"id": plan.id,
+		"name": plan.name,
+		"monthly_price": plan.monthly_price,
+		"duration_months": plan.duration_months,
+		"description": plan.description,
+		"is_archived": plan.is_archived,
+	}
+
+
+def serialize_business_category(category):
+	return {"id": category.id, "name": category.name, "is_archived": category.is_archived}
 
 
 class HealthView(APIView):
@@ -301,6 +316,80 @@ class AdminPartnerStatusView(APIView):
 		partner.user.is_active = is_active
 		partner.user.save(update_fields=["is_active"])
 		return Response({"id": partner.id, "is_active": partner.user.is_active})
+
+
+class AdminSubscriptionManagementView(APIView):
+	def get(self, request):
+		if get_admin_user(request) is None:
+			return Response({"message": "Требуется вход администратора"}, status=status.HTTP_401_UNAUTHORIZED)
+		return Response({
+			"plans": [serialize_subscription_plan(plan) for plan in SubscriptionPlan.objects.all()],
+			"categories": [serialize_business_category(category) for category in BusinessCategory.objects.all()],
+		})
+
+	def post(self, request):
+		if get_admin_user(request) is None:
+			return Response({"message": "Требуется вход администратора"}, status=status.HTTP_401_UNAUTHORIZED)
+		resource = request.data.get("resource")
+		name = (request.data.get("name") or "").strip()
+		if not name:
+			return Response({"message": "Укажите название"}, status=status.HTTP_400_BAD_REQUEST)
+		if resource == "categories":
+			if BusinessCategory.objects.filter(name__iexact=name).exists():
+				return Response({"message": "Такая категория уже существует"}, status=status.HTTP_409_CONFLICT)
+			return Response({"category": serialize_business_category(BusinessCategory.objects.create(name=name))}, status=status.HTTP_201_CREATED)
+		if resource == "plans":
+			try:
+				monthly_price = int(request.data.get("monthly_price"))
+				duration_months = int(request.data.get("duration_months"))
+			except (TypeError, ValueError):
+				return Response({"message": "Укажите стоимость и срок действия"}, status=status.HTTP_400_BAD_REQUEST)
+			if monthly_price < 0 or duration_months < 1:
+				return Response({"message": "Стоимость не может быть отрицательной, а срок должен быть больше нуля"}, status=status.HTTP_400_BAD_REQUEST)
+			if SubscriptionPlan.objects.filter(name__iexact=name).exists():
+				return Response({"message": "Такой тариф уже существует"}, status=status.HTTP_409_CONFLICT)
+			plan = SubscriptionPlan.objects.create(name=name, monthly_price=monthly_price, duration_months=duration_months, description=(request.data.get("description") or "").strip())
+			return Response({"plan": serialize_subscription_plan(plan)}, status=status.HTTP_201_CREATED)
+		return Response({"message": "Неизвестный тип данных"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AdminSubscriptionManagementDetailView(APIView):
+	def patch(self, request, resource: str, item_id: int):
+		if get_admin_user(request) is None:
+			return Response({"message": "Требуется вход администратора"}, status=status.HTTP_401_UNAUTHORIZED)
+		model = SubscriptionPlan if resource == "plans" else BusinessCategory if resource == "categories" else None
+		if model is None:
+			return Response({"message": "Неизвестный тип данных"}, status=status.HTTP_400_BAD_REQUEST)
+		item = model.objects.filter(id=item_id).first()
+		if item is None:
+			return Response({"message": "Запись не найдена"}, status=status.HTTP_404_NOT_FOUND)
+		if "is_archived" in request.data:
+			if not isinstance(request.data["is_archived"], bool):
+				return Response({"message": "Поле is_archived должно быть логическим"}, status=status.HTTP_400_BAD_REQUEST)
+			item.is_archived = request.data["is_archived"]
+			item.save(update_fields=["is_archived", "updated_at"])
+		elif resource == "categories":
+			name = (request.data.get("name") or "").strip()
+			if not name:
+				return Response({"message": "Укажите название"}, status=status.HTTP_400_BAD_REQUEST)
+			if BusinessCategory.objects.filter(name__iexact=name).exclude(id=item.id).exists():
+				return Response({"message": "Такая категория уже существует"}, status=status.HTTP_409_CONFLICT)
+			item.name = name
+			item.save(update_fields=["name", "updated_at"])
+		else:
+			name = (request.data.get("name") or "").strip()
+			try:
+				monthly_price = int(request.data.get("monthly_price"))
+				duration_months = int(request.data.get("duration_months"))
+			except (TypeError, ValueError):
+				return Response({"message": "Укажите стоимость и срок действия"}, status=status.HTTP_400_BAD_REQUEST)
+			if not name or monthly_price < 0 or duration_months < 1:
+				return Response({"message": "Проверьте название, стоимость и срок действия"}, status=status.HTTP_400_BAD_REQUEST)
+			if SubscriptionPlan.objects.filter(name__iexact=name).exclude(id=item.id).exists():
+				return Response({"message": "Такой тариф уже существует"}, status=status.HTTP_409_CONFLICT)
+			item.name, item.monthly_price, item.duration_months, item.description = name, monthly_price, duration_months, (request.data.get("description") or "").strip()
+			item.save(update_fields=["name", "monthly_price", "duration_months", "description", "updated_at"])
+		return Response({"plan": serialize_subscription_plan(item)} if resource == "plans" else {"category": serialize_business_category(item)})
 
 
 class AdminCustomerDetailView(APIView):

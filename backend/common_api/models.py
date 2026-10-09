@@ -2,6 +2,29 @@ from django.conf import settings
 from django.db import models
 
 
+class SubscriptionPlan(models.Model):
+	name = models.CharField(max_length=120, unique=True)
+	monthly_price = models.PositiveIntegerField()
+	duration_months = models.PositiveSmallIntegerField(default=12)
+	description = models.TextField(blank=True, default="")
+	is_archived = models.BooleanField(default=False)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ("is_archived", "monthly_price", "name")
+
+
+class BusinessCategory(models.Model):
+	name = models.CharField(max_length=120, unique=True)
+	is_archived = models.BooleanField(default=False)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ("is_archived", "name")
+
+
 class PartnerProfile(models.Model):
 	user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="partner_profile")
 	phone = models.CharField(max_length=32)

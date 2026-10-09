@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { ArrowLeft, CalendarDays, Eye, LockKeyhole, Pause, UnlockKeyhole } from "lucide-react";
+import { Archive, ArrowLeft, CalendarDays, Clock3, Eye, LockKeyhole, Pause, Pencil, Plus, RotateCcw, UnlockKeyhole, X } from "lucide-react";
 import { formatRuPhone } from "../../../lib/phone";
 import partnerStyles from "../../partner/dashboard/layout.module.css";
 import styles from "./page.module.css";
@@ -15,6 +15,10 @@ type DashboardData = {
 };
 
 type CustomerSubscription = { id: number; plan_name: string; status: "active" | "paused"; expires_at: string | null };
+
+type SubscriptionPlan = { id: number; name: string; monthly_price: number; duration_months: number; description: string; is_archived: boolean };
+type BusinessCategory = { id: number; name: string; is_archived: boolean };
+type SubscriptionCatalog = { plans: SubscriptionPlan[]; categories: BusinessCategory[] };
 
 type CustomerDetail = {
   customer: { id: number; name: string; email: string; phone: string; city_name: string; avatar_url: string | null; created_at: string; is_active: boolean };
@@ -140,6 +144,7 @@ function AdminDashboardContent() {
 function TabContent({ activeTab, data, userId, onOpenUsers, onOpenUserProfile, onCloseUserProfile }: { activeTab: string; data: DashboardData; userId: number | null; onOpenUsers: () => void; onOpenUserProfile: (customerId: number) => void; onCloseUserProfile: () => void }) {
   if (activeTab === "users") return userId ? <CustomerProfile customerId={userId} onBack={onCloseUserProfile} /> : <UsersTable customers={data.customers} onOpenProfile={onOpenUserProfile} />;
   if (activeTab === "partners") return <PartnersTable partners={data.partners} />;
+  if (activeTab === "subscriptions") return <SubscriptionsPage />;
   if (activeTab === "account") return <section><h1>Аккаунт</h1><div className={styles.account}><img src="/profile.svg" alt="" /><div><strong>{data.admin.name}</strong><span>{data.admin.email || "Администратор MySub"}</span></div></div></section>;
   if (activeTab !== "dashboard") return <section><h1>{navigation.find((item) => item.id === activeTab)?.label}</h1><div className={styles.empty}>В этом разделе пока нет данных.</div></section>;
   return <>
@@ -284,4 +289,97 @@ function PartnersTable({ partners }: { partners: DashboardData["partners"] }) {
     {notice ? <div className={`${styles.partnerNotice} ${notice.kind === "unblocked" ? styles.partnerNoticeInfo : styles.partnerNoticeBlocked}`} role="status"><b>{notice.kind === "unblocked" ? "Партнёр разблокирован" : notice.kind === "blocked" ? "Партнёр заблокирован" : "Ошибка"}</b><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="Закрыть уведомление">×</button></div> : null}
     {selectedPartner ? <div className={styles.modalBackdrop} role="presentation"><section className={styles.statusModal} role="dialog" aria-modal="true" aria-labelledby="partner-status-title"><div className={`${styles.statusIcon} ${blocking ? styles.statusIconBlock : styles.statusIconUnblock}`}>{blocking ? "🔒" : "🔓"}</div><h2 id="partner-status-title">{blocking ? "Заблокировать партнёра" : "Разблокировать партнёра"}</h2><p>Вы уверены, что хотите {blocking ? "заблокировать" : "разблокировать"} партнёра?</p><div><button disabled={pending} onClick={() => setSelectedPartner(null)}>Отменить</button><button className={blocking ? styles.blockConfirm : styles.unblockConfirm} disabled={pending} onClick={() => void updateStatus()}>{pending ? "Сохраняем..." : blocking ? "Заблокировать" : "Разблокировать"}</button></div></section></div> : null}
   </section>;
+}
+
+function SubscriptionsPage() {
+  const [catalog, setCatalog] = useState<SubscriptionCatalog | null>(null);
+  const [filter, setFilter] = useState<"active" | "archived" | "all">("active");
+  const [dialog, setDialog] = useState<{ resource: "plans" | "categories"; item?: SubscriptionPlan | BusinessCategory } | null>(null);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function loadCatalog() {
+    setError("");
+    try {
+      const response = await fetch("/api/admin/subscriptions", { cache: "no-store" });
+      const payload = (await response.json()) as SubscriptionCatalog & { message?: string };
+      if (!response.ok) throw new Error(payload.message || "Не удалось загрузить подписки");
+      setCatalog(payload);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить подписки");
+    }
+  }
+
+  useEffect(() => { void loadCatalog(); }, []);
+
+  async function saveItem(values: { name: string; monthly_price?: number; duration_months?: number; description?: string }) {
+    if (!dialog) return;
+    setSaving(true);
+    setError("");
+    try {
+      const isPlan = dialog.resource === "plans";
+      const response = dialog.item
+        ? await fetch(`/api/admin/subscriptions/${dialog.resource}/${dialog.item.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(values) })
+        : await fetch("/api/admin/subscriptions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: dialog.resource, ...values }) });
+      const payload = (await response.json()) as { plan?: SubscriptionPlan; category?: BusinessCategory; message?: string };
+      if (!response.ok) throw new Error(payload.message || "Не удалось сохранить изменения");
+      const item = isPlan ? payload.plan : payload.category;
+      if (!item) throw new Error("Сервер вернул неполные данные");
+      setCatalog((current) => {
+        if (!current) return current;
+        const key = isPlan ? "plans" : "categories";
+        const currentItems = current[key] as Array<SubscriptionPlan | BusinessCategory>;
+        const nextItems = dialog.item ? currentItems.map((currentItem) => currentItem.id === item.id ? item : currentItem) : [...currentItems, item];
+        return { ...current, [key]: nextItems } as SubscriptionCatalog;
+      });
+      setDialog(null);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Не удалось сохранить изменения");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleArchive(resource: "plans" | "categories", item: SubscriptionPlan | BusinessCategory) {
+    setError("");
+    try {
+      const response = await fetch(`/api/admin/subscriptions/${resource}/${item.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_archived: !item.is_archived }) });
+      const payload = (await response.json()) as { plan?: SubscriptionPlan; category?: BusinessCategory; message?: string };
+      const updated = resource === "plans" ? payload.plan : payload.category;
+      if (!response.ok || !updated) throw new Error(payload.message || "Не удалось обновить статус");
+      setCatalog((current) => current ? { ...current, [resource]: current[resource].map((currentItem) => currentItem.id === updated.id ? updated : currentItem) } as SubscriptionCatalog : current);
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : "Не удалось обновить статус");
+    }
+  }
+
+  if (!catalog && !error) return <div className={styles.state}>Загружаем подписки...</div>;
+  if (!catalog) return <div className={styles.state}><p>{error}</p><button onClick={() => void loadCatalog()}>Повторить</button></div>;
+
+  const isVisible = (item: { is_archived: boolean }) => filter === "all" || (filter === "archived" ? item.is_archived : !item.is_archived);
+  const plans = catalog.plans.filter(isVisible);
+  const categories = catalog.categories.filter(isVisible);
+  const activeCount = catalog.plans.filter((item) => !item.is_archived).length;
+  const archivedCount = catalog.plans.filter((item) => item.is_archived).length;
+
+  return <section className={styles.subscriptionsPage}>
+    <div className={styles.subscriptionsToolbar}><p>Управление подписками и категориями партнёров</p><div className={styles.subscriptionFilters}><button className={filter === "active" ? styles.subscriptionFilterActive : ""} onClick={() => setFilter("active")}>Активные ({activeCount})</button><button className={filter === "archived" ? styles.subscriptionFilterActive : ""} onClick={() => setFilter("archived")}>Архивные ({archivedCount})</button><button className={filter === "all" ? styles.subscriptionFilterActive : ""} onClick={() => setFilter("all")}>Все</button></div></div>
+    {error ? <p className={styles.catalogError}>{error}</p> : null}
+    <div className={styles.subscriptionGrid}>
+      <section className={styles.plansColumn}><div className={styles.catalogHeading}><h2>Тарифные планы</h2><button onClick={() => setDialog({ resource: "plans" })}><Plus size={15} /> Добавить подписку</button></div>{plans.length ? <div className={styles.planList}>{plans.map((plan) => <article className={styles.planCard} key={plan.id}><div className={styles.planCardHead}><div><h3>{plan.name} {plan.is_archived ? <span>Архивный</span> : null}</h3><p><Clock3 size={13} /> Срок действия: <b>{plan.duration_months} мес.</b></p></div><strong>{formatMoney(plan.monthly_price.toString())}<small>/ мес.</small></strong></div><p className={styles.planDescription}>{plan.description || "Описание не указано"}</p><div className={styles.planActions}><button onClick={() => setDialog({ resource: "plans", item: plan })}><Pencil size={14} /> Изменить</button><button className={styles.catalogIconButton} onClick={() => void toggleArchive("plans", plan)} aria-label={plan.is_archived ? "Восстановить подписку" : "Архивировать подписку"} title={plan.is_archived ? "Восстановить" : "Архивировать"}>{plan.is_archived ? <RotateCcw size={15} /> : <Archive size={15} />}</button></div></article>)}</div> : <div className={styles.catalogEmpty}>Подписок в этом разделе нет.</div>}</section>
+      <section className={styles.categoriesColumn}><div className={styles.catalogHeading}><h2>Категории</h2><button onClick={() => setDialog({ resource: "categories" })}><Plus size={15} /> Добавить категорию</button></div><div className={styles.categoryList}>{categories.map((category) => <article className={styles.categoryItem} key={category.id}><span className={styles.categoryMark}>{category.name.slice(0, 1).toUpperCase()}</span><b>{category.name}</b><small>{category.is_archived ? "Архивная" : "Активна"}</small><button onClick={() => setDialog({ resource: "categories", item: category })} aria-label={`Изменить категорию ${category.name}`} title="Изменить"><Pencil size={15} /></button><button onClick={() => void toggleArchive("categories", category)} aria-label={category.is_archived ? `Восстановить категорию ${category.name}` : `Архивировать категорию ${category.name}`} title={category.is_archived ? "Восстановить" : "Архивировать"}>{category.is_archived ? <RotateCcw size={15} /> : <Archive size={15} />}</button></article>)}</div>{!categories.length ? <div className={styles.catalogEmpty}>Категорий в этом разделе нет.</div> : null}</section>
+    </div>
+    {dialog ? <CatalogDialog dialog={dialog} saving={saving} onClose={() => setDialog(null)} onSave={saveItem} /> : null}
+  </section>;
+}
+
+function CatalogDialog({ dialog, saving, onClose, onSave }: { dialog: { resource: "plans" | "categories"; item?: SubscriptionPlan | BusinessCategory }; saving: boolean; onClose: () => void; onSave: (values: { name: string; monthly_price?: number; duration_months?: number; description?: string }) => void }) {
+  const plan = dialog.resource === "plans" ? dialog.item as SubscriptionPlan | undefined : undefined;
+  const [name, setName] = useState(dialog.item?.name || "");
+  const [price, setPrice] = useState(plan?.monthly_price.toString() || "");
+  const [duration, setDuration] = useState(plan?.duration_months.toString() || "12");
+  const [description, setDescription] = useState(plan?.description || "");
+  const isPlan = dialog.resource === "plans";
+  function submit(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); onSave(isPlan ? { name, monthly_price: Number(price), duration_months: Number(duration), description } : { name }); }
+  return <div className={styles.catalogModalBackdrop}><form className={styles.catalogModal} onSubmit={submit}><header><b>{isPlan ? "Добавить подписку" : "Добавить категорию"}</b><button type="button" onClick={onClose} aria-label="Закрыть"><X size={18} /></button></header><label>Название {isPlan ? "подписки" : "категории"}<input value={name} onChange={(event) => setName(event.target.value)} required maxLength={120} /></label>{isPlan ? <><label>Стоимость (₸ / мес)<input type="number" value={price} onChange={(event) => setPrice(event.target.value)} min="0" required /></label><label>Срок действия (мес)<input type="number" value={duration} onChange={(event) => setDuration(event.target.value)} min="1" required /></label><label>Описание<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} /></label></> : null}<footer><button type="button" onClick={onClose}>Отменить</button><button className={styles.catalogSubmit} disabled={saving}>{saving ? "Сохраняем..." : dialog.item ? "Сохранить" : "Создать"}</button></footer></form></div>;
 }
