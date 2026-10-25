@@ -86,7 +86,9 @@ Backend API for partner frontend (Django + DRF).
   automatic replacement visits or refunds.
 - The schedule editor supports rectangular date selection by dragging,
   Ctrl/Cmd to add an area, Shift to select a continuous date range, and keyboard
-  date selection. Saving checks existing bookings, including visits that would
+  date selection. Clicking a selected date removes it, including the final
+  selected date; with no dates selected, day settings and saving are disabled.
+  Saving checks existing bookings, including visits that would
   extend beyond shortened working hours. The editor saves through
   `PATCH /api/v1/partner/specialists/schedule/` with
   `items: [{specialist_id, working_schedule}]`; all selected specialists update

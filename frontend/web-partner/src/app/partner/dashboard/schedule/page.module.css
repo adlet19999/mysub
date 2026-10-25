@@ -578,12 +578,6 @@
   cursor: pointer;
 }
 
-.selectionHelp {
-  font-size: 12px;
-  line-height: 1.5;
-  color: #476458;
-}
-
 .scheduleCalendarDays {
   user-select: none;
   touch-action: none;
@@ -1629,7 +1623,7 @@
 
 .scheduleEditorLayout {
   display: grid;
-  grid-template-columns: max-content 286px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 286px);
   gap: 14px;
   align-items: start;
   justify-content: start;
@@ -1637,13 +1631,13 @@
 
 .scheduleCalendar,
 .scheduleDayEditor {
+  min-width: 0;
   border: 1px solid #e2e8e6;
   border-radius: 7px;
   background: #fff;
 }
 
 .scheduleCalendar {
-  width: fit-content;
   padding: 14px 12px 12px;
 }
 
@@ -1651,7 +1645,7 @@
   display: grid;
   grid-template-columns: 32px 1fr 32px;
   align-items: center;
-  width: 354px;
+  width: 100%;
   margin: 0 0 14px;
 }
 
@@ -1680,18 +1674,18 @@
 
 .scheduleCalendarDays {
   display: grid;
-  grid-template-columns: repeat(7, 48px);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 3px;
 }
 
 .scheduleCalendar .calendarWeekdays {
-  grid-template-columns: repeat(7, 48px);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 3px;
 }
 
 .scheduleCalendarDay {
   position: relative;
-  width: 48px;
+  width: 100%;
   height: 48px;
   min-height: 0;
   border: 1px solid #e6ebea;

@@ -14,7 +14,7 @@ import { formatRuPhone } from "../../../../lib/phone";
 import { useDraggableModal } from "../../../../lib/useDraggableModal";
 import AvailableTimeSelect from "./AvailableTimeSelect";
 import PassVisitEditor, { PassVisit } from "./PassVisitEditor";
-import { selectCalendarArea } from "../../../../lib/calendarSelection";
+import { selectCalendarArea, toggleCalendarDate } from "../../../../lib/calendarSelection";
 
 type WorkingDayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 
@@ -2133,17 +2133,16 @@ export default function SchedulePage() {
     updatePromotionWindows([...getPromotionWindows(day), window]);
   }
 
+  function setScheduleDateSelection(dateKeys: string[], preferredDateKey: string) {
+    setSelectedScheduleDateKeys(dateKeys);
+    setBulkScheduleError("");
+    const activeKey = dateKeys.includes(preferredDateKey) ? preferredDateKey : dateKeys[0];
+    if (activeKey) setSelectedDate(new Date(`${activeKey}T12:00:00`));
+  }
+
   function toggleScheduleDate(date: Date) {
     const dateKey = formatDateInputValue(date);
-    setSelectedDate(date);
-    setSelectedScheduleDateKeys((previous) => {
-      if (previous.includes(dateKey)) {
-        return previous.length === 1
-          ? previous
-          : previous.filter((item) => item !== dateKey);
-      }
-      return [...previous, dateKey];
-    });
+    setScheduleDateSelection(toggleCalendarDate(selectedScheduleDateKeys, dateKey), dateKey);
   }
 
   function validateBulkSchedule() {
@@ -2209,6 +2208,10 @@ export default function SchedulePage() {
   }
 
   async function submitBulkSchedule() {
+    if (!selectedScheduleDateKeys.length) {
+      setBulkScheduleError("Выберите хотя бы одну дату");
+      return;
+    }
     const targetSpecialists = isApplyingScheduleToAll
       ? activeSpecialists
       : activeSpecialists.filter(
@@ -3259,7 +3262,6 @@ export default function SchedulePage() {
                       <span key={day}>{day}</span>
                     ))}
                   </div>
-                  <p className={styles.selectionHelp}>Выделите область мышью. Ctrl/Cmd — добавить область, Shift — диапазон. Выбрано дат: {selectedScheduleDateKeys.length}.</p>
                   <div className={styles.scheduleCalendarDays}
                     onPointerMove={(event) => {
                       const selection = scheduleSelectionRef.current;
@@ -3270,9 +3272,16 @@ export default function SchedulePage() {
                       if (end !== selection.anchor) selection.moved = true;
                       setSelectedScheduleDateKeys(selectCalendarArea(calendarDays.map(formatDateInputValue), selection.anchor, end, selection.original, selection.additive));
                     }}
-                    onPointerUp={() => { scheduleSelectionRef.current = null; }}
+                    onPointerUp={() => {
+                      const selection = scheduleSelectionRef.current;
+                      if (selection && !selection.moved) {
+                        const dateKey = formatDateInputValue(calendarDays[selection.anchor]);
+                        setScheduleDateSelection(toggleCalendarDate(selection.original, dateKey), dateKey);
+                      }
+                      scheduleSelectionRef.current = null;
+                    }}
                     onPointerCancel={() => {
-                      if (scheduleSelectionRef.current) setSelectedScheduleDateKeys(scheduleSelectionRef.current.original);
+                      if (scheduleSelectionRef.current) setScheduleDateSelection(scheduleSelectionRef.current.original, formatDateInputValue(selectedDate));
                       scheduleSelectionRef.current = null;
                     }}
                   >
@@ -3294,6 +3303,7 @@ export default function SchedulePage() {
                             if (event.button !== 0 || !event.isPrimary) return;
                             event.preventDefault();
                             setSelectedDate(date);
+                            setBulkScheduleError("");
                             const keys = calendarDays.map(formatDateInputValue);
                             if (event.shiftKey && scheduleAnchorRef.current != null) {
                               const anchor = scheduleAnchorRef.current;
@@ -3349,6 +3359,7 @@ export default function SchedulePage() {
                   ) : null}
                 </section>
                 {(() => {
+                  if (!selectedScheduleDateKeys.length) return <section className={`${styles.scheduleSettingsPanel} ${styles.scheduleDayEditor}`} role="status">Выберите дату или область дат в календаре.</section>;
                   const day = getScheduleForDate(
                     bulkScheduleDraft,
                     selectedDate,
@@ -3630,7 +3641,7 @@ export default function SchedulePage() {
                 type="button"
                 className={styles.completeButton}
                 onClick={() => void submitBulkSchedule()}
-                disabled={isSavingBulkSchedule}
+                disabled={isSavingBulkSchedule || !selectedScheduleDateKeys.length}
               >
                 {isSavingBulkSchedule
                   ? "Сохранение..."

@@ -13,7 +13,7 @@ function loadSource(relativePath) {
   return module.exports;
 }
 
-const { selectCalendarArea } = loadSource(path.join("lib", "calendarSelection.ts"));
+const { selectCalendarArea, toggleCalendarDate } = loadSource(path.join("lib", "calendarSelection.ts"));
 const keys = Array.from({ length: 42 }, (_, index) => `day-${index}`);
 
 test("calendar drag selects the rectangle, not a continuous date range", () => {
@@ -34,4 +34,20 @@ test("calendar regular selection replaces the previous area", () => {
 
 test("calendar selection supports the entire six-week calendar", () => {
   assert.equal(selectCalendarArea(keys, 0, 41, [], false).length, 42);
+});
+
+test("clicking the only selected date clears the selection", () => {
+  assert.deepEqual(toggleCalendarDate([keys[8]], keys[8]), []);
+});
+
+test("clicking a selected date removes only that date", () => {
+  assert.deepEqual(toggleCalendarDate([keys[8], keys[9]], keys[8]), [keys[9]]);
+});
+
+test("clicking an unselected date adds it without losing previous dates", () => {
+  assert.deepEqual(toggleCalendarDate([keys[8]], keys[9]), [keys[8], keys[9]]);
+});
+
+test("a date can be selected again after clearing the last selection", () => {
+  assert.deepEqual(toggleCalendarDate(toggleCalendarDate([keys[8]], keys[8]), keys[8]), [keys[8]]);
 });
