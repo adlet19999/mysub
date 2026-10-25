@@ -72,12 +72,14 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
 }
 
 .filterInputs {
   display: flex;
   gap: 16px;
   flex: 1;
+  flex-wrap: wrap;
 }
 
 .inputGroup {
@@ -457,5 +459,4 @@
     grid-template-columns: 1fr;
   }
 }
-
 

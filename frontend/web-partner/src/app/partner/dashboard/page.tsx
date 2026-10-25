@@ -120,6 +120,7 @@ export default function PartnerDashboardPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [serviceFilter, setServiceFilter] = useState("all");
   const [specialistFilter, setSpecialistFilter] = useState("all");
+  const [clientQuery, setClientQuery] = useState("");
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   const [openDateField, setOpenDateField] = useState<DateField | null>(null);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date());
@@ -194,6 +195,10 @@ export default function PartnerDashboardPage() {
   }, [calendarMonth]);
 
   const filteredRows = useMemo(() => rows.filter((row) => {
+    const query = clientQuery.trim().toLocaleLowerCase("ru-RU");
+    const digits = query.replace(/\D/g, "");
+    if (query && !row.client_name.toLocaleLowerCase("ru-RU").includes(query) &&
+      !(digits && /^[+\d\s().-]+$/.test(query) && row.client_phone.replace(/\D/g, "").includes(digits))) return false;
     const dateKey = toDateKey(row.starts_at);
     if (dateFrom && dateKey < dateFrom) return false;
     if (dateTo && dateKey > dateTo) return false;
@@ -201,7 +206,7 @@ export default function PartnerDashboardPage() {
     if (serviceFilter !== "all" && !parseServiceNames(row.service_name).some((name) => name === serviceFilter)) return false;
     if (specialistFilter !== "all" && (row.manager_name || "Не назначен") !== specialistFilter) return false;
     return true;
-  }), [rows, dateFrom, dateTo, statusFilter, serviceFilter, specialistFilter]);
+  }), [rows, dateFrom, dateTo, statusFilter, serviceFilter, specialistFilter, clientQuery]);
 
   const stats = useMemo(() => [
     { label: "Всего записей", value: String(filteredRows.length) },
@@ -221,6 +226,7 @@ export default function PartnerDashboardPage() {
     setStatusFilter("all");
     setServiceFilter("all");
     setSpecialistFilter("all");
+    setClientQuery("");
   }
 
   function openCalendar(field: DateField) {
@@ -314,6 +320,9 @@ export default function PartnerDashboardPage() {
             </div>;
           })}
         </div>
+        <label className={styles.inputGroup}>Клиент
+          <input type="search" placeholder="Имя или телефон клиента" value={clientQuery} onChange={(event) => setClientQuery(event.target.value)} />
+        </label>
         <div className={styles.filterActions}>
           <button type="button" className={styles.filterButton} onClick={() => setIsFiltersOpen((value) => !value)} aria-expanded={isFiltersOpen}>
             <span className={styles.filterIcon} aria-hidden="true" />

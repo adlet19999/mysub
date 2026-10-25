@@ -115,6 +115,9 @@ class CatalogServiceSerializer(serializers.Serializer):
     duration_minutes = serializers.IntegerField()
     price = serializers.CharField(allow_null=True)
     service_type = serializers.CharField()
+    is_pass = serializers.BooleanField()
+    visit_count = serializers.IntegerField()
+    pass_price_mode = serializers.ChoiceField(choices=["per_visit", "total"])
     image_url = serializers.URLField(allow_blank=True)
 
 
@@ -148,6 +151,8 @@ class MobileBookingCreateRequestSerializer(serializers.Serializer):
     specialist_id = serializers.IntegerField(min_value=1, help_text="ID специалиста выбранного партнёра")
     service_id = serializers.IntegerField(min_value=1, help_text="ID выбранной услуги")
     starts_at = serializers.DateTimeField(help_text="Начало записи в ISO 8601 с offset +05:00 для Алматы; время должно совпадать со свободным слотом")
+    visits = serializers.ListField(child=serializers.DateTimeField(), required=False, max_length=365, help_text="Для абонемента: все даты посещений, starts_at совпадает с первой датой")
+    request_id = serializers.UUIDField(required=False, help_text="Для абонемента: ключ защиты от повторного создания")
 
 
 class MobileBookingSerializer(serializers.Serializer):
@@ -163,6 +168,7 @@ class MobileBookingSerializer(serializers.Serializer):
     final_price = serializers.CharField()
     is_cancellable = serializers.BooleanField()
     created_at = serializers.DateTimeField()
+    booking_pass = serializers.JSONField(allow_null=True)
 
 
 class MobileBookingListResponseSerializer(serializers.Serializer):

@@ -27,6 +27,9 @@ type Service = {
   price: string | null;
   discount_percent: number;
   is_subscription: boolean;
+  is_pass: boolean;
+  visit_count: number;
+  pass_price_mode: "per_visit" | "total";
   image_url: string;
   image_base64?: string;
   is_promo: boolean;
@@ -54,6 +57,9 @@ type OfferFormState = {
   serviceType: "individual" | "group";
   discountPercent: string;
   isSubscription: boolean;
+  isPass: boolean;
+  visitCount: string;
+  passPriceMode: "per_visit" | "total";
   maxPeople: string;
   minPeople: string;
   tableCapacity: string;
@@ -120,6 +126,9 @@ export default function PartnerManagePage() {
     serviceType: "individual",
     discountPercent: "",
     isSubscription: true,
+    isPass: false,
+    visitCount: "1",
+    passPriceMode: "per_visit",
     maxPeople: "",
     minPeople: "",
     tableCapacity: "",
@@ -285,6 +294,9 @@ export default function PartnerManagePage() {
       serviceType: "individual",
       discountPercent: "",
       isSubscription: true,
+      isPass: false,
+      visitCount: "1",
+      passPriceMode: "per_visit",
       maxPeople: "",
       minPeople: "",
       tableCapacity: "",
@@ -309,6 +321,9 @@ export default function PartnerManagePage() {
       serviceType: service.service_type || "individual",
       discountPercent: String(service.discount_percent || 0),
       isSubscription: service.is_subscription,
+      isPass: service.is_pass,
+      visitCount: String(service.visit_count),
+      passPriceMode: service.pass_price_mode,
       maxPeople: service.details?.max_people ? String(service.details.max_people) : "",
       minPeople: service.details?.min_people ? String(service.details.min_people) : "",
       tableCapacity: service.details?.table_capacity ? String(service.details.table_capacity) : "",
@@ -347,6 +362,10 @@ export default function PartnerManagePage() {
 
     if (!offerForm.name.trim() || !offerForm.categoryId || !offerForm.kindId) {
       setOfferSaveError("Заполните название, категорию и направление услуги");
+      return;
+    }
+    if (offerForm.isPass && (!Number.isInteger(Number(offerForm.visitCount)) || Number(offerForm.visitCount) < 1 || Number(offerForm.visitCount) > 365)) {
+      setOfferSaveError("Количество посещений должно быть целым числом от 1 до 365");
       return;
     }
 
@@ -388,6 +407,9 @@ export default function PartnerManagePage() {
         price: parsePrice(offerForm.price) ?? 0,
         discount_percent: Number(offerForm.discountPercent || 0),
         is_subscription: offerForm.isSubscription,
+        is_pass: offerForm.isPass,
+        visit_count: offerForm.isPass ? Number(offerForm.visitCount) : 1,
+        pass_price_mode: offerForm.passPriceMode,
         is_promo: Number(offerForm.discountPercent || 0) > 0,
         is_active: true,
       }),
@@ -514,10 +536,10 @@ export default function PartnerManagePage() {
                         <span className={styles.avatarDot} />
                       )}
                     </td>
-                    <td>{service.name}</td>
+                    <td>{service.name}{service.is_pass ? <small> · Абонемент · посещений: {service.visit_count}</small> : null}</td>
                     <td>{service.category_name}</td>
                     <td>{service.kind_name || "-"}</td>
-                    <td>{service.price ? `${formatPrice(service.price)} ₸` : "-"}</td>
+                    <td>{service.price ? `${formatPrice(service.price)} ₸` : "-"}{service.is_pass ? <small> / {service.pass_price_mode === "total" ? "абонемент" : "посещение"}</small> : null}</td>
                     <td>{service.discount_percent > 0 ? `${service.discount_percent}%` : "-"}</td>
                     <td>
                       {service.price && service.discount_percent > 0
@@ -770,6 +792,24 @@ export default function PartnerManagePage() {
                     </label>
                   </div>
                 ) : null}
+
+                <div className={styles.discountRow}>
+                  <label className={styles.checkLabel}>
+                    <input type="checkbox" checked={offerForm.isPass} onChange={(event) => setOfferForm((prev) => ({ ...prev, isPass: event.target.checked }))} />
+                    <span>Абонемент</span>
+                  </label>
+                  {offerForm.isPass ? <>
+                    <label>Количество посещений
+                      <input type="number" min={1} max={365} step={1} required value={offerForm.visitCount} onChange={(event) => setOfferForm((prev) => ({ ...prev, visitCount: event.target.value }))} />
+                    </label>
+                    <label>Указанная стоимость
+                      <select value={offerForm.passPriceMode} onChange={(event) => setOfferForm((prev) => ({ ...prev, passPriceMode: event.target.value === "total" ? "total" : "per_visit" }))}>
+                        <option value="per_visit">За одно посещение</option>
+                        <option value="total">За весь абонемент</option>
+                      </select>
+                    </label>
+                  </> : null}
+                </div>
 
                 <div className={styles.discountRow}>
                   <label className={styles.checkLabel}>

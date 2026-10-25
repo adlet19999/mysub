@@ -2,6 +2,8 @@ from django.urls import path
 
 from .views import (
     BookingDetailView,
+    BookingAvailabilityView,
+    BookingPassCreateView,
     BookingListCreateView,
     BusinessOfferDetailView,
     BusinessOfferListCreateView,
@@ -19,6 +21,7 @@ from .views import (
     ServiceListCreateView,
     SpecialistDetailView,
     SpecialistListCreateView,
+    SpecialistScheduleBulkView,
 )
 
 urlpatterns = [
@@ -37,7 +40,10 @@ urlpatterns = [
     path("managers/", ManagerListCreateView.as_view(), name="partner-managers"),
     path("managers/<int:manager_id>/", ManagerDetailView.as_view(), name="partner-manager-detail"),
     path("specialists/", SpecialistListCreateView.as_view(), name="partner-specialists"),
+    path("specialists/schedule/", SpecialistScheduleBulkView.as_view(), name="partner-specialist-schedule-bulk"),
     path("specialists/<int:specialist_id>/", SpecialistDetailView.as_view(), name="partner-specialist-detail"),
     path("bookings/", BookingListCreateView.as_view(), name="partner-bookings"),
+    path("bookings/availability/", BookingAvailabilityView.as_view(), name="partner-booking-availability"),
+    path("bookings/passes/", BookingPassCreateView.as_view(), name="partner-booking-pass-create"),
     path("bookings/<int:booking_id>/", BookingDetailView.as_view(), name="partner-booking-detail"),
 ]

@@ -524,6 +524,71 @@
   border-left-color: #6b7280;
 }
 
+.bookingCrown {
+  position: absolute;
+  top: 6px;
+  right: 32px;
+  color: #946200;
+  background: #fff8da;
+  border-radius: 4px;
+  padding: 2px;
+  display: inline-flex;
+  z-index: 2;
+}
+
+.passEditor {
+  padding: 12px;
+  border: 1px solid #cbded5;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.passEditor p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.passWeekdays,
+.passVisitRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.passVisitRow input,
+.passVisitRow select {
+  min-width: 140px;
+  flex: 1;
+  border: 1px solid #dce4df;
+  border-radius: 6px;
+  min-height: 36px;
+  padding: 6px;
+}
+
+.passVisitLink {
+  text-align: left;
+  border: 0;
+  border-radius: 4px;
+  background: #f1f7f4;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.selectionHelp {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #476458;
+}
+
+.scheduleCalendarDays {
+  user-select: none;
+  touch-action: none;
+}
+
 .bookingService,
 .bookingClient {
   margin: 0;

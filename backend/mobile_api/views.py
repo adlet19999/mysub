@@ -18,7 +18,7 @@ from rest_framework.views import APIView
 
 from common_api.models import PartnerProfile
 from common_api.views import normalize_ru_phone
-from partner_api.models import Booking, Service, Specialist
+from partner_api.models import Booking, BookingPass, Service, Specialist
 from partner_api.views import (
     CLOSED_BOOKING_STATUSES,
     booking_schedule_error,
@@ -26,6 +26,9 @@ from partner_api.views import (
     group_booking_error,
     has_booking_overlap,
     has_client_booking_overlap,
+    pass_visits_error,
+    save_booking_pass,
+    serialize_booking_pass,
     to_aware_datetime,
 )
 
@@ -153,6 +156,9 @@ def serialize_catalog_service(service, request):
         "duration_minutes": service.duration_minutes or 60,
         "price": str(service.price) if service.price is not None else None,
         "service_type": service.service_type,
+        "is_pass": service.is_pass,
+        "visit_count": service.visit_count,
+        "pass_price_mode": service.pass_price_mode,
         "image_url": catalog_public_url(request, service.image_url),
     }
 
@@ -197,6 +203,7 @@ def serialize_mobile_booking(booking):
         "final_price": str(booking.final_price),
         "is_cancellable": is_mobile_booking_cancellable(booking),
         "created_at": booking.created_at.isoformat(),
+        "booking_pass": serialize_booking_pass(booking),
     }
 
 
@@ -487,6 +494,8 @@ class MobileCatalogSpecialistAvailabilityView(APIView):
         slots = []
         for minute_offset in range(0, 24 * 60 - duration_minutes + 1, 30):
             starts_at = day_start + timedelta(minutes=minute_offset)
+            if starts_at <= timezone.now():
+                continue
             if booking_schedule_error(specialist, starts_at, duration_minutes) is not None:
                 continue
             if has_booking_overlap(
@@ -603,6 +612,45 @@ class MobileBookingsView(MobileAuthenticatedView):
             group_error = group_booking_error([service])
             if group_error:
                 return error_response(409, "SERVICE_UNAVAILABLE", group_error)
+
+            if service.is_pass:
+                raw_visits = request.data.get("visits")
+                try:
+                    request_id = uuid.UUID(str(request.data.get("request_id", "")))
+                except (ValueError, TypeError, AttributeError):
+                    return error_response(400, "VALIDATION_ERROR", "Для абонемента нужен request_id в формате UUID", "request_id")
+                if not isinstance(raw_visits, list) or not raw_visits or len(raw_visits) > 365:
+                    return error_response(400, "VALIDATION_ERROR", "Выберите даты всех посещений", "visits")
+                visits = []
+                for raw_visit in raw_visits:
+                    try:
+                        visit = parse_datetime(raw_visit) if isinstance(raw_visit, str) else None
+                    except ValueError:
+                        visit = None
+                    if visit is None:
+                        return error_response(400, "VALIDATION_ERROR", "Дата посещения должна быть в ISO формате", "visits")
+                    visit = to_aware_datetime(visit)
+                    if visit.minute % 30 or visit.second or visit.microsecond:
+                        return error_response(400, "VALIDATION_ERROR", "Посещения должны совпадать со свободными 30-минутными слотами", "visits")
+                    visits.append(visit)
+                visits.sort()
+                if visits[0] != starts_at:
+                    return error_response(400, "VALIDATION_ERROR", "starts_at должен совпадать с первым посещением", "starts_at")
+                payload = {"tenant": specialist.tenant_slug, "source": Booking.Source.MOBILE, "service_id": service.id, "specialist_id": specialist.id, "client_name": client_name, "client_phone": customer.phone, "visits": [value.isoformat() for value in visits]}
+                previous = BookingPass.objects.filter(partner_profile=partner, request_id=request_id).first()
+                if previous:
+                    if previous.request_payload != payload:
+                        return error_response(409, "REQUEST_CONFLICT", "request_id уже использован для другого абонемента")
+                    return Response(serialize_mobile_booking(previous.bookings.order_by("visit_number").first()))
+                message = pass_visits_error(specialist.tenant_slug, partner, service, specialist, visits, customer.phone)
+                if message:
+                    return error_response(409, "SLOT_UNAVAILABLE", message, "visits")
+                if any(has_client_booking_overlap(specialist.tenant_slug, customer.phone, visit, service.duration_minutes) for visit in visits):
+                    return error_response(409, "CLIENT_TIME_CONFLICT", "Одно из посещений пересекается с вашей записью у другого партнёра", "visits")
+                booking_pass = save_booking_pass(profile=partner, tenant=specialist.tenant_slug, service=service, specialist=specialist, starts=visits, name=client_name, phone=customer.phone, request_id=request_id, payload=payload, source=Booking.Source.MOBILE)
+                return Response(serialize_mobile_booking(booking_pass.bookings.order_by("visit_number").first()), status=201)
+            if "visits" in request.data:
+                return error_response(400, "VALIDATION_ERROR", "Несколько посещений доступны только для абонемента", "visits")
 
             duration_minutes = service.duration_minutes or 60
             schedule_error = booking_schedule_error(specialist, starts_at, duration_minutes)

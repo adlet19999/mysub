@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 
 
@@ -45,6 +47,9 @@ class Service(models.Model):
 	price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
 	discount_percent = models.PositiveSmallIntegerField(default=0)
 	is_subscription = models.BooleanField(default=True)
+	is_pass = models.BooleanField(default=False)
+	visit_count = models.PositiveSmallIntegerField(default=1)
+	pass_price_mode = models.CharField(max_length=12, default="per_visit", choices=[("per_visit", "Per visit"), ("total", "Total")])
 	image_url = models.URLField(blank=True, default="")
 	image_base64 = models.TextField(blank=True, default="")
 	is_promo = models.BooleanField(default=False)
@@ -101,6 +106,23 @@ class SpecialistService(models.Model):
 		]
 
 
+class BookingPass(models.Model):
+	id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+	partner_profile = models.ForeignKey("common_api.PartnerProfile", on_delete=models.CASCADE, related_name="booking_passes")
+	request_id = models.UUIDField()
+	request_payload = models.JSONField(default=dict)
+	service = models.ForeignKey(Service, on_delete=models.PROTECT, related_name="booking_passes")
+	visit_count = models.PositiveSmallIntegerField()
+	price_mode = models.CharField(max_length=12)
+	total_price = models.DecimalField(max_digits=16, decimal_places=2)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		constraints = [
+			models.UniqueConstraint(fields=["partner_profile", "request_id"], name="uniq_partner_pass_request"),
+		]
+
+
 class Booking(models.Model):
 	class Source(models.TextChoices):
 		UNKNOWN = "unknown", "Unknown"
@@ -126,7 +148,14 @@ class Booking(models.Model):
 	discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 	final_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 	pricing_details = models.JSONField(default=list, blank=True)
+	booking_pass = models.ForeignKey(BookingPass, on_delete=models.PROTECT, related_name="bookings", null=True, blank=True)
+	visit_number = models.PositiveSmallIntegerField(null=True, blank=True)
 	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		constraints = [
+			models.UniqueConstraint(fields=["booking_pass", "visit_number"], name="uniq_pass_visit_number"),
+		]
 
 
 class BusinessTable(models.Model):

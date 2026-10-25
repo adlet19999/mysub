@@ -8,10 +8,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { Info, Phone, Plus, Trash2 } from "lucide-react";
+import { Crown, Info, Phone, Plus, Trash2 } from "lucide-react";
 import styles from "./page.module.css";
 import { formatRuPhone } from "../../../../lib/phone";
 import { useDraggableModal } from "../../../../lib/useDraggableModal";
+import AvailableTimeSelect from "./AvailableTimeSelect";
+import PassVisitEditor, { PassVisit } from "./PassVisitEditor";
+import { selectCalendarArea } from "../../../../lib/calendarSelection";
 
 type WorkingDayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 
@@ -59,6 +62,9 @@ type Service = {
   price: string | null;
   discount_percent?: number;
   is_active: boolean;
+  is_pass: boolean;
+  visit_count: number;
+  pass_price_mode: "per_visit" | "total";
 };
 
 type BookingLine = {
@@ -85,6 +91,15 @@ type Booking = {
   pricing_details?: BookingPricingDetail[];
   subscription_active?: boolean;
   group_session?: GroupSession | null;
+  booking_pass?: {
+    id: string;
+    visit_number: number;
+    visit_count: number;
+    completed_visits: number;
+    price_mode: "per_visit" | "total";
+    total_price: string;
+    visits: { id: number; visit_number: number; starts_at: string; status: string }[];
+  } | null;
 };
 
 type GroupParticipant = { id: number; client_name: string; client_phone: string; final_price: string; status: string; subscription_active: boolean };
@@ -104,7 +119,7 @@ function GroupBookingDetails({ booking, selectedIds, disabled, onToggle }: { boo
         <div className={styles.groupParticipantIdentity}><strong>{participant.client_name}</strong><small><Phone size={13} />{formatRuPhone(participant.client_phone)}</small>{closed ? <small>{getStatusLabel(participant.status)}</small> : null}</div>
         <div><span>Сумма</span><strong>{Number(participant.final_price || 0).toLocaleString("ru-RU")} ₸</strong></div>
         <div><span>Подписка</span><small className={participant.subscription_active ? styles.groupSubscriptionActive : ""}>{participant.subscription_active ? "Активна" : "Нет"}</small></div>
-        <input type="checkbox" aria-label={`Посетил ${participant.client_name}`} checked={selectedIds.includes(participant.id)} disabled={disabled || closed} onChange={() => onToggle(participant.id)} />
+        <input type="checkbox" aria-label={`Посетил ${participant.client_name}`} checked={["completed", "done", "завершен", "завершена"].includes(participant.status.toLowerCase()) || selectedIds.includes(participant.id)} disabled={disabled || closed} onChange={() => onToggle(participant.id)} />
       </label>;
     })}</div></div>
     <dl className={styles.groupSummary}>
@@ -204,14 +219,6 @@ const RUS_MONTH_SHORT: string[] = [
 const DEFAULT_SCHEDULE_START_HOUR = 9;
 const DEFAULT_SCHEDULE_END_HOUR = 20;
 const SLOT_HEIGHT = 56;
-const TIME_STEP_MINUTES = 15;
-const TIME_OPTIONS = Array.from(
-  { length: (24 * 60) / TIME_STEP_MINUTES },
-  (_, index) => {
-    const minutes = index * TIME_STEP_MINUTES;
-    return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
-  },
-);
 const WORKING_DAYS: { key: WorkingDayKey; label: string }[] = [
   { key: "mon", label: "Понедельник" },
   { key: "tue", label: "Вторник" },
@@ -690,6 +697,7 @@ export default function SchedulePage() {
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [directoryError, setDirectoryError] = useState("");
   const [detailsBooking, setDetailsBooking] = useState<Booking | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [isDetailsMenuOpen, setIsDetailsMenuOpen] = useState(false);
@@ -709,6 +717,8 @@ export default function SchedulePage() {
   const [editingBookingId, setEditingBookingId] = useState<number | null>(null);
   const [bookingClientName, setBookingClientName] = useState("");
   const [bookingPhone, setBookingPhone] = useState("");
+  const [passVisits, setPassVisits] = useState<PassVisit[]>([]);
+  const passRequestRef = useRef({ payload: "", id: "" });
   const [bookingSpecialistId, setBookingSpecialistId] = useState("");
   const [bookingDate, setBookingDate] = useState(
     formatDateInputValue(new Date()),
@@ -741,6 +751,8 @@ export default function SchedulePage() {
     () => new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1),
   );
   const datePickerRef = useRef<HTMLElement | null>(null);
+  const scheduleSelectionRef = useRef<{ anchor: number; original: string[]; additive: boolean; moved: boolean } | null>(null);
+  const scheduleAnchorRef = useRef<number | null>(null);
   const bookingModalDrag = useDraggableModal(
     isBookingModalOpen,
     closeBookingModal,
@@ -798,6 +810,10 @@ export default function SchedulePage() {
   );
   const isWeeklyScheduleView = Boolean(selectedScheduleSpecialist);
   const weekDates = useMemo(() => getWeekDates(selectedDate), [selectedDate]);
+  useEffect(() => {
+    scheduleAnchorRef.current = null;
+    scheduleSelectionRef.current = null;
+  }, [calendarMonth, isBulkScheduleOpen]);
 
   const selectedDay = toWorkingDayKey(selectedDate);
 
@@ -868,10 +884,21 @@ export default function SchedulePage() {
     );
   }, [activeSpecialists, bookableServices, bookingSpecialistId]);
 
+  const selectedPassService = bookingModalMode === "create" && !isAddingGroupParticipant
+    ? bookableServices.find((service) => String(service.id) === bookingLines[0]?.serviceId && service.is_pass)
+    : undefined;
+  const editingPass = bookingModalMode === "edit" && bookings.some((booking) => booking.id === editingBookingId && booking.booking_pass);
+
+  useEffect(() => {
+    setPassVisits([]);
+    passRequestRef.current = { payload: "", id: "" };
+  }, [selectedPassService?.id, selectedPassService?.visit_count, isBookingModalOpen]);
+
   const canSubmitBooking = useMemo(() => {
     if (!bookingClientName.trim() || !bookingPhone.trim()) {
       return false;
     }
+    if (selectedPassService && (passVisits.length !== selectedPassService.visit_count || passVisits.some((visit) => !visit.date || !visit.time))) return false;
     if (bookingModalMode === "edit") {
       return Boolean(
         bookingDate &&
@@ -895,6 +922,8 @@ export default function SchedulePage() {
     bookingSpecialistId,
     bookingLines,
     bookingModalMode,
+    selectedPassService,
+    passVisits,
   ]);
 
   const detailsServices = useMemo(() => {
@@ -1296,7 +1325,7 @@ export default function SchedulePage() {
     if (!partnerEmail) {
       return;
     }
-
+    setDirectoryError("");
     try {
       const headers = {
         "Content-Type": "application/json",
@@ -1321,44 +1350,20 @@ export default function SchedulePage() {
           }),
         ]);
 
-      if (!specialistsResponse.ok) {
-        setSpecialists([]);
-      } else {
-        const specialistsPayload =
-          (await specialistsResponse.json()) as Specialist[];
-        setSpecialists(
-          Array.isArray(specialistsPayload)
-            ? specialistsPayload.map((item) => ({
-                ...item,
-                working_schedule: normalizeWorkingSchedule(
-                  item.working_schedule,
-                ),
-              }))
-            : [],
-        );
+      if (!specialistsResponse.ok || !servicesResponse.ok || !bookingsResponse.ok) {
+        throw new Error("Не удалось загрузить расписание. Обновите данные.");
       }
-
-      if (!servicesResponse.ok) {
-        setServices([]);
-      } else {
-        const servicesPayload = (await servicesResponse.json()) as Service[];
-        setServices(Array.isArray(servicesPayload) ? servicesPayload : []);
+      const specialistsPayload = (await specialistsResponse.json()) as Specialist[];
+      const servicesPayload = (await servicesResponse.json()) as Service[];
+      const bookingsPayload = (await bookingsResponse.json()) as { items?: Booking[] };
+      if (!Array.isArray(specialistsPayload) || !Array.isArray(servicesPayload) || !Array.isArray(bookingsPayload.items)) {
+        throw new Error("Некорректный ответ сервера при загрузке расписания");
       }
-
-      if (!bookingsResponse.ok) {
-        setBookings([]);
-      } else {
-        const bookingsPayload = (await bookingsResponse.json()) as {
-          items?: Booking[];
-        };
-        setBookings(
-          Array.isArray(bookingsPayload?.items) ? bookingsPayload.items : [],
-        );
-      }
-    } catch {
-      setSpecialists([]);
-      setServices([]);
-      setBookings([]);
+      setSpecialists(specialistsPayload.map((item) => ({ ...item, working_schedule: normalizeWorkingSchedule(item.working_schedule) })));
+      setServices(servicesPayload);
+      setBookings(bookingsPayload.items);
+    } catch (error) {
+      setDirectoryError(error instanceof Error ? error.message : "Не удалось подключиться к серверу");
     }
   }
 
@@ -1414,7 +1419,7 @@ export default function SchedulePage() {
         ? matchedServices.map((service, index) => ({
             id: Date.now() + index,
             serviceId: String(service.id),
-            sum: service.price ? String(service.price) : "",
+            sum: target.pricing_details?.find((detail) => detail.service_id === service.id)?.final_price ?? (service.price ? String(service.price) : ""),
             specialistId: matchedSpecialist ? String(matchedSpecialist.id) : "",
             date: startsAt?.dateKey ?? formatDateInputValue(selectedDate),
             startTime: startsAt?.timeLabel ?? "10:00",
@@ -1448,7 +1453,7 @@ export default function SchedulePage() {
     setEditingBookingId(null);
     setBookingClientName("");
     setBookingPhone("");
-    setIsAddingGroupParticipant(true);
+    setIsAddingGroupParticipant(!bookableServices.find((service) => service.id === group.service_id)?.is_pass);
     setDetailsBooking(null);
   }
 
@@ -1467,11 +1472,14 @@ export default function SchedulePage() {
         },
       );
       if (!response.ok) {
+        setDetailsError("Не удалось удалить или отменить запись. Обновите данные и повторите.");
         return;
       }
       setIsDeleteConfirmOpen(false);
       setDetailsBooking(null);
       await loadDirectory();
+    } catch {
+      setDetailsError("Не удалось подключиться к серверу");
     } finally {
       setIsDeletingBooking(false);
     }
@@ -1559,7 +1567,7 @@ export default function SchedulePage() {
       (item) => String(item.id) === serviceId,
     );
     setBookingLines((prev) =>
-      prev.map((line) => {
+      (selectedService?.is_pass && bookingModalMode === "create" ? prev.filter((line) => line.id === lineId) : prev).map((line) => {
         if (line.id !== lineId) {
           return line;
         }
@@ -1722,10 +1730,53 @@ export default function SchedulePage() {
 
   async function submitBooking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmittingBooking) return;
     setModalError("");
 
     if (!partnerEmail) {
       setModalError("Не удалось определить партнера");
+      return;
+    }
+    if (selectedPassService) {
+      const line = bookingLines[0];
+      if (bookingLines.length !== 1 || !line.specialistId || passVisits.length !== selectedPassService.visit_count || passVisits.some((visit) => !visit.date || !visit.time)) {
+        setModalError("Выберите специалиста, даты и время всех посещений абонемента");
+        return;
+      }
+      const body = {
+        service_id: selectedPassService.id,
+        specialist_id: Number(line.specialistId),
+        client_name: bookingClientName.trim(),
+        client_phone: bookingPhone.trim(),
+        visits: passVisits.map((visit) => `${visit.date}T${visit.time}:00`).sort(),
+      };
+      const payload = JSON.stringify(body);
+      if (passRequestRef.current.payload !== payload) {
+        const bytes = crypto.getRandomValues(new Uint8Array(16));
+        bytes[6] = (bytes[6] & 15) | 64;
+        bytes[8] = (bytes[8] & 63) | 128;
+        const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+        passRequestRef.current = { payload, id: `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}` };
+      }
+      setIsSubmittingBooking(true);
+      try {
+        const response = await fetch(`${API_BASE}/partner/bookings/passes/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Partner-Email": partnerEmail, "X-Tenant": tenant },
+          body: JSON.stringify({ ...body, request_id: passRequestRef.current.id }),
+        });
+        if (!response.ok) {
+          const error: { message?: string } = await response.json();
+          setModalError(error.message || "Не удалось создать абонемент");
+          return;
+        }
+        setIsBookingModalOpen(false);
+        await loadDirectory();
+      } catch {
+        setModalError("Не удалось подтвердить создание абонемента. Повторите сохранение: дубли не будут созданы.");
+      } finally {
+        setIsSubmittingBooking(false);
+      }
       return;
     }
 
@@ -2007,50 +2058,6 @@ export default function SchedulePage() {
     });
   }
 
-  function hasBookingOverlappingBreak(
-    specialist: Specialist,
-    workingSchedule: WorkingDaySchedule[],
-  ) {
-    return bookings.some((booking) => {
-      if (
-        (booking.manager_name || "").trim().toLowerCase() !==
-        specialist.full_name.trim().toLowerCase()
-      ) {
-        return false;
-      }
-      const startsAt = parseBookingDateTime(booking.starts_at);
-      if (!startsAt || !selectedScheduleDateKeys.includes(startsAt.dateKey)) {
-        return false;
-      }
-      const day = getScheduleForDate(
-        workingSchedule,
-        new Date(`${startsAt.dateKey}T12:00:00`),
-      );
-      if (!day || day.is_day_off) {
-        return false;
-      }
-      const durationMinutes = parseServiceNames(booking.service_name).reduce(
-        (total, serviceName) => {
-          const service = services.find(
-            (item) =>
-              item.name.trim().toLowerCase() === serviceName.toLowerCase() ||
-              (item.kind_name || "").trim().toLowerCase() ===
-                serviceName.toLowerCase(),
-          );
-          return total + (service?.duration_minutes || 60);
-        },
-        0,
-      ) || 60;
-      const bookingStart = startsAt.hour * 60 + startsAt.minutes;
-      const bookingEnd = bookingStart + durationMinutes;
-      return day.breaks.some((scheduleBreak) => {
-        const breakStart = toMinutes(scheduleBreak.start_time);
-        const breakEnd = toMinutes(scheduleBreak.end_time);
-        return breakStart != null && breakEnd != null && bookingStart < breakEnd && breakStart < bookingEnd;
-      });
-    });
-  }
-
   function toggleSelectedDayOff(day: WorkingDaySchedule) {
     if (!day.is_day_off && hasBookingsOnSelectedDates()) {
       setBulkScheduleError(
@@ -2223,55 +2230,25 @@ export default function SchedulePage() {
 
     setIsSavingBulkSchedule(true);
     try {
-      const results = await Promise.all(
-        targetSpecialists.map(async (specialist) => {
-          const workingSchedule = isApplyingScheduleToAll
-            ? applySelectedDatesToSchedule(
-                normalizeWorkingSchedule(specialist.working_schedule),
-                bulkScheduleDraft,
-                selectedScheduleDateKeys,
-              )
-            : bulkScheduleDraft;
-          if (hasBookingOverlappingBreak(specialist, workingSchedule)) {
-            return { specialist, ok: false, bookingConflict: true };
-          }
-          try {
-            const response = await fetch(
-              `${API_BASE}/partner/specialists/${specialist.id}/`,
-              {
-                method: "PATCH",
-                headers: {
-                  "Content-Type": "application/json",
-                  "X-Tenant": tenant,
-                  "X-Partner-Email": partnerEmail,
-                },
-                body: JSON.stringify({ working_schedule: workingSchedule }),
-              },
-            );
-            return { specialist, ok: response.ok, bookingConflict: false };
-          } catch {
-            return { specialist, ok: false, bookingConflict: false };
-          }
-        }),
-      );
-
-      const failedSpecialists = results
-        .filter((result) => !result.ok)
-        .map((result) => result.specialist.full_name);
-      if (failedSpecialists.length) {
-        setBulkScheduleError(
-          results.some((result) => result.bookingConflict)
-            ? "Перерыв пересекается с существующей записью"
-            :
-          failedSpecialists.length === targetSpecialists.length
-            ? "Не удалось сохранить график"
-            : `График не удалось сохранить у: ${failedSpecialists.join(", ")}`,
-        );
-        await loadDirectory();
+      const response = await fetch(`${API_BASE}/partner/specialists/schedule/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-Tenant": tenant, "X-Partner-Email": partnerEmail },
+        body: JSON.stringify({ items: targetSpecialists.map((specialist) => ({
+          specialist_id: specialist.id,
+          working_schedule: isApplyingScheduleToAll
+            ? applySelectedDatesToSchedule(normalizeWorkingSchedule(specialist.working_schedule), bulkScheduleDraft, selectedScheduleDateKeys)
+            : bulkScheduleDraft,
+        })) }),
+      });
+      if (!response.ok) {
+        const payload: { message?: string } = await response.json();
+        setBulkScheduleError(payload.message || "Не удалось сохранить график");
         return;
       }
       setIsBulkScheduleOpen(false);
       await loadDirectory();
+    } catch {
+      setBulkScheduleError("Не удалось подключиться к серверу. График не подтверждён; повторите сохранение.");
     } finally {
       setIsSavingBulkSchedule(false);
     }
@@ -2425,6 +2402,7 @@ export default function SchedulePage() {
           </div>
         ) : null}
       </section>
+      {directoryError ? <p className={styles.modalError} role="alert">{directoryError} <button type="button" onClick={() => void loadDirectory()}>Повторить загрузку</button></p> : null}
 
       <section className={styles.tableWrap}>
         <div className={styles.timeRail}>
@@ -2506,6 +2484,8 @@ export default function SchedulePage() {
                         {slotEntries.map((entry) => {
                           const { basePrice, finalPrice } = getBookingPrices(entry.booking);
                           const hasDiscount = basePrice != null && finalPrice != null && finalPrice < basePrice;
+                          const hasPromotion = hasDiscount || entry.booking.pricing_details?.some((detail) => detail.discount_window) ||
+                            isWithinPromotionWindow(daySchedule, hour * 60 + entry.minutes, hour * 60 + entry.minutes + entry.durationMinutes);
 
                           return <article
                             key={entry.booking.id}
@@ -2516,6 +2496,7 @@ export default function SchedulePage() {
                               minHeight: `${Math.max(28, Math.round((entry.durationMinutes / 60) * SLOT_HEIGHT))}px`,
                             }}
                           >
+                            {hasPromotion ? <span className={styles.bookingCrown} role="img" aria-label={hasDiscount ? "Скидка применена" : "Запись в акционное время, скидка не применена"} title={hasDiscount ? "Скидка применена" : "Акционное время. Стоимость — по сохранённой цене записи."}><Crown size={18} /></span> : null}
                             <button
                               type="button"
                               className={styles.bookingEditButton}
@@ -2536,6 +2517,7 @@ export default function SchedulePage() {
                             <p className={styles.bookingClient}>
                               {entry.booking.group_session ? `Группа · ${entry.booking.group_session.occupied_places}/${entry.booking.group_session.capacity}` : entry.booking.client_name}
                             </p>
+                            {entry.booking.booking_pass ? <p className={styles.bookingClient}>Абонемент · {entry.booking.booking_pass.visit_number}/{entry.booking.booking_pass.visit_count}</p> : null}
                             {basePrice != null ? (
                               <p className={styles.bookingPrice}>
                                 {hasDiscount ? (
@@ -2623,6 +2605,7 @@ export default function SchedulePage() {
               <label className={styles.fieldBlock}>
                 <span>Телефон *</span>
                 <input
+                  readOnly={editingPass}
                   value={bookingPhone}
                   onChange={(event) =>
                     setBookingPhone(formatRuPhone(event.target.value))
@@ -2676,7 +2659,7 @@ export default function SchedulePage() {
                       <label className={styles.fieldBlock}>
                         <span>Услуга{index === 0 ? "" : ` ${index + 1}`}</span>
                         <select
-                          disabled={isAddingGroupParticipant}
+                          disabled={isAddingGroupParticipant || editingPass}
                           value={line.serviceId}
                           onChange={(event) =>
                             onServiceChange(line.id, event.target.value)
@@ -2701,7 +2684,7 @@ export default function SchedulePage() {
                       >
                         <span>Сумма</span>
                         <input
-                          readOnly={isAddingGroupParticipant}
+                          readOnly={isAddingGroupParticipant || Boolean(selectedPassService) || editingPass}
                           value={line.sum}
                           onChange={(event) =>
                             onSumChange(line.id, event.target.value)
@@ -2792,28 +2775,24 @@ export default function SchedulePage() {
                         <span>Время начала</span>
                         <div className={styles.iconInputWrap}>
                           <img src="/schedule.svg" alt="" aria-hidden />
-                          <select
+                          <AvailableTimeSelect
                             disabled={isAddingGroupParticipant}
+                            date={lineDate}
+                            specialistId={lineSpecialistId}
+                            serviceIds={bookingModalMode === "edit" ? bookingLines.map((item) => item.serviceId).filter(Boolean).join(",") : line.serviceId}
+                            phone={bookingPhone}
+                            partnerEmail={partnerEmail}
+                            excludeBookingId={bookingModalMode === "edit" ? editingBookingId : null}
                             value={lineStartTime}
-                            onChange={(event) =>
+                            onChange={(time) =>
                               bookingModalMode === "edit"
-                                ? setBookingStartTime(event.target.value)
+                                ? setBookingStartTime(time)
                                 : updateBookingLine(line.id, {
-                                    startTime: event.target.value,
+                                    startTime: time,
                                   })
                             }
                             className={styles.dateTimeInput}
-                          >
-                            {(TIME_OPTIONS.includes(lineStartTime) ||
-                            !lineStartTime
-                              ? TIME_OPTIONS
-                              : [...TIME_OPTIONS, lineStartTime].sort()
-                            ).map((time) => (
-                              <option key={time} value={time}>
-                                {time}
-                              </option>
-                            ))}
-                          </select>
+                          />
                         </div>
                       </label>
                     </div>
@@ -2830,15 +2809,19 @@ export default function SchedulePage() {
                 );
               })}
 
+              {selectedPassService ? <>
+                <p className={styles.discountHint}>Цена {selectedPassService.pass_price_mode === "total" ? "за весь абонемент" : "за посещение"}: {Number(selectedPassService.price || 0).toLocaleString("ru-RU")} ₸. Итого: {(Number(selectedPassService.price || 0) * (selectedPassService.pass_price_mode === "total" ? 1 : selectedPassService.visit_count)).toLocaleString("ru-RU")} ₸.</p>
+                <PassVisitEditor count={selectedPassService.visit_count} startDate={bookingLines[0]?.date || ""} startTime={bookingLines[0]?.startTime || ""} specialistId={bookingLines[0]?.specialistId || ""} serviceId={String(selectedPassService.id)} phone={bookingPhone} partnerEmail={partnerEmail} visits={passVisits} onChange={setPassVisits} />
+              </> : null}
               {bookingModalMode === "create" ? <p className={styles.discountHint}>Ручная запись — по полной стоимости, независимо от подписки и времени простоя.</p> : null}
-              {!isAddingGroupParticipant ? <button
+              {!isAddingGroupParticipant && !selectedPassService && !editingPass ? <button
                 type="button"
                 className={styles.addMoreButton}
                 onClick={addBookingLine}
               >
                 <span>+</span>
                 Добавить ещё
-              </button> : <p className={styles.discountHint}>Запись в выбранное групповое занятие. Свободное место проверяется при сохранении.</p>}
+              </button> : isAddingGroupParticipant ? <p className={styles.discountHint}>Запись в выбранное групповое занятие. Свободное место проверяется при сохранении.</p> : null}
 
               {modalError ? (
                 <p className={styles.modalError}>{modalError}</p>
@@ -2920,7 +2903,7 @@ export default function SchedulePage() {
                         setIsDeleteConfirmOpen(true);
                       }}
                     >
-                      Удалить
+                      {detailsBooking.booking_pass ? "Отменить посещение" : "Удалить"}
                     </button>
                   </div>
                 ) : null}
@@ -2939,6 +2922,16 @@ export default function SchedulePage() {
             </header>
 
             <div className={styles.detailsBody}>
+              {detailsBooking.booking_pass ? <section className={styles.passEditor}>
+                <strong>Абонемент · посещение {detailsBooking.booking_pass.visit_number} из {detailsBooking.booking_pass.visit_count}</strong>
+                <p>Посещено: {detailsBooking.booking_pass.completed_visits} из {detailsBooking.booking_pass.visit_count}. Стоимость пакета: {Number(detailsBooking.booking_pass.total_price).toLocaleString("ru-RU")} ₸.</p>
+                {detailsBooking.booking_pass.visits.map((visit) => <button type="button" key={visit.id} className={styles.passVisitLink} onClick={() => {
+                  const target = bookings.find((booking) => booking.id === visit.id);
+                  if (target) openDetailsModal(target);
+                  else setDetailsError("Посещение не загружено. Обновите расписание.");
+                }}>#{visit.visit_number} · {new Date(visit.starts_at).toLocaleString("ru-RU")} · {getStatusLabel(visit.status)}</button>)}
+                <p>Перенос и отмена изменяют только выбранное посещение. Стоимость сохраняется; неявка и отмена не учитываются в выручке.</p>
+              </section> : null}
               {detailsBooking.group_session ? <GroupBookingDetails booking={detailsBooking} selectedIds={selectedParticipantIds} disabled={isUpdatingStatus} onToggle={(id) => setSelectedParticipantIds((current) => current.includes(id) ? current.filter((selectedId) => selectedId !== id) : [...current, id])} /> : <>
               <div className={styles.clientSummary}>
                 <div className={styles.clientAvatar}>
@@ -3137,7 +3130,7 @@ export default function SchedulePage() {
               className={styles.confirmHeader}
               {...deleteBookingModalDrag.dragHandleProps}
             >
-              <h3>Удалить запись?</h3>
+              <h3>{detailsBooking.booking_pass ? "Отменить посещение?" : "Удалить запись?"}</h3>
               <button
                 type="button"
                 className={styles.confirmCloseButton}
@@ -3148,9 +3141,9 @@ export default function SchedulePage() {
               </button>
             </header>
             <p>
-              Вы точно хотите удалить? Запись будет удалена полностью,
-              восстановить её не получится.
+              {detailsBooking.booking_pass ? "Посещение будет отменено, но останется в истории абонемента. Другие посещения не изменятся." : "Вы точно хотите удалить? Запись будет удалена полностью, восстановить её не получится."}
             </p>
+            {detailsError ? <p className={styles.modalError} role="alert">{detailsError}</p> : null}
             <div className={styles.confirmActions}>
               <button
                 type="button"
@@ -3166,7 +3159,7 @@ export default function SchedulePage() {
                 onClick={() => void deleteBooking()}
                 disabled={isDeletingBooking}
               >
-                {isDeletingBooking ? "Удаление..." : "Удалить"}
+                {isDeletingBooking ? "Сохранение..." : detailsBooking.booking_pass ? "Отменить посещение" : "Удалить"}
               </button>
             </div>
           </section>
@@ -3266,8 +3259,24 @@ export default function SchedulePage() {
                       <span key={day}>{day}</span>
                     ))}
                   </div>
-                  <div className={styles.scheduleCalendarDays}>
-                    {calendarDays.map((date) => {
+                  <p className={styles.selectionHelp}>Выделите область мышью. Ctrl/Cmd — добавить область, Shift — диапазон. Выбрано дат: {selectedScheduleDateKeys.length}.</p>
+                  <div className={styles.scheduleCalendarDays}
+                    onPointerMove={(event) => {
+                      const selection = scheduleSelectionRef.current;
+                      if (!selection) return;
+                      const element = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-schedule-index]");
+                      if (!element || !event.currentTarget.contains(element)) return;
+                      const end = Number(element.dataset.scheduleIndex);
+                      if (end !== selection.anchor) selection.moved = true;
+                      setSelectedScheduleDateKeys(selectCalendarArea(calendarDays.map(formatDateInputValue), selection.anchor, end, selection.original, selection.additive));
+                    }}
+                    onPointerUp={() => { scheduleSelectionRef.current = null; }}
+                    onPointerCancel={() => {
+                      if (scheduleSelectionRef.current) setSelectedScheduleDateKeys(scheduleSelectionRef.current.original);
+                      scheduleSelectionRef.current = null;
+                    }}
+                  >
+                    {calendarDays.map((date, dateIndex) => {
                       const day = getScheduleForDate(bulkScheduleDraft, date);
                       const dateKey = formatDateInputValue(date);
                       const isSelected =
@@ -3277,8 +3286,31 @@ export default function SchedulePage() {
                         <button
                           key={dateKey}
                           type="button"
+                          data-schedule-index={dateIndex}
+                          aria-pressed={isSelected}
+                          aria-label={`Выбрать ${date.toLocaleDateString("ru-RU")}`}
                           className={`${styles.scheduleCalendarDay} ${date.getMonth() === calendarMonth.getMonth() ? "" : styles.calendarDayMuted} ${isSelected ? styles.scheduleCalendarDaySelected : ""}`}
-                          onClick={() => toggleScheduleDate(date)}
+                          onPointerDown={(event) => {
+                            if (event.button !== 0 || !event.isPrimary) return;
+                            event.preventDefault();
+                            setSelectedDate(date);
+                            const keys = calendarDays.map(formatDateInputValue);
+                            if (event.shiftKey && scheduleAnchorRef.current != null) {
+                              const anchor = scheduleAnchorRef.current;
+                              setSelectedScheduleDateKeys(keys.slice(Math.min(anchor, dateIndex), Math.max(anchor, dateIndex) + 1));
+                              return;
+                            }
+                            scheduleAnchorRef.current = dateIndex;
+                            scheduleSelectionRef.current = { anchor: dateIndex, original: selectedScheduleDateKeys, additive: event.ctrlKey || event.metaKey, moved: false };
+                            setSelectedScheduleDateKeys(selectCalendarArea(keys, dateIndex, dateIndex, selectedScheduleDateKeys, event.ctrlKey || event.metaKey));
+                            event.currentTarget.parentElement?.setPointerCapture(event.pointerId);
+                          }}
+                          onClick={(event) => {
+                            if (event.detail === 0) {
+                              scheduleAnchorRef.current = dateIndex;
+                              toggleScheduleDate(date);
+                            }
+                          }}
                         >
                           <span>{date.getDate()}</span>
                           {hasPromotion ? (
