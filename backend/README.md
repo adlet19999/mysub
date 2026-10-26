@@ -58,7 +58,7 @@ Backend API for partner frontend (Django + DRF).
 - `Service.is_pass` is separate from `is_subscription` (availability through the
   platform subscription). Pass services specify `visit_count` (1–365) and
   `pass_price_mode`: `per_visit` or `total`. Existing services remain non-passes.
-- CRM enrolment uses `POST /api/v1/partner/bookings/passes/` with a UUID
+- Individual-service CRM enrolment uses `POST /api/v1/partner/bookings/passes/` with a UUID
   `request_id`, `service_id`, `specialist_id`, `client_name`, `client_phone` and
   `visits` (an ISO datetime array). All dates are validated before creating any
   visits. The series is atomic; a retry with the same key and payload returns
@@ -96,10 +96,71 @@ Backend API for partner frontend (Django + DRF).
 - Dashboard customer search matches partial case-insensitive names and
   formatted/partial phone numbers, combined with the existing filters.
 
+### Independent groups and one-off lesson changes
+
+The CRM **Groups and passes** screen separates the service template, the group,
+its dated lessons, and each client's visits. Creating a group does not create
+bookings, customers, revenue, or fake participants. Empty lessons remain visible
+in the calendar as `0 / capacity` and reserve the specialist's full duration.
+Removing the final participant does not delete the lesson or free this time.
+
+- `GET/POST /api/v1/partner/groups/`: list or create a group. Creation requires
+  `request_id` (UUID), `name`, `service_id`, `specialist_id`, `capacity`, and
+  `sessions` (ISO datetimes). Group pass services require the configured number
+  of lessons; non-pass group services can have 1–365 lessons. Creation validates
+  every date and commits all lessons atomically. Repeated identical requests
+  are idempotent; reusing a key with another payload returns 409.
+- `GET /api/v1/partner/groups/{id}/`: lessons, current participants, and client
+  visit history, including individually moved or cancelled bookings.
+- `GET /api/v1/partner/groups/sessions/`: calendar sessions, including empty and
+  cancelled lessons. Specialist, capacity, duration and prices are snapshots of
+  the created group rather than guesses from its current participant list.
+- `POST /api/v1/partner/groups/{id}/enroll/`: `request_id`, `client_name`,
+  `client_phone`, `session_ids`. Dates can be selected individually. Omitting
+  `session_ids` selects all future scheduled lessons; the server never silently
+  drops full dates. Any capacity, schedule or client conflict rejects the whole
+  enrollment. The UI explicitly shows selected dates and their total.
+- `PATCH /api/v1/partner/groups/participants/{booking_id}/`: `action` is
+  `complete`, `no_show`, `cancel`, or `move`. A move accepts `session_id` for
+  another lesson of the same service and duration, or `specialist_id` plus
+  `starts_at` for a separate makeup visit. Only this client's selected visit
+  changes; original lesson and other visits stay intact. Source history is
+  retained, and a makeup visit reserves the full specialist interval.
+- `PATCH /api/v1/partner/groups/sessions/{session_id}/`: a deliberately separate
+  **whole-lesson** action. `{"action":"move","starts_at":"..."}` changes this
+  single dated lesson and all its active participants, not the recurring work
+  schedule or any other lesson. For example, moving this Monday from 15:00 to
+  16:00 leaves every subsequent Monday at 15:00. The original datetime is
+  retained and displayed as a one-off change. The server checks the teacher and
+  **every participant** before saving; a single conflict aborts the whole move.
+  `{"action":"cancel"}` cancels only this lesson and its active records, releases
+  the teacher's time, and preserves history. Separately moved clients are not
+  affected. Past lessons and lessons with attendance cannot be changed this way.
+- Attendance actions, including the legacy `group_action=complete`, only change
+  explicitly selected clients. Unselected clients are never marked absent.
+- The group's per-lesson base prices are fixed at creation. A total price is
+  divided in cents across the original lesson list; enrollment in selected dates
+  costs exactly the sum of those dates, including when joining mid-course.
+  Individual/whole-lesson moves preserve allocated base prices. Mobile discounts
+  are rechecked for the new date; manual entries stay full-price. Cancellation
+  does not automatically generate refunds or replacement visits.
+- Availability accepts `reserve_group=1` when reserving a new whole lesson or
+  private makeup time, plus `exclude_session_id` when moving an existing lesson.
+  Ownership is checked. Empty reservations are also respected by mobile
+  availability, legacy booking APIs, schedule edits, service/specialist archival
+  and capability removal. The old booking API still supports per-client moves;
+  it never moves the underlying group lesson.
+- Migrations `0027`–`0029` create the independent records and attach legacy
+  group bookings without changing their IDs, client history, prices or statuses.
+  Individual passes are unaffected. Old clients creating group bookings or passes
+  automatically attach to an existing compatible session or create a stored one.
+  Unlinked historical records with unavailable service/specialist references
+  retain their legacy representation instead of being discarded.
+
 Run the focused regression suite with a disposable test database:
 
 ```bash
-python manage.py test partner_api.test_booking_updates partner_api.tests partner_api.test_lifecycle mobile_api.tests --noinput
+python manage.py test partner_api.test_groups partner_api.test_booking_updates partner_api.tests partner_api.test_lifecycle mobile_api.tests --noinput
 ```
 
 The lifecycle concurrency case requires PostgreSQL; SQLite does not certify

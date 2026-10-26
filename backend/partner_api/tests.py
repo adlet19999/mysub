@@ -475,7 +475,7 @@ class BookingPricingApiTests(TestCase):
 		self.assertEqual(response.status_code, 200)
 		for index, member in enumerate(members):
 			member.refresh_from_db()
-			self.assertEqual(member.status, "completed" if index < 2 else "no_show")
+			self.assertEqual(member.status, "completed" if index < 2 else "booked")
 
 	def test_service_capacity_and_format_changes_preserve_upcoming_bookings(self):
 		from common_api.models import BusinessCategory

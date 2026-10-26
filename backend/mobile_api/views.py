@@ -31,6 +31,7 @@ from partner_api.views import (
     serialize_booking_pass,
     to_aware_datetime,
 )
+from partner_api.grouping import attach_group_session
 
 from .models import CustomerChild, CustomerProfile, MobileRefreshSession
 from .serializers import (
@@ -681,6 +682,7 @@ class MobileBookingsView(MobileAuthenticatedView):
                 booking_source=Booking.Source.MOBILE,
                 **pricing,
             )
+            attach_group_session(booking, service, specialist)
 
         return Response(serialize_mobile_booking(booking), status=201)
 

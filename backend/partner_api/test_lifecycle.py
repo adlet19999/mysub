@@ -143,7 +143,7 @@ class CrmLifecycleTests(LifecycleFixture, TestCase):
     def test_manual_booking_never_receives_subscription_discount(self):
         for service in [self.service, self.individual]:
             with self.subTest(service_type=service.service_type):
-                response = self.book(service=service, booking_source="mobile", final_price="1.00")
+                response = self.book(service=service, starts_at=self.starts_at if service == self.service else self.starts_at + timedelta(hours=1), booking_source="mobile", final_price="1.00")
                 self.assertEqual(response.status_code, 201)
                 self.assertEqual(response.data["final_price"], "10000.00")
                 self.assertEqual(response.data["discount_amount"], "0.00")
@@ -282,7 +282,7 @@ class CrmLifecycleTests(LifecycleFixture, TestCase):
         self.assertEqual(completed.status_code, 200)
         self.assertEqual(
             [(p["id"], p["status"]) for p in completed.data["group_session"]["participants"]],
-            [(first.data["id"], "completed"), (replacement.data["id"], "no_show")],
+            [(first.data["id"], "completed"), (replacement.data["id"], "booked")],
         )
         repeated = self.client.patch(
             f"/api/v1/partner/bookings/{first.data['id']}/",

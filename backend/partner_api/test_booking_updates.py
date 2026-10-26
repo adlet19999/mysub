@@ -210,7 +210,7 @@ class BookingUpdateTests(LifecycleFixture, TestCase):
         self.assertEqual(result.status_code, 200)
         reloaded = self.client.get("/api/v1/partner/bookings/", **self.headers)
         participants = next(item for item in reloaded.data if item["id"] == first.data["id"])["group_session"]["participants"]
-        self.assertEqual({item["id"]: item["status"] for item in participants}, {first.data["id"]: "completed", second.data["id"]: "no_show"})
+        self.assertEqual({item["id"]: item["status"] for item in participants}, {first.data["id"]: "completed", second.data["id"]: "booked"})
 
     def test_shortened_working_hours_cannot_overlap_existing_visit(self):
         self.assertEqual(self.book().status_code, 201)

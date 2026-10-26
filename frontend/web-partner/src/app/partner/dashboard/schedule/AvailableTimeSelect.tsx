@@ -12,6 +12,8 @@ type Props = {
   phone: string;
   partnerEmail: string;
   excludeBookingId?: number | null;
+  excludeSessionId?: number;
+  reserveGroup?: boolean;
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
@@ -29,6 +31,8 @@ export default function AvailableTimeSelect(props: Props) {
   const params = new URLSearchParams({ date, specialist_id: specialistId, service_ids: serviceIds });
   if (phone.replace(/\D/g, "").length === 11) params.set("client_phone", phone);
   if (excludeBookingId) params.set("exclude_booking_id", String(excludeBookingId));
+  if (props.reserveGroup) params.set("reserve_group", "1");
+  if (props.excludeSessionId) params.set("exclude_session_id", String(props.excludeSessionId));
   const query = params.toString();
   const key = `${partnerEmail}:${query}`;
   const ready = Boolean(date && specialistId && serviceIds && partnerEmail);

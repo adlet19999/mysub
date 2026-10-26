@@ -16,17 +16,26 @@ type Props = {
   partnerEmail: string;
   visits: PassVisit[];
   onChange: Dispatch<SetStateAction<PassVisit[]>>;
+  variant?: "pass" | "group";
 };
 
 export default function PassVisitEditor(props: Props) {
   const [weekdays, setWeekdays] = useState<number[]>([]);
   const [error, setError] = useState("");
   function generate() {
+    if (!Number.isInteger(props.count) || props.count < 1 || props.count > 365) {
+      setError("Количество занятий должно быть от 1 до 365");
+      return;
+    }
     if (!props.startDate || !props.startTime) {
       setError("Сначала выберите дату и свободное время первого посещения");
       return;
     }
     const date = new Date(`${props.startDate}T12:00:00`);
+    if (Number.isNaN(date.getTime())) {
+      setError("Укажите корректную дату первого занятия");
+      return;
+    }
     const days = weekdays.length ? weekdays : [date.getDay()];
     const visits: PassVisit[] = [];
     while (visits.length < props.count) {
@@ -41,8 +50,9 @@ export default function PassVisitEditor(props: Props) {
   function update(index: number, patch: Partial<PassVisit>) {
     props.onChange((visits) => visits.map((visit, current) => current === index ? { ...visit, ...patch } : visit));
   }
-  return <section className={styles.passEditor} aria-label="Посещения абонемента">
-    <strong>Абонемент · посещений: {props.count}</strong>
+  const isGroup = props.variant === "group";
+  return <section className={styles.passEditor} aria-label={isGroup ? "Расписание группы" : "Посещения абонемента"}>
+    <strong>{isGroup ? "Занятия группы" : "Абонемент · посещений"}: {props.count}</strong>
     <p>Выберите дни недели и заполните даты. Без выбора дней — еженедельно. Дату и время каждого посещения можно изменить.</p>
     <div className={styles.passWeekdays}>{["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((label, index) => {
       const day = (index + 1) % 7;
@@ -53,8 +63,8 @@ export default function PassVisitEditor(props: Props) {
     {props.visits.map((visit, index) => <div className={styles.passVisitRow} key={index}>
       <span>#{index + 1}</span>
       <input aria-label={`Дата посещения ${index + 1}`} type="date" required value={visit.date} onChange={(event) => update(index, { date: event.target.value, time: "" })} />
-      <AvailableTimeSelect date={visit.date} value={visit.time} onChange={(time) => update(index, { time })} specialistId={props.specialistId} serviceIds={props.serviceId} phone={props.phone} partnerEmail={props.partnerEmail} />
+      <AvailableTimeSelect reserveGroup={isGroup} date={visit.date} value={visit.time} onChange={(time) => update(index, { time })} specialistId={props.specialistId} serviceIds={props.serviceId} phone={props.phone} partnerEmail={props.partnerEmail} />
     </div>)}
-    <p>Все посещения сохраняются вместе. Конфликт хотя бы одной даты отменяет создание всего абонемента. Неявка не удаляет посещение; его можно перенести.</p>
+    <p>{isGroup ? "Группа создаётся без участников. Время занятий будет занято специалистом; клиентов можно добавить позже." : "Все посещения сохраняются вместе. Конфликт хотя бы одной даты отменяет создание всего абонемента. Неявка не удаляет посещение; его можно перенести."}</p>
   </section>;
 }

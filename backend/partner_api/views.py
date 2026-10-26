@@ -21,7 +21,8 @@ from rest_framework.views import APIView
 from common_api.models import PartnerProfile
 from common_api.views import normalize_ru_phone, PHONE_RU_RE
 
-from .models import Booking, BookingPass, BusinessOffer, Category, Manager, Service, ServiceKind, Specialist, SpecialistService
+from .models import Booking, BookingPass, BusinessOffer, Category, GroupSession, Manager, Service, ServiceKind, Specialist, SpecialistService
+from .grouping import attach_group_session
 
 
 CLOSED_BOOKING_STATUSES = {
@@ -780,6 +781,10 @@ def calculate_booking_pricing(services, specialist: Specialist | None, starts_at
 
 
 def group_booking_members(item):
+	if item.is_individual_override:
+		return None, []
+	if item.group_session_id:
+		return item.group_session.group.service, list(item.group_session.bookings.exclude(status__in={"cancelled", "canceled", "отменен", "отменена"}).order_by("id"))
 	ids = service_ids_from_pricing_details(item.pricing_details)
 	services = services_for_booking_pricing(item.tenant_slug, item.partner_profile, item.service_name, ids)
 	service = services[0] if len(services) == 1 else None
@@ -816,13 +821,17 @@ def active_subscription_phones(phones, starts_at=None):
 
 def serialize_group_session(item):
 	service, members = group_booking_members(item)
-	if not members:
+	if not members and not item.group_session_id:
 		return None
 	snapshot = item.pricing_details[0] if item.pricing_details else {}
 	capacity = max(1, int((service.details or {}).get("max_people") or 1)) if service else max(1, int(snapshot.get("max_people") or 1))
+	if item.group_session_id:
+		capacity = item.group_session.group.capacity
 	occupied = sum(member.status not in {"no_show", "no-show", "missed", "неявка"} for member in members)
 	subscribed = active_subscription_phones([member.client_phone for member in members], item.starts_at)
 	return {
+		"id": item.group_session_id,
+		"group_id": item.group_session.group_id if item.group_session_id else None,
 		"service_id": service.id if service else snapshot.get("service_id"),
 		"service_name": item.service_name,
 		"capacity": capacity,
@@ -903,8 +912,9 @@ def has_booking_overlap(
 	starts_at,
 	duration_minutes: int,
 	partner_profile=None,
-	exclude_booking_id: int = None,
+	exclude_booking_id: int | None = None,
 	service=None,
+	exclude_session_id: int | None = None,
 ):
 	manager = str(manager_name or "").strip()
 	if not manager:
@@ -916,6 +926,18 @@ def has_booking_overlap(
 	end_dt = start_dt + timedelta(minutes=max(1, int(duration_minutes or 60)))
 
 	duration_map = build_service_duration_map(tenant, partner_profile=partner_profile)
+	sessions = GroupSession.objects.filter(group__tenant_slug=tenant, group__specialist__full_name__iexact=manager, status="scheduled")
+	if exclude_session_id is not None:
+		sessions = sessions.exclude(id=exclude_session_id)
+	if partner_profile is not None:
+		sessions = sessions.filter(group__partner_profile=partner_profile)
+	for session in sessions.select_related("group"):
+		session_end = session.starts_at + timedelta(minutes=session.group.duration_minutes)
+		if start_dt < session_end and session.starts_at < end_dt:
+			same_group = service is not None and service.service_type == "group" and session.group.service_id == service.id and session.starts_at == start_dt and session.group.duration_minutes == duration_minutes
+			occupied = session.bookings.exclude(id=exclude_booking_id).exclude(status__in=CLOSED_BOOKING_STATUSES - {"completed", "done", "завершен", "завершена"}).count()
+			if not same_group or occupied >= session.group.capacity:
+				return True
 	items = Booking.objects.filter(tenant_slug=tenant, manager_name__iexact=manager)
 	if partner_profile is not None:
 		items = items.filter(partner_profile=partner_profile)
@@ -925,6 +947,8 @@ def has_booking_overlap(
 	group_count = 0
 	group_capacity = max(1, int((service.details or {}).get("max_people") or 1)) if service is not None and service.service_type == "group" else 1
 	for existing in items:
+		if existing.group_session_id:
+			continue
 		existing_start = to_aware_datetime(existing.starts_at)
 		if existing_start is None:
 			continue
@@ -932,7 +956,7 @@ def has_booking_overlap(
 		existing_end = existing_start + timedelta(minutes=max(1, existing_duration))
 		if start_dt < existing_end and existing_start < end_dt:
 			ids = service_ids_from_pricing_details(existing.pricing_details)
-			same_group = service is not None and service.service_type == "group" and existing_start == start_dt and existing_duration == duration_minutes and (ids == [service.id] or (not ids and existing.service_name == service.name))
+			same_group = not existing.is_individual_override and service is not None and service.service_type == "group" and existing_start == start_dt and existing_duration == duration_minutes and (ids == [service.id] or (not ids and existing.service_name == service.name))
 			status_value = (existing.status or "").strip().lower()
 			if same_group and status_value in {"completed", "done", "завершен", "завершена"}:
 				return True
@@ -1024,6 +1048,12 @@ def has_active_bookings_for_specialist(
 	items = Booking.objects.filter(tenant_slug=tenant, manager_name__iexact=name)
 	if partner_profile is not None:
 		items = items.filter(partner_profile=partner_profile)
+
+	sessions = GroupSession.objects.filter(group__tenant_slug=tenant, group__specialist__full_name__iexact=name, starts_at__gte=timezone.now(), status="scheduled")
+	if partner_profile is not None:
+		sessions = sessions.filter(group__partner_profile=partner_profile)
+	if sessions.exists():
+		return True
 
 	return any(
 		(item.status or "").strip().lower() not in CLOSED_BOOKING_STATUSES
@@ -1653,6 +1683,9 @@ class ServiceDetailView(APIView):
 		if is_active is not None:
 			item.is_active = parse_bool(is_active, item.is_active)
 
+		if not item.is_active and GroupSession.objects.filter(group__service=item, starts_at__gte=timezone.now(), status="scheduled").exists():
+			return Response({"message": "Нельзя архивировать услугу: сначала отмените или проведите будущие занятия групп"}, status=409)
+
 		upcoming = Booking.objects.filter(tenant_slug=tenant, partner_profile=partner_profile, starts_at__gte=timezone.now()).exclude(status__in=CLOSED_BOOKING_STATUSES)
 		session_sizes = {}
 		for booking in upcoming:
@@ -1980,7 +2013,6 @@ class SpecialistListCreateView(APIView):
 		for service_id in parsed_service_ids:
 			if service_id not in available_services:
 				return Response({"message": f"Услуга {service_id} не найдена"}, status=400)
-
 		item = Specialist.objects.create(
 			tenant_slug=tenant,
 			partner_profile=partner_profile,
@@ -2029,6 +2061,10 @@ def schedule_change_error(specialist, schedule):
 	if booking_date:
 		return f"Нельзя установить перерыв {booking_date:%d.%m.%Y}: он пересекается с записью"
 	specialist.working_schedule = schedule
+	for session in GroupSession.objects.filter(group__specialist=specialist, status="scheduled", starts_at__gte=timezone.now()).select_related("group"):
+		conflict = booking_schedule_error(specialist, session.starts_at, session.group.duration_minutes)
+		if conflict:
+			return f"График конфликтует с занятием группы {timezone.localtime(session.starts_at):%d.%m.%Y %H:%M}: {conflict}"
 	duration_map = build_service_duration_map(specialist.tenant_slug, specialist.partner_profile)
 	for booking in Booking.objects.filter(tenant_slug=specialist.tenant_slug, partner_profile=specialist.partner_profile, manager_name__iexact=specialist.full_name, starts_at__gte=timezone.now()).exclude(status__in=CLOSED_BOOKING_STATUSES):
 		conflict = booking_schedule_error(specialist, booking.starts_at, booking_snapshot_duration(booking, duration_map))
@@ -2198,6 +2234,8 @@ class SpecialistDetailView(APIView):
 				if service_id not in available_services:
 					return Response({"message": f"Услуга {service_id} не найдена"}, status=400)
 
+			if GroupSession.objects.filter(group__specialist=item, starts_at__gte=timezone.now(), status="scheduled").exclude(group__service_id__in=parsed_service_ids).exists():
+				return Response({"message": "Нельзя убрать услугу специалиста: по ней есть будущие занятия групп"}, status=409)
 			SpecialistService.objects.filter(specialist=item).exclude(service_id__in=parsed_service_ids).delete()
 			existing_service_ids = set(
 				SpecialistService.objects.filter(specialist=item, service_id__in=parsed_service_ids)
@@ -2243,6 +2281,7 @@ class BookingAvailabilityView(APIView):
 			specialist_id = int(request.query_params.get("specialist_id", ""))
 			service_ids = [int(value) for value in request.query_params.get("service_ids", "").split(",")]
 			exclude_id = int(request.query_params.get("exclude_booking_id") or 0)
+			exclude_session_id = int(request.query_params.get("exclude_session_id") or 0)
 		except (ValueError, TypeError):
 			return Response({"message": "Укажите дату, специалиста и услуги"}, status=400)
 		specialist = Specialist.objects.filter(id=specialist_id, tenant_slug=tenant, partner_profile=profile, is_active=True).first()
@@ -2258,6 +2297,11 @@ class BookingAvailabilityView(APIView):
 			if existing is None:
 				return Response({"message": "Запись не найдена"}, status=404)
 		duration = sum(service.duration_minutes for service in services)
+		if exclude_session_id:
+			session = GroupSession.objects.filter(id=exclude_session_id, group__partner_profile=profile, group__tenant_slug=tenant, group__specialist=specialist, group__service_id__in=service_ids).select_related("group").first()
+			if session is None or len(service_ids) != 1:
+				return Response({"message": "Занятие не найдено"}, status=404)
+			duration = session.group.duration_minutes
 		if existing and set(service_ids) == set(service_ids_from_pricing_details(existing.pricing_details)):
 			duration = booking_snapshot_duration(existing, build_service_duration_map(tenant, profile))
 		phone = str(request.query_params.get("client_phone") or "")
@@ -2272,7 +2316,7 @@ class BookingAvailabilityView(APIView):
 		for starts_at in sorted(candidates):
 			if starts_at < now or booking_schedule_error(specialist, starts_at, duration):
 				continue
-			if has_booking_overlap(tenant, specialist.full_name, starts_at, duration, partner_profile=profile, exclude_booking_id=exclude_id or None, service=group_service_for_booking(services)):
+			if has_booking_overlap(tenant, specialist.full_name, starts_at, duration, partner_profile=profile, exclude_booking_id=exclude_id or None, service=None if request.query_params.get("reserve_group") == "1" else group_service_for_booking(services), exclude_session_id=exclude_session_id or None):
 				continue
 			if phone and has_client_booking_overlap(tenant, phone, starts_at, duration, partner_profile=profile, exclude_booking_id=exclude_id or None):
 				continue
@@ -2315,7 +2359,11 @@ def save_booking_pass(*, profile, tenant, service, specialist, starts, name, pho
 		discount = (amount * Decimal(detail["discount_percent"]) / 100).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
 		pricing.update(base_price=amount, discount_amount=discount, final_price=amount - discount)
 		detail.update(base_price=str(amount), discount_amount=str(discount), final_price=str(amount - discount))
-		Booking.objects.create(tenant_slug=tenant, partner_profile=profile, booking_pass=booking_pass, visit_number=index + 1, service_name=service.name, manager_name=specialist.full_name, starts_at=starts_at, client_name=name, client_phone=phone, status="booked", booking_source=source, **pricing)
+		booking = Booking.objects.create(tenant_slug=tenant, partner_profile=profile, booking_pass=booking_pass, visit_number=index + 1, service_name=service.name, manager_name=specialist.full_name, starts_at=starts_at, client_name=name, client_phone=phone, status="booked", booking_source=source, **pricing)
+		group = attach_group_session(booking, service, specialist, booking_pass.group)
+		if group and not booking_pass.group_id:
+			booking_pass.group = group
+			booking_pass.save(update_fields=["group"])
 	return booking_pass
 
 
@@ -2491,6 +2539,8 @@ class BookingListCreateView(APIView):
 			booking_source=Booking.Source.MANUAL,
 			**pricing,
 		)
+		if group_service_for_booking(pricing_services):
+			attach_group_session(item, pricing_services[0], specialist)
 		return Response(serialize_booking(item), status=201)
 
 
@@ -2508,6 +2558,12 @@ class BookingDetailView(APIView):
 			return Response({"message": "Запись не найдена"}, status=404)
 		original_service_name = item.service_name
 		original_service_ids = service_ids_from_pricing_details(item.pricing_details)
+		if item.original_session_id and (
+			request.data.get("service_name", item.service_name) != item.service_name
+			or request.data.get("service_ids", original_service_ids) != original_service_ids
+			or normalize_ru_phone(str(request.data.get("client_phone", item.client_phone))) != normalize_ru_phone(item.client_phone)
+		):
+			return Response({"message": "В записи участника нельзя менять услугу или клиента"}, status=400)
 		if item.booking_pass_id:
 			service_ids = request.data.get("service_ids", service_ids_from_pricing_details(item.pricing_details))
 			if (service_ids != service_ids_from_pricing_details(item.pricing_details)
@@ -2525,8 +2581,8 @@ class BookingDetailView(APIView):
 			if not members or not selected.issubset({member.id for member in active_members}):
 				return Response({"message": "Участники недоступны или их визит уже завершён"}, status=409)
 			for member in active_members:
-				if action == "complete":
-					member.status = "completed" if member.id in selected else "no_show"
+				if action == "complete" and member.id in selected:
+					member.status = "completed"
 				elif member.id in selected:
 					member.status = "no_show"
 				else:
@@ -2681,6 +2737,15 @@ class BookingDetailView(APIView):
 			item.discount_amount = pricing["discount_amount"]
 			item.final_price = pricing["final_price"]
 			item.pricing_details = pricing["pricing_details"]
+		if item.original_session_id and pricing_requires_refresh:
+			target = GroupSession.objects.filter(
+				group__partner_profile=partner_profile, group__tenant_slug=tenant,
+				group__service_id=item.original_session.group.service_id,
+				group__specialist__full_name__iexact=item.manager_name,
+				starts_at=item.starts_at, status="scheduled",
+			).first()
+			item.group_session = target
+			item.is_individual_override = target is None
 		item.save()
 		return Response(serialize_booking(item))
 
@@ -2693,7 +2758,7 @@ class BookingDetailView(APIView):
 		if not item:
 			return Response({"message": "Запись не найдена"}, status=404)
 
-		if item.booking_pass_id:
+		if item.booking_pass_id or item.original_session_id:
 			item.status = "cancelled"
 			item.save(update_fields=["status"])
 			return Response({"ok": True})

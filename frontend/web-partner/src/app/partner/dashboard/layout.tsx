@@ -57,6 +57,7 @@ const topMenu: MenuItem[] = [
     match: (pathname) => pathname.startsWith("/partner/dashboard/schedule"),
   },
   { label: "Менеджеры", icon: iconManagers, href: "/partner/dashboard/managers" },
+  { label: "Группы и абонементы", icon: iconSpecialists, href: "/partner/dashboard/groups" },
   { label: "Отзывы", icon: iconReviews },
 ];
 

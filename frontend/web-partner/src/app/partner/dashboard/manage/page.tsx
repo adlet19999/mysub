@@ -799,7 +799,7 @@ export default function PartnerManagePage() {
                     <span>Абонемент</span>
                   </label>
                   {offerForm.isPass ? <>
-                    <label>Количество посещений
+                    <label>{offerForm.serviceType === "group" ? "Количество занятий в группе" : "Количество посещений"}
                       <input type="number" min={1} max={365} step={1} required value={offerForm.visitCount} onChange={(event) => setOfferForm((prev) => ({ ...prev, visitCount: event.target.value }))} />
                     </label>
                     <label>Указанная стоимость
@@ -810,6 +810,8 @@ export default function PartnerManagePage() {
                     </label>
                   </> : null}
                 </div>
+
+                {offerForm.serviceType === "group" ? <p>Это шаблон услуги. Саму группу, даты занятий и участников добавляйте в разделе «Группы и абонементы». Группа может быть пустой.</p> : null}
 
                 <div className={styles.discountRow}>
                   <label className={styles.checkLabel}>

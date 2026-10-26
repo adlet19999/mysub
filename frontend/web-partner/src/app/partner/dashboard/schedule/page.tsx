@@ -9,6 +9,8 @@ import {
   useState,
 } from "react";
 import { Crown, Info, Phone, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { groupBookingStatus, GroupSession as StoredGroupSession } from "../../../../lib/groups";
 import styles from "./page.module.css";
 import { formatRuPhone } from "../../../../lib/phone";
 import { useDraggableModal } from "../../../../lib/useDraggableModal";
@@ -55,6 +57,7 @@ type Specialist = {
 
 type Service = {
   id: number;
+  service_type: "individual" | "group";
   name: string;
   kind: number | null;
   kind_name?: string | null;
@@ -103,7 +106,7 @@ type Booking = {
 };
 
 type GroupParticipant = { id: number; client_name: string; client_phone: string; final_price: string; status: string; subscription_active: boolean };
-type GroupSession = { service_id: number; service_name: string; capacity: number; occupied_places: number; available_places: number; duration_minutes: number; participants: GroupParticipant[] };
+type GroupSession = { id?: number; group_id?: number; service_id: number; service_name: string; capacity: number; occupied_places: number; available_places: number; duration_minutes: number; participants: GroupParticipant[] };
 
 function GroupBookingDetails({ booking, selectedIds, disabled, onToggle }: { booking: Booking; selectedIds: number[]; disabled: boolean; onToggle: (id: number) => void }) {
   const group = booking.group_session;
@@ -160,10 +163,11 @@ type SpecialistSlotState = {
 };
 
 type CalendarBooking = {
+  kind: "booking";
   booking: Booking;
   minutes: number;
   durationMinutes: number;
-};
+} | { kind: "session"; session: StoredGroupSession; minutes: number; durationMinutes: number };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1";
 const TENANT_DEFAULT = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public";
@@ -697,6 +701,7 @@ export default function SchedulePage() {
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [groupSessions, setGroupSessions] = useState<StoredGroupSession[]>([]);
   const [directoryError, setDirectoryError] = useState("");
   const [detailsBooking, setDetailsBooking] = useState<Booking | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
@@ -1210,8 +1215,9 @@ export default function SchedulePage() {
 
     for (const sourceBooking of bookings) {
       const group = sourceBooking.group_session;
+      if (group?.id) continue;
       if (group && group.participants[0]?.id !== sourceBooking.id) continue;
-      const booking = group ? { ...sourceBooking, status: group.participants.some((participant) => getStatusTone(participant.status) === "warning") ? "booked" : group.participants.some((participant) => getStatusTone(participant.status) === "success") ? "completed" : "no_show" } : sourceBooking;
+      const booking = group ? { ...sourceBooking, status: groupBookingStatus(group.participants) } : sourceBooking;
       const parsedStartsAt = parseBookingDateTime(booking.starts_at);
       if (!parsedStartsAt) {
         continue;
@@ -1250,13 +1256,22 @@ export default function SchedulePage() {
         : (serviceDurationByName.get(
             booking.service_name.trim().toLowerCase(),
           ) ?? 60));
-      list.push({ booking, minutes, durationMinutes });
+      list.push({ kind: "booking", booking, minutes, durationMinutes });
       map.set(key, list);
+    }
+    for (const session of groupSessions) {
+      const parsed = parseBookingDateTime(session.starts_at);
+      if (!parsed || !scheduleHours.hours.includes(parsed.hour)) continue;
+      const column = columnKeyBySpecialistAndDate.get(`${session.specialist_id}-${parsed.dateKey}`);
+      if (!column) continue;
+      const key = `${parsed.hour}-${column}`;
+      map.set(key, [...(map.get(key) || []), { kind: "session", session, minutes: parsed.minutes, durationMinutes: session.duration_minutes }]);
     }
 
     return map;
   }, [
     bookings,
+    groupSessions,
     services,
     activeSpecialists,
     scheduleColumns,
@@ -1332,7 +1347,7 @@ export default function SchedulePage() {
         "X-Tenant": tenant,
         "X-Partner-Email": partnerEmail,
       };
-      const [specialistsResponse, servicesResponse, bookingsResponse] =
+      const [specialistsResponse, servicesResponse, bookingsResponse, sessionsResponse] =
         await Promise.all([
           fetch(`${API_BASE}/partner/specialists/`, {
             headers,
@@ -1348,20 +1363,23 @@ export default function SchedulePage() {
             },
             cache: "no-store",
           }),
+          fetch(`${API_BASE}/partner/groups/sessions/`, { headers, cache: "no-store" }),
         ]);
 
-      if (!specialistsResponse.ok || !servicesResponse.ok || !bookingsResponse.ok) {
+      if (!specialistsResponse.ok || !servicesResponse.ok || !bookingsResponse.ok || !sessionsResponse.ok) {
         throw new Error("Не удалось загрузить расписание. Обновите данные.");
       }
       const specialistsPayload = (await specialistsResponse.json()) as Specialist[];
       const servicesPayload = (await servicesResponse.json()) as Service[];
       const bookingsPayload = (await bookingsResponse.json()) as { items?: Booking[] };
-      if (!Array.isArray(specialistsPayload) || !Array.isArray(servicesPayload) || !Array.isArray(bookingsPayload.items)) {
+      const sessionsPayload: { items?: StoredGroupSession[] } = await sessionsResponse.json();
+      if (!Array.isArray(specialistsPayload) || !Array.isArray(servicesPayload) || !Array.isArray(bookingsPayload.items) || !Array.isArray(sessionsPayload.items)) {
         throw new Error("Некорректный ответ сервера при загрузке расписания");
       }
       setSpecialists(specialistsPayload.map((item) => ({ ...item, working_schedule: normalizeWorkingSchedule(item.working_schedule) })));
       setServices(servicesPayload);
       setBookings(bookingsPayload.items);
+      setGroupSessions(sessionsPayload.items);
     } catch (error) {
       setDirectoryError(error instanceof Error ? error.message : "Не удалось подключиться к серверу");
     }
@@ -2266,6 +2284,7 @@ export default function SchedulePage() {
         </div>
 
         <div className={styles.actions}>
+          <Link href="/partner/dashboard/groups" className={styles.settingsButton}>Группы и абонементы</Link>
           <select
             className={styles.scheduleViewFilter}
             value={scheduleViewSpecialistId}
@@ -2485,6 +2504,21 @@ export default function SchedulePage() {
                           </p>
                         ) : null}
                         {slotEntries.map((entry) => {
+                          if (entry.kind === "session") {
+                            const session = entry.session;
+                            const status = session.status === "cancelled" ? "cancelled" : groupBookingStatus(session.participants);
+                            const tone = getStatusTone(status);
+                            const promotion = session.status !== "cancelled" && isWithinPromotionWindow(daySchedule, hour * 60 + entry.minutes, hour * 60 + entry.minutes + entry.durationMinutes);
+                            return <Link key={`session-${session.id}`} href={`/partner/dashboard/groups?group=${session.group_id}&session=${session.id}`}
+                              className={`${styles.bookingCard} ${styles[`bookingCard${tone.charAt(0).toUpperCase()}${tone.slice(1)}`]}`}
+                              style={{ textDecoration: "none", marginTop: `${Math.min(SLOT_HEIGHT - 1, Math.max(0, Math.round((entry.minutes / 60) * SLOT_HEIGHT)))}px`, minHeight: `${Math.max(28, Math.round((entry.durationMinutes / 60) * SLOT_HEIGHT))}px` }}>
+                              {promotion ? <span className={styles.bookingCrown} aria-label="Занятие в акционное время"><Crown size={18} /></span> : null}
+                              <p className={styles.bookingStatus}>{session.status === "cancelled" ? "Занятие отменено" : status === "completed" ? "Занятие проведено" : status === "no_show" ? "Неявка участников" : session.occupied_places ? "Групповое занятие" : "Пустая группа"}</p>
+                              <p className={styles.bookingService}>{session.group_name}</p>
+                              <p className={styles.bookingClient}>{session.occupied_places} / {session.capacity} участников</p>
+                              <p className={styles.bookingClient}>{session.original_starts_at && session.original_starts_at !== session.starts_at ? "Разовый перенос · " : ""}{session.starts_at.slice(11, 16)}</p>
+                            </Link>;
+                          }
                           const { basePrice, finalPrice } = getBookingPrices(entry.booking);
                           const hasDiscount = basePrice != null && finalPrice != null && finalPrice < basePrice;
                           const hasPromotion = hasDiscount || entry.booking.pricing_details?.some((detail) => detail.discount_window) ||
@@ -2630,9 +2664,10 @@ export default function SchedulePage() {
                     ? selectedService.duration_minutes
                     : 60;
                 const availableServices =
-                  bookingModalMode === "edit"
+                  (bookingModalMode === "edit"
                     ? availableServicesForSpecialist
-                    : getServicesForSpecialist(line.specialistId);
+                    : getServicesForSpecialist(line.specialistId))
+                    .filter((service) => bookingModalMode === "edit" || isAddingGroupParticipant || service.service_type !== "group");
                 const availableSpecialists = getSpecialistsForService(
                   line.serviceId,
                 );
@@ -2677,7 +2712,7 @@ export default function SchedulePage() {
                         </select>
                         {availableServices.length === 0 ? (
                           <span className={styles.helperError}>
-                            Нет доступных услуг для записи
+                            Нет индивидуальных услуг. <Link href="/partner/dashboard/groups">Группы создаются отдельно</Link>.
                           </span>
                         ) : null}
                       </label>
