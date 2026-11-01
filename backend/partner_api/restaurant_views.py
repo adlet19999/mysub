@@ -9,7 +9,7 @@ from common_api.models import PartnerProfile
 from .intervals import slot_interval
 from .models import Booking, BusinessTable, Service
 from .restaurant import HOLD, RELEASED, choose_table, is_restaurant, party_size_error, restaurant_action, table_available
-from .views import category_allows_group_services, get_partner_profile, serialize_booking, tenant_from_request, has_client_booking_overlap
+from .views import get_partner_profile, partner_allows_group_services, serialize_booking, tenant_from_request, has_client_booking_overlap
 
 
 def table_data(table):
@@ -36,7 +36,7 @@ class BookingCapabilitiesView(APIView):
         return Response({
             "business_category": profile.business_category,
             "is_restaurant": is_restaurant(profile),
-            "allows_group_services": category_allows_group_services(profile.business_category),
+            "allows_group_services": partner_allows_group_services(profile, tenant_from_request(request)),
             "has_individual_passes": Service.objects.filter(partner_profile=profile, tenant_slug=tenant_from_request(request), service_type="individual", is_pass=True).exists(),
         })
 

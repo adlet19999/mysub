@@ -7,7 +7,7 @@ from django.test import TestCase
 from rest_framework.test import APIRequestFactory
 
 from .group_views import GroupEnrollView
-from .models import Booking, BookingGroup, BookingPass, GroupSession
+from .models import Booking, BookingGroup, BookingPass, Category, GroupSession, ServiceKind
 from .test_lifecycle import LifecycleFixture
 
 
@@ -37,6 +37,59 @@ class IndependentGroupTests(LifecycleFixture, TestCase):
 
 	def act(self, booking_id, **changes):
 		return self.client.patch(f"/api/v1/partner/groups/participants/{booking_id}/", changes, format="json", **self.headers)
+
+	def test_selected_courses_category_allows_group_offer_for_other_business(self):
+		self.partner.business_category = "Досуг"
+		self.partner.save()
+		course, _ = Category.objects.get_or_create(tenant_slug="public", name="Кружки и курсы")
+		kind = ServiceKind.objects.create(tenant_slug="public", category=course, name="Course training")
+		categories = self.client.get("/api/v1/partner/categories/", **self.headers)
+		self.assertTrue(next(item for item in categories.data if item["id"] == course.id)["allows_group_services"])
+		response = self.client.post("/api/v1/partner/services/", {
+			"name": "Course group", "category": course.id, "kind": kind.id,
+			"service_type": "group", "duration_minutes": 60, "price": "100",
+			"details": {"min_people": 1, "max_people": 2},
+		}, format="json", **self.headers)
+		self.assertEqual(response.status_code, 201, response.data)
+		response = self.client.patch(f"/api/v1/partner/services/{self.service.id}/", {
+			"category": course.id, "kind": kind.id,
+		}, format="json", **self.headers)
+		self.assertEqual(response.status_code, 200, response.data)
+
+	def test_group_category_drives_menu_booking_and_mobile_catalog(self):
+		self.partner.business_category = "Досуг"
+		self.partner.save()
+		capabilities = self.client.get("/api/v1/partner/booking-capabilities/", **self.headers)
+		self.assertTrue(capabilities.data["allows_group_services"])
+		catalog = self.client.get(f"/api/v1/mobile/catalog/partners/{self.partner.id}/services/")
+		self.assertIn(self.service.id, [item["id"] for item in catalog.data["data"]])
+		response = self.create_group()
+		self.assertEqual(response.status_code, 201, response.data)
+
+	def test_restaurant_and_beauty_businesses_cannot_enable_groups_by_selecting_courses(self):
+		course, _ = Category.objects.get_or_create(tenant_slug="public", name="Кружки и курсы")
+		for business_category in ("Кафе и рестораны", "Салон красоты"):
+			with self.subTest(business_category=business_category):
+				self.partner.business_category = business_category
+				self.partner.save()
+				categories = self.client.get("/api/v1/partner/categories/", **self.headers)
+				self.assertFalse(next(item for item in categories.data if item["id"] == course.id)["allows_group_services"])
+				capabilities = self.client.get("/api/v1/partner/booking-capabilities/", **self.headers)
+				self.assertFalse(capabilities.data["allows_group_services"])
+				response = self.client.patch(f"/api/v1/partner/services/{self.service.id}/", {
+					"service_type": "group", "details": {"max_people": 2},
+				}, format="json", **self.headers)
+				self.assertEqual(response.status_code, 400)
+
+	def test_group_offer_cannot_move_to_individual_only_category(self):
+		category, _ = Category.objects.get_or_create(tenant_slug="public", name="Салон красоты")
+		kind = ServiceKind.objects.create(tenant_slug="public", category=category, name="Beauty training")
+		response = self.client.patch(f"/api/v1/partner/services/{self.service.id}/", {
+			"category": category.id, "kind": kind.id,
+		}, format="json", **self.headers)
+		self.assertEqual(response.status_code, 400, response.data)
+		self.service.refresh_from_db()
+		self.assertEqual(self.service.category_id, self.category.id)
 
 	def test_empty_group_exists_and_reserves_all_specialist_time(self):
 		response = self.create_group()

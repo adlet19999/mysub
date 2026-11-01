@@ -491,6 +491,8 @@ class MobileBookingTests(TestCase):
         BusinessCategory.objects.create(name="Курсы", allows_group_services=True)
         self.partner.business_category = "Курсы"
         self.partner.save()
+        self.service.category.name = "Курсы"
+        self.service.category.save()
         self.service.service_type = "group"
         self.service.details = {"min_people": 1, "max_people": 2}
         self.service.save()

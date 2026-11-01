@@ -657,13 +657,17 @@ export default function PartnerManagePage() {
                     value={offerForm.categoryId}
                     onChange={(event) => {
                       const selectedCategoryId = event.target.value;
+                      const selectedCategory = categories.find((item) => String(item.id) === selectedCategoryId);
                       const firstKind = kinds.find(
                         (item) => item.is_active && String(item.category) === selectedCategoryId,
                       );
+                      setOfferSaveError("");
                       setOfferForm((prev) => ({
                         ...prev,
                         categoryId: selectedCategoryId,
                         kindId: firstKind ? String(firstKind.id) : "",
+                        serviceType: selectedCategory?.allows_group_services ? prev.serviceType : "individual",
+                        isPass: selectedCategory?.name === "Кафе и рестораны" ? false : prev.isPass,
                         maxPeople: "",
                         minPeople: "",
                         tableCapacity: "",

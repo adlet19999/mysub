@@ -202,6 +202,10 @@ calendar without deleting them. The calendar history and client history retain
 every record. A participant's no-show does not delete the group lesson itself.
 Group tools are unavailable to restaurant/beauty categories even if an old
 category flag permits them; individual beauty passes remain available.
+For other businesses, group eligibility follows the selected service category,
+not an unrelated primary business category. Existing group offers also enable
+the groups menu. The authenticated category directory uses the same restrictions
+as service creation, updates, bookings and the mobile catalog.
 
 Restaurant APIs:
 

@@ -382,12 +382,23 @@ def normalize_service_details(category_name: str, service_type: str, raw_details
 	return cleaned, None
 
 
-def category_allows_group_services(category_name: str) -> bool:
+def category_allows_group_services(category_name: str, business_category: str = "") -> bool:
 	from common_api.models import BusinessCategory
 
-	if category_name == "Кафе и рестораны" or any(word in category_name.lower() for word in ("красот", "салон")):
-		return False
+	for name in (category_name, business_category):
+		normalized = name.strip().lower()
+		if normalized == "кафе и рестораны" or any(word in normalized for word in ("красот", "салон")):
+			return False
 	return BusinessCategory.objects.filter(name=category_name, allows_group_services=True, is_archived=False).exists()
+
+
+def partner_allows_group_services(profile, tenant: str) -> bool:
+	if category_allows_group_services(profile.business_category):
+		return True
+	categories = Service.objects.filter(
+		partner_profile=profile, tenant_slug=tenant, service_type="group",
+	).values_list("category__name", flat=True).distinct()
+	return any(category_allows_group_services(name, profile.business_category) for name in categories)
 
 
 WEEKDAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -1003,7 +1014,7 @@ def group_booking_error(services):
 		return "Групповое занятие оформляется отдельной записью"
 	if groups:
 		service = groups[0]
-		if not category_allows_group_services(service.partner_profile.business_category or service.category.name):
+		if not category_allows_group_services(service.category.name, service.partner_profile.business_category):
 			return "В этой категории разрешены только индивидуальные услуги"
 		if not isinstance((service.details or {}).get("max_people"), int) or service.details["max_people"] < 1:
 			return "У групповой услуги не задано максимальное количество участников"
@@ -1390,6 +1401,12 @@ class CategoryListCreateView(APIView):
 	def get(self, request):
 		tenant = tenant_from_request(request)
 		partner_category = partner_category_from_request(request)
+		business_category = ""
+		if partner_email_from_request(request):
+			profile, error = get_partner_profile(request)
+			if error is not None:
+				return error
+			business_category = profile.business_category
 		items = Category.objects.filter(tenant_slug=tenant)
 		if partner_category:
 			items = items.filter(name=partner_category)
@@ -1399,7 +1416,7 @@ class CategoryListCreateView(APIView):
 				"id": item.id,
 				"name": item.name,
 				"is_active": item.is_active,
-				"allows_group_services": category_allows_group_services(item.name),
+				"allows_group_services": category_allows_group_services(item.name, business_category),
 			}
 			for item in items
 		])
@@ -1514,7 +1531,7 @@ class ServiceListCreateView(APIView):
 			numbers["duration_minutes"] = 120
 		if service_type not in {"individual", "group"}:
 			return Response({"message": "service_type должен быть individual или group"}, status=400)
-		if service_type == "group" and not category_allows_group_services(partner_profile.business_category or category.name):
+		if service_type == "group" and not category_allows_group_services(category.name, partner_profile.business_category):
 			return Response({"message": "В этой категории разрешены только индивидуальные услуги"}, status=400)
 		is_subscription = parse_bool(request.data.get("is_subscription"), True)
 		is_promo = parse_bool(request.data.get("is_promo"), discount_percent > 0)
@@ -1642,7 +1659,7 @@ class ServiceDetailView(APIView):
 
 		details = request.data.get("details")
 		new_service_type = str(request.data.get("service_type") or item.service_type).strip().lower()
-		if new_service_type == "group" and ("service_type" in request.data or "details" in request.data or request.data.get("is_active") is True) and not category_allows_group_services(partner_profile.business_category or item.category.name):
+		if new_service_type == "group" and ("category" in request.data or "service_type" in request.data or "details" in request.data or request.data.get("is_active") is True) and not category_allows_group_services(item.category.name, partner_profile.business_category):
 			return Response({"message": "В этой категории разрешены только индивидуальные услуги"}, status=400)
 		if details is not None or "service_type" in request.data:
 			details = details if details is not None else item.details
