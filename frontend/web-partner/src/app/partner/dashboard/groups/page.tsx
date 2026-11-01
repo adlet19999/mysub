@@ -5,6 +5,7 @@ import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState
 import { ArrowLeft, ArrowRight, CalendarDays, Check, ChevronDown, Clock3, Plus, Search, Users, X } from "lucide-react";
 import { BookingGroup, enrollmentTotal, GroupDetail, GroupParticipant, GroupSession, isActiveVisit, lessonCount, selectableSessions } from "../../../../lib/groups";
 import { formatRuPhone } from "../../../../lib/phone";
+import { createRequestId } from "../../../../lib/requestId";
 import AvailableTimeSelect from "../schedule/AvailableTimeSelect";
 import PassVisitEditor, { PassVisit } from "../schedule/PassVisitEditor";
 import styles from "./page.module.css";
@@ -68,6 +69,7 @@ export default function GroupsPage() {
   const [targetSession, setTargetSession] = useState("");
   const requestKey = useRef<{ payload: string; key: string } | null>(null);
   const loadSequence = useRef(0);
+  const formErrorRef = useRef<HTMLDivElement>(null);
 
   const request = useCallback(async <T,>(path: string, init: RequestInit = {}): Promise<T> => {
     const response = await fetch(`${API_BASE}/partner/${path}`, {
@@ -159,33 +161,58 @@ export default function GroupsPage() {
       await load(created ? result.id : detail?.id);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Не удалось сохранить изменения";
-      setFormError(message); setError(modal ? "" : message);
+      showFormError(message); setError(modal ? "" : message);
     } finally { setBusy(false); }
   }
 
   function idempotent(path: string, body: Record<string, unknown>) {
     const payload = JSON.stringify({ path, body });
-    if (requestKey.current?.payload !== payload) requestKey.current = { payload, key: crypto.randomUUID() };
+    if (requestKey.current?.payload !== payload) requestKey.current = { payload, key: createRequestId() };
     return { ...body, request_id: requestKey.current.key };
   }
 
-  function submit(event: FormEvent) {
+  function showFormError(message: string) {
+    setFormError(message);
+    requestAnimationFrame(() => formErrorRef.current?.scrollIntoView({ block: "center" }));
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy || !modal) return;
-    if (modal.kind === "create") {
-      if (visits.length !== count || visits.some((visit) => !visit.date || !visit.time)) { setFormError("Сформируйте расписание и выберите время каждого занятия"); return; }
-      const body = { name, service_id: Number(serviceId), specialist_id: Number(specialistId), capacity, sessions: visits.map((visit) => new Date(`${visit.date}T${visit.time}:00+05:00`).toISOString()) };
-      void perform("groups/", idempotent("groups/", body), "POST", true);
-    } else if (modal.kind === "enroll" && detail) {
-      const path = `groups/${detail.id}/enroll/`;
-      void perform(path, idempotent(path, { client_name: clientName, client_phone: phone, session_ids: selectedSessions }));
-    } else if (modal.kind === "cancel") {
-      void perform(`groups/participants/${modal.booking.id}/`, { action: "cancel" }, "PATCH");
-    } else if (modal.kind === "move") {
-      const body = moveMode === "group" ? { session_id: Number(targetSession) } : { specialist_id: Number(specialistId), starts_at: new Date(`${firstDate}T${firstTime}:00+05:00`).toISOString() };
-      void perform(`groups/participants/${modal.booking.id}/`, { action: "move", ...body }, "PATCH");
-    } else if (modal.kind === "lesson-move" || modal.kind === "lesson-cancel") {
-      void perform(`groups/sessions/${modal.session.id}/`, modal.kind === "lesson-cancel" ? { action: "cancel" } : { action: "move", starts_at: new Date(`${firstDate}T${firstTime}:00+05:00`).toISOString() }, "PATCH");
+    try {
+      const creationVisits = count === 1 && !visits.length ? [{ date: firstDate, time: firstTime }] : visits;
+      if (modal.kind === "create") {
+        if (!name.trim()) { showFormError("Укажите название группы"); return; }
+        if (!serviceId) { showFormError("Выберите групповую услугу"); return; }
+        if (!specialistId) { showFormError("Выберите специалиста"); return; }
+        if (!Number.isInteger(count) || count < 1 || count > 365) { showFormError("Количество занятий должно быть от 1 до 365"); return; }
+        if (creationVisits.length !== count) { showFormError(`Нажмите «Заполнить даты (${count})» и проверьте расписание занятий`); return; }
+        if (creationVisits.some((visit) => !visit.date || !visit.time)) { showFormError("Выберите дату и свободное время каждого занятия"); return; }
+      }
+      const form = event.currentTarget;
+      if (!form.checkValidity()) {
+        const invalid = form.querySelector<HTMLInputElement | HTMLSelectElement>("input:invalid, select:invalid");
+        showFormError(invalid?.dataset.validationMessage || invalid?.validationMessage || "Заполните обязательные поля формы");
+        invalid?.focus();
+        return;
+      }
+      if (modal.kind === "create") {
+        const body = { name: name.trim(), service_id: Number(serviceId), specialist_id: Number(specialistId), capacity, sessions: creationVisits.map((visit) => new Date(`${visit.date}T${visit.time}:00+05:00`).toISOString()) };
+        void perform("groups/", idempotent("groups/", body), "POST", true);
+      } else if (modal.kind === "enroll" && detail) {
+        if (!selectedSessions.length) { showFormError("Выберите хотя бы одно занятие для участника"); return; }
+        const path = `groups/${detail.id}/enroll/`;
+        void perform(path, idempotent(path, { client_name: clientName, client_phone: phone, session_ids: selectedSessions }));
+      } else if (modal.kind === "cancel") {
+        void perform(`groups/participants/${modal.booking.id}/`, { action: "cancel" }, "PATCH");
+      } else if (modal.kind === "move") {
+        const body = moveMode === "group" ? { session_id: Number(targetSession) } : { specialist_id: Number(specialistId), starts_at: new Date(`${firstDate}T${firstTime}:00+05:00`).toISOString() };
+        void perform(`groups/participants/${modal.booking.id}/`, { action: "move", ...body }, "PATCH");
+      } else if (modal.kind === "lesson-move" || modal.kind === "lesson-cancel") {
+        void perform(`groups/sessions/${modal.session.id}/`, modal.kind === "lesson-cancel" ? { action: "cancel" } : { action: "move", starts_at: new Date(`${firstDate}T${firstTime}:00+05:00`).toISOString() }, "PATCH");
+      }
+    } catch (cause) {
+      showFormError(cause instanceof Error ? cause.message : "Не удалось подготовить запись. Проверьте данные и повторите попытку.");
     }
   }
 
@@ -248,7 +275,7 @@ export default function GroupsPage() {
     </>}
 
     {modal ? <Dialog title={modal.kind === "create" ? "Новая группа" : modal.kind === "enroll" ? "Добавить участника" : modal.kind === "move" ? "Перенести клиента" : modal.kind === "lesson-move" ? "Разовый перенос занятия" : modal.kind === "lesson-cancel" ? "Отменить занятие группы" : "Отменить посещение"} busy={busy} onClose={() => setModal(null)}>
-      <form onSubmit={submit}><div className={styles.dialogBody}><fieldset disabled={busy} className={styles.formFields}>
+      <form noValidate onSubmit={submit}><div className={styles.dialogBody}><fieldset disabled={busy} className={styles.formFields}>
         {modal.kind === "create" ? <>
           <div className={styles.stepHint}><Users size={20} /><span><strong>Сначала группа — потом участники</strong><small>Создайте занятия без привязки к клиенту.</small></span></div>
           {!groupServices.length ? <p className={styles.error}>Нет групповых услуг. <Link href="/partner/dashboard/manage">Создайте групповую услугу</Link> в разделе услуг.</p> : null}
@@ -258,9 +285,9 @@ export default function GroupsPage() {
             setServiceId(event.target.value); setSpecialistId(""); setFirstTime(""); setVisits([]);
             setCount(service?.is_pass ? service.visit_count : 1); setCapacity(service?.details.max_people || 1);
           }}><option value="">Выберите услугу</option>{groupServices.map((service) => <option key={service.id} value={service.id}>{service.name}{service.is_pass ? ` · абонемент, ${lessonCount(service.visit_count)}` : ""}</option>)}</select></label>
-          <div className={styles.formGrid}><label>Специалист<select required value={specialistId} onChange={(event) => { setSpecialistId(event.target.value); setFirstTime(""); setVisits([]); }}><option value="">Выберите специалиста</option>{availableSpecialists.map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label><label>Мест в группе<input type="number" required min={1} max={selectedService?.details.max_people || 1} value={capacity} onChange={(event) => setCapacity(Number(event.target.value))} /></label></div>
+          <div className={styles.formGrid}><label>Специалист<select required value={specialistId} onChange={(event) => { setSpecialistId(event.target.value); setFirstTime(""); setVisits([]); }}><option value="">Выберите специалиста</option>{availableSpecialists.map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label><label>Мест в группе<input type="number" required data-validation-message={`Укажите целое количество мест от 1 до ${selectedService?.details.max_people || 1}`} min={1} max={selectedService?.details.max_people || 1} value={capacity} onChange={(event) => setCapacity(Number(event.target.value))} /></label></div>
           <div className={styles.formGrid}><label>Количество занятий<input type="number" required min={1} max={365} readOnly={selectedService?.is_pass} value={count} onChange={(event) => { setCount(Number(event.target.value)); setVisits([]); }} /></label><label>Цена<span className={styles.pricePreview}>{money(selectedService?.price || 0)} {selectedService?.is_pass && selectedService.pass_price_mode === "total" ? "за весь цикл" : "за занятие"}</span></label></div>
-          <h3>Расписание занятий</h3><div className={styles.formGrid}><label>Первая дата<input type="date" required min={dateInput(new Date())} value={firstDate} onChange={(event) => { setFirstDate(event.target.value); setFirstTime(""); }} /></label><label>Начало · Алматы<AvailableTimeSelect reserveGroup date={firstDate} specialistId={specialistId} serviceIds={serviceId} phone="" partnerEmail={email} value={firstTime} onChange={setFirstTime} /></label></div>
+          <h3>Расписание занятий</h3><div className={styles.formGrid}><label>Первая дата<input type="date" required={!visits.length} min={visits.length ? undefined : dateInput(new Date())} value={firstDate} onChange={(event) => { setFirstDate(event.target.value); setFirstTime(""); }} /></label><label>Начало · Алматы<AvailableTimeSelect required={!visits.length} reserveGroup date={firstDate} specialistId={specialistId} serviceIds={serviceId} phone="" partnerEmail={email} value={firstTime} onChange={setFirstTime} /></label></div>
           {selectedService && specialistId ? <PassVisitEditor variant="group" count={count} startDate={firstDate} startTime={firstTime} specialistId={specialistId} serviceId={serviceId} phone="" partnerEmail={email} visits={visits} onChange={setVisits} /> : null}
         </> : modal.kind === "enroll" && detail ? <>
           <p className={styles.context}>{detail.name} · {detail.specialist_name}</p>
@@ -283,8 +310,8 @@ export default function GroupsPage() {
             <p className={styles.context}>Проверим занятость преподавателя и каждого участника. Если у кого-то есть пересечение, перенос не сохранится ни для кого. Индивидуальные переносы на другое время не затрагиваются.</p>
           </> : <p className={styles.scopeNotice}>Отменится это занятие и активные записи его участников. Другие занятия группы и отдельные переносы клиентов сохранятся. Время преподавателя освободится.</p>}
         </> : modal.kind === "cancel" ? <><p><strong>{modal.booking.client_name}</strong></p><p>{dateLabel(modal.booking.starts_at)}, {timeLabel(modal.booking.starts_at)}</p><p className={styles.context}>Отменится только это посещение клиента. Другие даты абонемента, участники и само занятие останутся без изменений.</p></> : null}
-      </fieldset>{formError ? <div className={styles.error} role="alert">{formError}</div> : null}</div>
-      <footer className={styles.dialogFooter}><button type="button" className={styles.secondary} disabled={busy} onClick={() => setModal(null)}>Назад</button><button type="submit" className={modal.kind === "cancel" || modal.kind === "lesson-cancel" ? styles.danger : styles.primary} disabled={busy || (modal.kind === "create" && (!groupServices.length || visits.length !== count || !count || visits.some((visit) => !visit.time))) || (modal.kind === "enroll" && !selectedSessions.length) || (modal.kind === "move" && (moveMode === "group" ? !targetSession : !firstTime)) || (modal.kind === "lesson-move" && !firstTime)}>{busy ? "Сохранение…" : modal.kind === "create" ? "Создать пустую группу" : modal.kind === "enroll" ? `Записать · ${lessonCount(selectedSessions.length)}` : modal.kind === "move" ? "Перенести клиента" : modal.kind === "lesson-move" ? "Перенести только это занятие" : modal.kind === "lesson-cancel" ? "Отменить это занятие" : "Отменить посещение"}</button></footer></form>
+      </fieldset>{formError ? <div ref={formErrorRef} className={styles.error} role="alert">{formError}</div> : null}</div>
+      <footer className={styles.dialogFooter}><button type="button" className={styles.secondary} disabled={busy} onClick={() => setModal(null)}>Назад</button><button type="submit" className={modal.kind === "cancel" || modal.kind === "lesson-cancel" ? styles.danger : styles.primary} disabled={busy || (modal.kind === "enroll" && !selectedSessions.length) || (modal.kind === "move" && (moveMode === "group" ? !targetSession : !firstTime)) || (modal.kind === "lesson-move" && !firstTime)}>{busy ? "Сохранение…" : modal.kind === "create" ? "Создать пустую группу" : modal.kind === "enroll" ? `Записать · ${lessonCount(selectedSessions.length)}` : modal.kind === "move" ? "Перенести клиента" : modal.kind === "lesson-move" ? "Перенести только это занятие" : modal.kind === "lesson-cancel" ? "Отменить это занятие" : "Отменить посещение"}</button></footer></form>
     </Dialog> : null}
   </section>;
 }

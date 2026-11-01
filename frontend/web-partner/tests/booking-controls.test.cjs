@@ -3,19 +3,21 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const ts = require("typescript");
+const { webcrypto } = require("node:crypto");
 
-function loadSource(relativePath) {
+function loadSource(relativePath, cryptoSource = webcrypto) {
   const filename = path.join(__dirname, "..", "src", relativePath);
   const source = fs.readFileSync(filename, "utf8");
   const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } });
   const module = { exports: {} };
-  new Function("module", "exports", "require", outputText)(module, module.exports, require);
+  new Function("module", "exports", "require", "crypto", outputText)(module, module.exports, require, cryptoSource);
   return module.exports;
 }
 
 const { selectCalendarArea, toggleCalendarDate } = loadSource(path.join("lib", "calendarSelection.ts"));
 const { enrollmentTotal, selectableSessions, isActiveVisit, lessonCount, groupBookingStatus } = loadSource(path.join("lib", "groups.ts"));
 const keys = Array.from({ length: 42 }, (_, index) => `day-${index}`);
+const { createRequestId } = loadSource(path.join("lib", "requestId.ts"));
 
 test("calendar drag selects the rectangle, not a continuous date range", () => {
   assert.deepEqual(new Set(selectCalendarArea(keys, 8, 17, [], false)), new Set([8, 9, 10, 15, 16, 17].map((index) => keys[index])));
@@ -90,4 +92,22 @@ test("stored group cards retain attendance colors even when groups become empty"
   assert.equal(status("completed", "booked"), "booked");
   assert.equal(status("completed", "no_show"), "completed");
   assert.equal(status("no_show", "cancelled"), "no_show");
+});
+
+test("booking request IDs work without the secure-context randomUUID API", () => {
+  const source = { getRandomValues: (bytes) => bytes.fill(255) };
+  assert.equal(source.randomUUID, undefined);
+  const { createRequestId } = loadSource(path.join("lib", "requestId.ts"), source);
+  assert.equal(createRequestId(), "ffffffff-ffff-4fff-bfff-ffffffffffff");
+});
+
+test("booking request IDs are unique RFC 4122 version 4 UUIDs", () => {
+  const ids = Array.from({ length: 100 }, () => createRequestId());
+  assert.equal(new Set(ids).size, ids.length);
+  for (const id of ids) assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+});
+
+test("unsupported random generation produces an explicit error, not a weak fallback", () => {
+  const { createRequestId } = loadSource(path.join("lib", "requestId.ts"), {});
+  assert.throws(createRequestId, /Браузер не поддерживает создание идентификатора записи/);
 });

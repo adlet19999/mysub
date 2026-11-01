@@ -14,6 +14,7 @@ type Props = {
   excludeBookingId?: number | null;
   excludeSessionId?: number;
   reserveGroup?: boolean;
+  required?: boolean;
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
@@ -66,7 +67,7 @@ export default function AvailableTimeSelect(props: Props) {
   if (disabled) return <select className={className} disabled value={value}><option value={value}>{value}</option></select>;
   const loaded = ready && result.key === key;
   return <>
-    <select className={className} aria-label="Свободное время" required disabled={!loaded || Boolean(result.error)} value={loaded && result.slots.includes(value) ? value : ""} onChange={(event) => onChange(event.target.value)}>
+    <select className={className} aria-label="Свободное время" required={props.required ?? true} disabled={!loaded || Boolean(result.error)} value={loaded && result.slots.includes(value) ? value : ""} onChange={(event) => onChange(event.target.value)}>
       <option value="">{!ready ? "Выберите услугу, специалиста и дату" : !loaded ? "Загрузка..." : result.error ? "Ошибка загрузки" : result.slots.length ? "Выберите время" : "Нет свободного времени"}</option>
       {loaded && !result.error ? result.slots.map((slot) => <option key={slot} value={slot}>{slot}</option>) : null}
     </select>

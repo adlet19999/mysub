@@ -110,6 +110,12 @@ Removing the final participant does not delete the lesson or free this time.
   of lessons; non-pass group services can have 1–365 lessons. Creation validates
   every date and commits all lessons atomically. Repeated identical requests
   are idempotent; reusing a key with another payload returns 409.
+  The frontend generates UUIDs with `crypto.getRandomValues`, also when
+  `crypto.randomUUID` is unavailable. Preparation, validation and server errors
+  appear in the dialog and scroll into view rather than silently blocking
+  creation. For a single lesson, the selected first date/time can be saved
+  directly; multiple lessons require the generated/edited date list. Generator
+  seed fields do not block saving an already completed lesson list.
 - `GET /api/v1/partner/groups/{id}/`: lessons, current participants, and client
   visit history, including individually moved or cancelled bookings.
 - `GET /api/v1/partner/groups/sessions/`: calendar sessions, including empty and
