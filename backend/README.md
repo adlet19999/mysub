@@ -182,6 +182,10 @@ node --test tests/booking-controls.test.cjs
 
 ## Booking intervals, calendar return and restaurant visits
 
+For the mobile developer, see the Russian
+[handoff and BE-001–BE-014 implementation status](./MOBILE-DEVELOPER-HANDOFF-RU.md).
+It distinguishes implemented code from pending product decisions and server acceptance.
+
 `Service.slot_interval_minutes` controls potential start times independently of
 `duration_minutes`. Valid values are integer divisors of 1440 between 1 and 120.
 For example, a 60-minute service with interval 30 offers 11:30, 12:00 and 12:30
