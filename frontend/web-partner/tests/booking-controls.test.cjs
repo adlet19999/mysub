@@ -18,6 +18,78 @@ const { selectCalendarArea, toggleCalendarDate } = loadSource(path.join("lib", "
 const { enrollmentTotal, selectableSessions, isActiveVisit, lessonCount, groupBookingStatus } = loadSource(path.join("lib", "groups.ts"));
 const keys = Array.from({ length: 42 }, (_, index) => `day-${index}`);
 const { createRequestId } = loadSource(path.join("lib", "requestId.ts"));
+const { applyDefaultVisitTime, changeVisitTime } = loadSource(path.join("lib", "recurringVisits.ts"));
+const { validScheduleDate, scheduleHref, scheduleReturnHref, calendarBookingVisible } = loadSource(path.join("lib", "scheduleNavigation.ts"));
+const { restaurantCalendarSegments } = loadSource(path.join("lib", "restaurant.ts"));
+
+test("overnight table occupancy appears on both calendar dates", () => {
+  const segment = { starts_at: "2026-11-03T23:30:00+05:00", ends_at: "2026-11-04T01:30:00+05:00", is_extension: false };
+  const result = restaurantCalendarSegments([segment]);
+  assert.deepEqual(result.map((item) => item.starts_at.slice(0, 16)), ["2026-11-03T23:30", "2026-11-04T00:00"]);
+  assert.equal(Date.parse(result[0].ends_at), Date.parse(result[1].starts_at));
+  assert.equal(result[1].ends_at, segment.ends_at);
+  assert.ok(result.every((item) => item.is_extension === false));
+});
+
+test("overnight renewals keep their extension label and same-day segments stay unchanged", () => {
+  const renewal = { starts_at: "2026-11-03T23:00:00+05:00", ends_at: "2026-11-04T01:00:00+05:00", is_extension: true };
+  assert.ok(restaurantCalendarSegments([renewal]).every((item) => item.is_extension));
+  const ordinary = { ...renewal, starts_at: "2026-11-03T21:00:00+05:00", ends_at: "2026-11-03T23:00:00+05:00" };
+  assert.deepEqual(restaurantCalendarSegments([ordinary]), [ordinary]);
+});
+
+test("invalid restaurant calendar timestamps fail explicitly", () => {
+  assert.throws(() => restaurantCalendarSegments([{ starts_at: "invalid", ends_at: "invalid", is_extension: false }]), /Некорректное время/);
+});
+
+test("choosing the first time fills every visit without changing dates", () => {
+  const visits = [{ date: "2026-11-03", time: "" }, { date: "2026-11-05", time: "" }, { date: "2026-11-07", time: "" }];
+  const result = changeVisitTime(visits, 0, "15:00");
+  assert.deepEqual(result.map((visit) => visit.time), ["15:00", "15:00", "15:00"]);
+  assert.deepEqual(result.map((visit) => visit.date), visits.map((visit) => visit.date));
+});
+
+test("first selection in any empty visit populates the other dates", () => {
+  assert.deepEqual(changeVisitTime([{ date: "a", time: "" }, { date: "b", time: "" }], 1, "12:15").map((visit) => visit.time), ["12:15", "12:15"]);
+});
+
+test("changing a later lesson does not change the others", () => {
+  const visits = [{ date: "a", time: "15:00" }, { date: "b", time: "15:00" }, { date: "c", time: "15:00" }];
+  assert.deepEqual(changeVisitTime(visits, 1, "16:00").map((visit) => visit.time), ["15:00", "16:00", "15:00"]);
+});
+
+test("changing common time preserves individually edited visits", () => {
+  const visits = changeVisitTime([{ date: "a", time: "15:00" }, { date: "b", time: "15:00" }, { date: "c", time: "15:00" }], 1, "16:00");
+  assert.deepEqual(applyDefaultVisitTime(visits, "14:30").map((visit) => visit.time), ["14:30", "16:00", "14:30"]);
+  assert.deepEqual(applyDefaultVisitTime(visits, "").map((visit) => visit.time), ["15:00", "16:00", "15:00"]);
+});
+
+test("reselecting the same later time does not create a manual exception", () => {
+  const visits = [{ date: "a", time: "11:00" }, { date: "b", time: "11:00" }, { date: "c", time: "11:00" }];
+  const unchanged = changeVisitTime(visits, 2, "11:00");
+  assert.deepEqual(changeVisitTime(unchanged, 0, "13:00").map((visit) => visit.time), ["13:00", "13:00", "13:00"]);
+});
+
+test("schedule navigation retains the exact day and specialist", () => {
+  const href = scheduleHref("2026-11-03", "17");
+  assert.equal(scheduleReturnHref(new URLSearchParams({ return_to: href }).toString()), href);
+  const date = validScheduleDate(new URL(href, "https://schedule.local").searchParams.get("date"));
+  assert.equal(date.getFullYear(), 2026);
+  assert.equal(date.getMonth(), 10);
+  assert.equal(date.getDate(), 3);
+});
+
+test("schedule restore rejects impossible dates and external return links", () => {
+  for (const value of ["2026-02-30", "invalid", "2026-13-01", null]) assert.equal(validScheduleDate(value), null);
+  for (const value of ["https://evil.example/", "//evil.example/", "javascript:alert(1)", "http://["]) {
+    assert.equal(scheduleReturnHref(new URLSearchParams({ return_to: value }).toString()), "/partner/dashboard/schedule");
+  }
+});
+
+test("cancelled and no-show records are hidden without hiding completed history", () => {
+  for (const status of ["cancelled", "canceled", "no_show", "missed", "Неявка"]) assert.equal(calendarBookingVisible(status), false);
+  for (const status of ["booked", "arrived", "completed"]) assert.equal(calendarBookingVisible(status), true);
+});
 
 test("calendar drag selects the rectangle, not a continuous date range", () => {
   assert.deepEqual(new Set(selectCalendarArea(keys, 8, 17, [], false)), new Set([8, 9, 10, 15, 16, 17].map((index) => keys[index])));

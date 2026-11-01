@@ -257,7 +257,7 @@ class BookingPricingApiTests(TestCase):
 		CustomerSubscription.objects.create(customer=customer)
 		user = User.objects.create_user(username="partner@example.com", email="partner@example.com")
 		self.partner_profile = PartnerProfile.objects.create(user=user, phone="+77000000000", user_type="partner")
-		category = Category.objects.create(tenant_slug="public", name="Салон")
+		category = Category.objects.create(tenant_slug="public", name="Курсы")
 		kind = ServiceKind.objects.create(tenant_slug="public", category=category, name="Стрижки")
 		schedule = default_working_schedule()
 		monday = next(day for day in schedule if day["day"] == "mon")
@@ -360,7 +360,7 @@ class BookingPricingApiTests(TestCase):
 	def test_manual_group_subscribers_and_nonsubscribers_pay_full_price(self):
 		from common_api.models import BusinessCategory
 
-		BusinessCategory.objects.create(name="Салон", allows_group_services=True)
+		BusinessCategory.objects.create(name="Курсы", allows_group_services=True)
 		self.service.service_type = "group"
 		self.service.details = {"min_people": 1, "max_people": 3}
 		self.service.save()
@@ -405,7 +405,7 @@ class BookingPricingApiTests(TestCase):
 	def test_group_format_requires_category_permission_and_capacity(self):
 		from common_api.models import BusinessCategory
 
-		category = BusinessCategory.objects.create(name="Салон", allows_group_services=False)
+		category = BusinessCategory.objects.create(name="Курсы", allows_group_services=False)
 		url = f"/api/v1/partner/services/{self.service.id}/"
 		response = self.client.patch(url, {"service_type": "group", "details": {"min_people": 1, "max_people": 3}}, format="json", **self.headers)
 		self.assertEqual(response.status_code, 400)
@@ -420,7 +420,7 @@ class BookingPricingApiTests(TestCase):
 	def test_group_slot_capacity_and_cancelled_place(self):
 		from common_api.models import BusinessCategory
 
-		BusinessCategory.objects.create(name="Салон", allows_group_services=True)
+		BusinessCategory.objects.create(name="Курсы", allows_group_services=True)
 		self.service.service_type = "group"
 		self.service.details = {"min_people": 1, "max_people": 2}
 		self.service.save()
@@ -458,7 +458,7 @@ class BookingPricingApiTests(TestCase):
 	def test_group_completion_updates_each_participant(self):
 		from common_api.models import BusinessCategory
 
-		BusinessCategory.objects.create(name="Салон", allows_group_services=True)
+		BusinessCategory.objects.create(name="Курсы", allows_group_services=True)
 		self.service.service_type = "group"
 		self.service.details = {"min_people": 1, "max_people": 3}
 		self.service.save()
@@ -480,7 +480,7 @@ class BookingPricingApiTests(TestCase):
 	def test_service_capacity_and_format_changes_preserve_upcoming_bookings(self):
 		from common_api.models import BusinessCategory
 
-		BusinessCategory.objects.create(name="Салон", allows_group_services=True)
+		BusinessCategory.objects.create(name="Курсы", allows_group_services=True)
 		self.service.service_type = "group"
 		self.service.details = {"min_people": 1, "max_people": 3}
 		self.service.save()

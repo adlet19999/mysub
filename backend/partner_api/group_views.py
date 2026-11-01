@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from common_api.models import PartnerProfile
 from common_api.views import PHONE_RU_RE, normalize_ru_phone
 from .models import Booking, BookingGroup, BookingPass, GroupSession, Service, Specialist
+from .intervals import slot_error
 from .views import (
 	CLOSED_BOOKING_STATUSES, MONEY_QUANTUM, active_subscription_phones,
 	booking_schedule_error, calculate_booking_pricing, discount_window_for_service,
@@ -45,6 +46,7 @@ def session_data(session):
 	return {
 		"id": session.id, "group_id": group.id, "group_name": group.name,
 		"service_id": group.service_id, "service_name": group.service.name,
+		"is_pass": group.service.is_pass,
 		"specialist_id": group.specialist_id, "specialist_name": group.specialist.full_name,
 		"starts_at": timezone.localtime(session.starts_at).isoformat(),
 		"original_starts_at": timezone.localtime(session.original_starts_at).isoformat() if session.original_starts_at else None,
@@ -60,6 +62,7 @@ def group_data(group, detail=False):
 	future = [item for item in sessions if item.status == "scheduled" and item.starts_at >= timezone.now()]
 	result = {
 		"id": group.id, "name": group.name,
+		"is_pass": group.service.is_pass,
 		"service_id": group.service_id, "service_name": group.service.name,
 		"specialist_id": group.specialist_id, "specialist_name": group.specialist.full_name,
 		"capacity": group.capacity, "duration_minutes": group.duration_minutes,
@@ -131,7 +134,7 @@ class GroupListCreateView(APIView):
 		if service.is_pass and len(starts) != service.visit_count:
 			return Response({"message": f"Для этой услуги нужно занятий: {service.visit_count}"}, status=400)
 		for index, starts_at in enumerate(starts):
-			error = booking_schedule_error(specialist, starts_at, service.duration_minutes)
+			error = slot_error([service], starts_at) or booking_schedule_error(specialist, starts_at, service.duration_minutes)
 			if starts_at < timezone.now():
 				error = "Дата занятия уже прошла"
 			if index and starts[index - 1] + timedelta(minutes=service.duration_minutes) > starts_at:
@@ -291,7 +294,7 @@ class GroupSessionDetailView(APIView):
 			group = session.group
 			if not group.specialist.is_active or not group.service.is_active:
 				return Response({"message": "Услуга или специалист недоступны"}, status=409)
-			error = booking_schedule_error(group.specialist, starts_at, group.duration_minutes)
+			error = slot_error([group.service], starts_at) or booking_schedule_error(group.specialist, starts_at, group.duration_minutes)
 			if starts_at < timezone.now():
 				error = "Нельзя перенести занятие в прошлое"
 			if has_booking_overlap(tenant, group.specialist.full_name, starts_at, group.duration_minutes, partner_profile=profile, exclude_session_id=session.id):
@@ -365,7 +368,7 @@ class GroupParticipantView(APIView):
 			specialist = Specialist.objects.filter(id=specialist_id, partner_profile=profile, tenant_slug=tenant, is_active=True, capabilities__service=service).first()
 		if not specialist or not specialist.is_active or not service.is_active:
 			return Response({"message": "Услуга или специалист недоступны"}, status=409)
-		error = booking_schedule_error(specialist, starts_at, duration)
+		error = slot_error([service], starts_at) or booking_schedule_error(specialist, starts_at, duration)
 		if starts_at < timezone.now():
 			error = "Нельзя перенести посещение в прошлое"
 		if not target and has_booking_overlap(tenant, specialist.full_name, starts_at, duration, partner_profile=profile, exclude_booking_id=booking.id):

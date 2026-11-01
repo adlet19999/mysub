@@ -1,0 +1,5 @@
+.footer { flex-wrap: wrap; }
+.footer button { white-space: normal; }
+@media (max-width: 520px) {
+  .footer button { flex: 1 1 40%; min-width: 0; }
+}

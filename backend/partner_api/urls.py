@@ -1,5 +1,6 @@
 from django.urls import path
 from .group_views import GroupDetailView, GroupEnrollView, GroupListCreateView, GroupParticipantView, GroupSessionDetailView, GroupSessionListView
+from .restaurant_views import BookingCapabilitiesView, RestaurantBookingActionView, TableDetailView, TableListCreateView
 
 from .views import (
     BookingDetailView,
@@ -26,6 +27,10 @@ from .views import (
 )
 
 urlpatterns = [
+    path("booking-capabilities/", BookingCapabilitiesView.as_view(), name="partner-booking-capabilities"),
+    path("tables/", TableListCreateView.as_view(), name="partner-tables"),
+    path("tables/<int:table_id>/", TableDetailView.as_view(), name="partner-table-detail"),
+    path("bookings/<int:booking_id>/restaurant/", RestaurantBookingActionView.as_view(), name="partner-restaurant-booking"),
     path("groups/", GroupListCreateView.as_view(), name="partner-groups"),
     path("groups/sessions/", GroupSessionListView.as_view(), name="partner-group-sessions"),
     path("groups/sessions/<int:session_id>/", GroupSessionDetailView.as_view(), name="partner-group-session-detail"),

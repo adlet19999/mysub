@@ -33,7 +33,8 @@ Backend API for partner frontend (Django + DRF).
   offset are interpreted in the configured application timezone.
 - New CRM booking phones are normalized. Admin history and completed-visit
   totals also recognize legacy formatted phone numbers.
-- Admin and partner turnover use stored prices of completed visits, not current
+- Admin and partner turnover use stored prices of completed visits (the recorded
+  received amount for restaurant visits), not current
   service prices or amounts of cancelled bookings/no-shows. These are visit
   totals, not confirmation of a payment provider transaction.
 - In the calendar, create the first group booking with "Add booking"; subsequent
@@ -46,7 +47,8 @@ Backend API for partner frontend (Django + DRF).
 - CRM start-time selectors use
   `GET /api/v1/partner/bookings/availability/` with `date`, `specialist_id`,
   comma-separated `service_ids`, optional `client_phone` and
-  `exclude_booking_id` when rescheduling. Slots use a 15-minute step and exclude
+  `exclude_booking_id` when rescheduling. Slots use the configured service
+  interval and exclude
   past times, breaks, occupied intervals and full groups. Both ends of the
   requested visit are checked; existing duration snapshots take precedence over
   current service durations. Saving repeats the checks under the partner lock.
@@ -177,6 +179,81 @@ existing TypeScript dependency and Node's built-in test runner:
 cd frontend/web-partner
 node --test tests/booking-controls.test.cjs
 ```
+
+## Booking intervals, calendar return and restaurant visits
+
+`Service.slot_interval_minutes` controls potential start times independently of
+`duration_minutes`. Valid values are integer divisors of 1440 between 1 and 120.
+For example, a 60-minute service with interval 30 offers 11:30, 12:00 and 12:30
+only where the full service fits without overlapping another reservation.
+Explicit intervals apply to CRM and mobile availability, direct booking,
+passes and one-off moves. Legacy null intervals retain the original defaults:
+15 minutes for CRM, 30 minutes for mobile. Mobile catalog services expose
+`slot_interval_minutes` and `booking_mode` (`specialist` or `table`).
+The offer editor's **Стандартный** option preserves these legacy defaults,
+including when other offer fields are edited.
+
+The CRM restores the selected calendar date and specialist/week view from the
+URL or per-account session storage. Group links carry a local `return_to` URL.
+Pass visit times inherit the common first time; manually edited later visits
+remain exceptions. Date edits retain their time and show a conflict if that
+time is unavailable. Cancellation and no-show hide client records from the
+calendar without deleting them. The calendar history and client history retain
+every record. A participant's no-show does not delete the group lesson itself.
+Group tools are unavailable to restaurant/beauty categories even if an old
+category flag permits them; individual beauty passes remain available.
+
+Restaurant APIs:
+
+- `GET /api/v1/partner/booking-capabilities/` returns safe category capabilities
+  for both partners and managers.
+- `GET/POST /api/v1/partner/tables/` and
+  `PATCH /api/v1/partner/tables/{id}/` manage table names, `capacity` (1–1000),
+  description and activity, only for **Кафе и рестораны**. Capacity/archive
+  changes cannot invalidate future reservations or seated guests.
+- Partner creation uses `POST /api/v1/partner/bookings/` with one service,
+  client name/phone, `starts_at` and integer `party_size`; no specialist/table
+  selection is necessary. Partner availability uses the existing endpoint with
+  `date`, `service_ids` and `party_size` instead of `specialist_id`.
+- Client availability:
+  `GET /api/v1/mobile/catalog/partners/{id}/availability/?date=...&service_id=...&party_size=...`.
+  Client creation uses `POST /api/v1/mobile/bookings/` with `partner_id`,
+  `service_id`, `starts_at` and `party_size`; the authenticated profile supplies
+  the client. The server chooses the smallest active suitable table free for
+  the entire two-hour reservation, under the partner transaction lock.
+- `PATCH /api/v1/partner/bookings/{id}/restaurant/` accepts `arrive`, `finish`,
+  `cancel`, `no_show` or `move`. Arrival can only be confirmed once the booking
+  starts. Finish requires a confirmed arrival and nonnegative `paid_amount`
+  with at most two decimals; it frees the table and stops further renewal.
+  Recorded payments drive restaurant turnover, separately from service quotes.
+  Confirmed seated visits cannot be cancelled, marked absent or hard-deleted.
+- Existing restaurant records are never assigned to guessed tables or deleted.
+  They remain in history. Managers explicitly use `assign_table` with
+  `service_id`, future `starts_at` and `party_size` to attach an existing pending
+  ordinary record, preserving its ID, client and saved price.
+
+Bookings expose a nullable `restaurant` object with table, party size, end time,
+arrival/completion/payment, notices and calendar segments. Extensions are
+`BookingExtension` rows on the same visit: no duplicate customer/order, price
+or payment is created. Cancelled/no-show reservations remain in all history APIs.
+The partner calendar splits overnight occupancy at local midnight so a table
+remains visibly occupied on both dates, without creating another order or payment.
+
+`python manage.py renew_restaurant_bookings --watch` checks every 30 seconds.
+Only confirmed `arrived` visits extend by two-hour blocks until completion.
+Restarts catch up missed blocks idempotently. If an overrun intersects the next
+pending reservation, the server tries another suitable table and records a
+reassignment notice. If no replacement is available, both visits display an
+explicit conflict for the manager; the next arrival is blocked while the table
+is occupied. The system does not silently cancel the next customer or invent
+another table.
+
+Production Compose starts the `restaurant-renewals` service automatically with
+the backend's database configuration. Database/startup errors are logged and
+retried, not reported as successful renewals. For local development, start the
+watch command separately. These endpoints are the integration contract for a
+separate customer app; that app must use `booking_mode=table` to show date/time
+and guest count instead of the specialist/table picker.
 
 ## Launch regression checks
 

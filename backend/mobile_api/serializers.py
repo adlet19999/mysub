@@ -113,6 +113,8 @@ class CatalogServiceSerializer(serializers.Serializer):
     kind = serializers.CharField(allow_null=True)
     description = serializers.CharField()
     duration_minutes = serializers.IntegerField()
+    slot_interval_minutes = serializers.IntegerField()
+    booking_mode = serializers.ChoiceField(choices=["table", "specialist"])
     price = serializers.CharField(allow_null=True)
     service_type = serializers.CharField()
     is_pass = serializers.BooleanField()
@@ -148,7 +150,8 @@ class AvailabilityResponseSerializer(serializers.Serializer):
 
 class MobileBookingCreateRequestSerializer(serializers.Serializer):
     partner_id = serializers.IntegerField(min_value=1, help_text="ID партнёра из каталога")
-    specialist_id = serializers.IntegerField(min_value=1, help_text="ID специалиста выбранного партнёра")
+    specialist_id = serializers.IntegerField(min_value=1, required=False, help_text="Обязателен для обычной услуги; для ресторана не передаётся")
+    party_size = serializers.IntegerField(min_value=1, max_value=1000, required=False, help_text="Количество гостей; обязательно для ресторана, столик выбирает сервер")
     service_id = serializers.IntegerField(min_value=1, help_text="ID выбранной услуги")
     starts_at = serializers.DateTimeField(help_text="Начало записи в ISO 8601 с offset +05:00 для Алматы; время должно совпадать со свободным слотом")
     visits = serializers.ListField(child=serializers.DateTimeField(), required=False, max_length=365, help_text="Для абонемента: все даты посещений, starts_at совпадает с первой датой")
@@ -169,6 +172,7 @@ class MobileBookingSerializer(serializers.Serializer):
     is_cancellable = serializers.BooleanField()
     created_at = serializers.DateTimeField()
     booking_pass = serializers.JSONField(allow_null=True)
+    restaurant = serializers.JSONField(allow_null=True)
 
 
 class MobileBookingListResponseSerializer(serializers.Serializer):

@@ -80,6 +80,11 @@ docker compose -f docker-compose.prod.yml ps
 
 ### 3) Check logs
 
+Production also runs `restaurant-renewals`, which extends confirmed table
+visits every 30 seconds until a manager records payment and completes the visit.
+This worker runs independently of open browser tabs and retries startup/database
+errors. After an update, verify it is running alongside the backend.
+
 ```bash
 docker compose -f docker-compose.prod.yml logs -f --tail=200
 ```

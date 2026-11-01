@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import styles from "./layout.module.css";
+import { BookingCapabilities } from "../../../lib/bookingCapabilities";
 
 const iconStatistics = "/statistics.svg";
 const iconMyBusiness = "/mybusiness.svg";
@@ -109,6 +110,9 @@ export default function DashboardLayout({ children }: LayoutProps) {
   const [avatarLabel, setAvatarLabel] = useState("П");
   const [role, setRole] = useState<"partner" | "manager">("manager");
   const [authResolved, setAuthResolved] = useState(false);
+  const [email, setEmail] = useState("");
+  const [capabilities, setCapabilities] = useState<BookingCapabilities | null>(null);
+  const [capabilityError, setCapabilityError] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
@@ -132,6 +136,7 @@ export default function DashboardLayout({ children }: LayoutProps) {
       }
       const parsedRole = parsed.user_type === "manager" ? "manager" : "partner";
       setRole(parsedRole);
+      setEmail((parsed.email || parsed.username || "").trim());
       setIsAuthenticated(true);
       const companyName = (parsed.company_name || "").trim();
       const fallbackName = (parsed.full_name || parsed.username || parsed.email || "").trim();
@@ -147,6 +152,24 @@ export default function DashboardLayout({ children }: LayoutProps) {
       setAuthResolved(true);
     }
   }, [router]);
+
+  useEffect(() => {
+    if (!email) return;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1"}/partner/booking-capabilities/`, {
+          headers: { "X-Partner-Email": email, "X-Tenant": process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public" }, cache: "no-store", signal: controller.signal,
+        });
+        const payload: BookingCapabilities & { message?: string } = await response.json();
+        if (!response.ok || typeof payload.is_restaurant !== "boolean") throw new Error(payload.message || "Не удалось загрузить разделы бизнеса");
+        setCapabilities(payload); setCapabilityError("");
+      } catch (cause) {
+        if (!controller.signal.aborted) setCapabilityError(cause instanceof Error ? cause.message : "Не удалось загрузить разделы бизнеса");
+      }
+    })();
+    return () => controller.abort();
+  }, [email, pathname]);
 
   useEffect(() => {
     if (!authResolved) {
@@ -172,12 +195,13 @@ export default function DashboardLayout({ children }: LayoutProps) {
       return [];
     }
 
-    if (role !== "manager") {
-      return topMenu;
-    }
-    const blockedLabels = new Set(["Статистика", "Мой бизнес", "Менеджеры"]);
-    return topMenu.filter((item) => !blockedLabels.has(item.label));
-  }, [authResolved, role]);
+    const blockedLabels = new Set(role === "manager" ? ["Статистика", "Мой бизнес", "Менеджеры"] : []);
+    return topMenu.filter((item) => !blockedLabels.has(item.label) && (item.href !== "/partner/dashboard/groups" || capabilities && !capabilities.is_restaurant)).map((item) => {
+      if (item.href === "/partner/dashboard/groups" && !capabilities?.allows_group_services) return { ...item, label: "Абонементы" };
+      if (item.href === "/partner/dashboard/specialists" && capabilities?.is_restaurant) return { ...item, label: "Столики", href: "/partner/dashboard/tables" };
+      return item;
+    });
+  }, [authResolved, role, capabilities]);
 
   function handleLogout() {
     if (typeof window === "undefined") return;
@@ -231,7 +255,7 @@ export default function DashboardLayout({ children }: LayoutProps) {
         </div>
       </aside>
 
-      <main className={styles.contentArea}>{children}</main>
+      <main className={styles.contentArea}>{capabilityError ? <p role="alert">{capabilityError}. Обновите страницу для повторной загрузки.</p> : null}{children}</main>
     </div>
   );
 }

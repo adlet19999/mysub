@@ -15,6 +15,9 @@ type Props = {
   excludeSessionId?: number;
   reserveGroup?: boolean;
   required?: boolean;
+  preserveUnavailableValue?: boolean;
+  restaurant?: boolean;
+  partySize?: number;
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
@@ -34,9 +37,10 @@ export default function AvailableTimeSelect(props: Props) {
   if (excludeBookingId) params.set("exclude_booking_id", String(excludeBookingId));
   if (props.reserveGroup) params.set("reserve_group", "1");
   if (props.excludeSessionId) params.set("exclude_session_id", String(props.excludeSessionId));
+  if (props.restaurant) params.set("party_size", String(props.partySize || ""));
   const query = params.toString();
   const key = `${partnerEmail}:${query}`;
-  const ready = Boolean(date && specialistId && serviceIds && partnerEmail);
+  const ready = Boolean(date && (props.restaurant ? props.partySize : specialistId) && serviceIds && partnerEmail);
 
   useEffect(() => {
     if (!ready || disabled) return;
@@ -55,22 +59,25 @@ export default function AvailableTimeSelect(props: Props) {
         }
         if (controller.signal.aborted) return;
         setResult({ key, slots: payload.slots, error: "" });
-        if (valueRef.current && !payload.slots.includes(valueRef.current)) changeRef.current("");
+        if (!props.preserveUnavailableValue && valueRef.current && !payload.slots.includes(valueRef.current)) changeRef.current("");
       } catch (error) {
         if (controller.signal.aborted) return;
         setResult({ key, slots: [], error: error instanceof Error ? error.message : "Не удалось получить свободное время" });
       }
     })();
     return () => controller.abort();
-  }, [ready, disabled, query, key, partnerEmail, retry]);
+  }, [ready, disabled, query, key, partnerEmail, retry, props.preserveUnavailableValue]);
 
   if (disabled) return <select className={className} disabled value={value}><option value={value}>{value}</option></select>;
   const loaded = ready && result.key === key;
+  const unavailable = loaded && !result.error && Boolean(value) && !result.slots.includes(value) && props.preserveUnavailableValue;
   return <>
-    <select className={className} aria-label="Свободное время" required={props.required ?? true} disabled={!loaded || Boolean(result.error)} value={loaded && result.slots.includes(value) ? value : ""} onChange={(event) => onChange(event.target.value)}>
+    <select className={className} aria-label="Свободное время" required={props.required ?? true} disabled={!loaded || Boolean(result.error)} value={loaded && (unavailable || result.slots.includes(value)) ? value : ""} onChange={(event) => onChange(event.target.value)}>
       <option value="">{!ready ? "Выберите услугу, специалиста и дату" : !loaded ? "Загрузка..." : result.error ? "Ошибка загрузки" : result.slots.length ? "Выберите время" : "Нет свободного времени"}</option>
       {loaded && !result.error ? result.slots.map((slot) => <option key={slot} value={slot}>{slot}</option>) : null}
+      {unavailable ? <option value={value} disabled>{value} — недоступно</option> : null}
     </select>
+    {unavailable ? <span role="alert">{value} недоступно в этот день. Выберите другое время.</span> : null}
     {loaded && result.error ? <span role="alert">{result.error} <button type="button" onClick={() => {
       setResult({ key: "", slots: [], error: "" });
       setRetry((current) => current + 1);

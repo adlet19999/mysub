@@ -11,7 +11,7 @@ from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
 from django.db import transaction
-from django.db.models import Count, Max, Q, Sum
+from django.db.models import Case, Count, F, Max, Q, Sum, When
 from django.conf import settings
 from django.utils import timezone
 from django.utils.encoding import force_bytes, force_str
@@ -245,12 +245,14 @@ class AdminDashboardView(APIView):
 		customers = CustomerProfile.objects.select_related("user", "city", "subscription").order_by("-created_at")
 		partners = PartnerProfile.objects.select_related("user").order_by("-created_at")
 		bookings = Booking.objects.all()
-		completed_bookings = bookings.filter(status__in={"completed", "done", "завершен", "завершена"})
+		completed_bookings = bookings.filter(status__in={"completed", "done", "завершен", "завершена"}).annotate(
+			collected_price=Case(When(table__isnull=False, paid_amount__isnull=False, then=F("paid_amount")), default=F("final_price")),
+		)
 		bookings_by_phone = {}
 		for row in completed_bookings.values("client_phone").annotate(
 				visits=Count("id"),
 				last_visit=Max("starts_at"),
-				total_amount=Sum("final_price"),
+				total_amount=Sum("collected_price"),
 			):
 			phone = normalize_ru_phone(row["client_phone"])
 			if phone in bookings_by_phone:
@@ -309,11 +311,11 @@ class AdminDashboardView(APIView):
 					"customers_total": customers.count(),
 					"subscriptions_active": len(active_customer_ids),
 					"customers_without_subscription": customers.count() - len(active_customer_ids),
-					"customers_turnover": str(completed_bookings.aggregate(total=Sum("final_price"))["total"] or 0),
+					"customers_turnover": str(completed_bookings.aggregate(total=Sum("collected_price"))["total"] or 0),
 					"partners_total": partners.count(),
 					"partners_active": partners.filter(user__is_active=True).count(),
 					"bookings_total": bookings.count(),
-					"revenue_total": str(completed_bookings.aggregate(total=Sum("final_price"))["total"] or 0),
+					"revenue_total": str(completed_bookings.aggregate(total=Sum("collected_price"))["total"] or 0),
 				},
 				"customers": recent_customers,
 				"partners": partner_list,
@@ -475,7 +477,7 @@ class AdminCustomerDetailView(APIView):
 							else "Компания не указана"
 						),
 						"service_name": visit.service_name,
-						"final_price": str(visit.final_price),
+						"final_price": str(visit.paid_amount if visit.table_id and visit.paid_amount is not None else visit.final_price),
 						"status": visit.status,
 					}
 					for visit in visits

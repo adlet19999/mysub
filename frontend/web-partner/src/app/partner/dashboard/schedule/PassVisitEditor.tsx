@@ -1,15 +1,17 @@
 "use client";
 
-import { Dispatch, SetStateAction, useState } from "react";
+import { Dispatch, SetStateAction, useEffect, useState } from "react";
+import { applyDefaultVisitTime, changeVisitTime, RecurringVisit } from "../../../../lib/recurringVisits";
 import AvailableTimeSelect from "./AvailableTimeSelect";
 import styles from "./page.module.css";
 
-export type PassVisit = { date: string; time: string };
+export type PassVisit = RecurringVisit;
 
 type Props = {
   count: number;
   startDate: string;
   startTime: string;
+  onStartTimeChange?: (time: string) => void;
   specialistId: string;
   serviceId: string;
   phone: string;
@@ -22,13 +24,17 @@ type Props = {
 export default function PassVisitEditor(props: Props) {
   const [weekdays, setWeekdays] = useState<number[]>([]);
   const [error, setError] = useState("");
+  const { startTime, onChange } = props;
+  useEffect(() => {
+    if (startTime) onChange((visits) => applyDefaultVisitTime(visits, startTime));
+  }, [startTime, onChange]);
   function generate() {
     if (!Number.isInteger(props.count) || props.count < 1 || props.count > 365) {
       setError("Количество занятий должно быть от 1 до 365");
       return;
     }
-    if (!props.startDate || !props.startTime) {
-      setError("Сначала выберите дату и свободное время первого посещения");
+    if (!props.startDate) {
+      setError("Сначала выберите дату первого посещения");
       return;
     }
     const date = new Date(`${props.startDate}T12:00:00`);
@@ -48,12 +54,13 @@ export default function PassVisitEditor(props: Props) {
     setError("");
   }
   function update(index: number, patch: Partial<PassVisit>) {
-    props.onChange((visits) => visits.map((visit, current) => current === index ? { ...visit, ...patch } : visit));
+    props.onChange((visits) => patch.time !== undefined ? changeVisitTime(visits, index, patch.time) : visits.map((visit, current) => current === index ? { ...visit, ...patch } : visit));
+    if (patch.time && (index === 0 || props.visits.every((visit) => !visit.time))) props.onStartTimeChange?.(patch.time);
   }
   const isGroup = props.variant === "group";
   return <section className={styles.passEditor} aria-label={isGroup ? "Расписание группы" : "Посещения абонемента"}>
     <strong>{isGroup ? "Занятия группы" : "Абонемент · посещений"}: {props.count}</strong>
-    <p>Выберите дни недели и заполните даты. Без выбора дней — еженедельно. Дату и время каждого посещения можно изменить.</p>
+    <p>Время первого занятия заполняется на остальные даты автоматически. Отдельное занятие можно изменить вручную.</p>
     <div className={styles.passWeekdays}>{["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((label, index) => {
       const day = (index + 1) % 7;
       return <label key={day}><input type="checkbox" checked={weekdays.includes(day)} onChange={() => setWeekdays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day])} />{label}</label>;
@@ -62,8 +69,8 @@ export default function PassVisitEditor(props: Props) {
     {error ? <p role="alert">{error}</p> : null}
     {props.visits.map((visit, index) => <div className={styles.passVisitRow} key={index}>
       <span>#{index + 1}</span>
-      <input aria-label={`Дата посещения ${index + 1}`} type="date" required value={visit.date} onChange={(event) => update(index, { date: event.target.value, time: "" })} />
-      <AvailableTimeSelect reserveGroup={isGroup} date={visit.date} value={visit.time} onChange={(time) => update(index, { time })} specialistId={props.specialistId} serviceIds={props.serviceId} phone={props.phone} partnerEmail={props.partnerEmail} />
+      <input aria-label={`Дата посещения ${index + 1}`} type="date" required value={visit.date} onChange={(event) => update(index, { date: event.target.value })} />
+      <AvailableTimeSelect preserveUnavailableValue reserveGroup={isGroup} date={visit.date} value={visit.time} onChange={(time) => update(index, { time })} specialistId={props.specialistId} serviceIds={props.serviceId} phone={props.phone} partnerEmail={props.partnerEmail} />
     </div>)}
     <p>{isGroup ? "Группа создаётся без участников. Время занятий будет занято специалистом; клиентов можно добавить позже." : "Все посещения сохраняются вместе. Конфликт хотя бы одной даты отменяет создание всего абонемента. Неявка не удаляет посещение; его можно перенести."}</p>
   </section>;

@@ -13,6 +13,7 @@ export type GroupParticipant = {
 };
 
 export type GroupSession = {
+  is_pass?: boolean;
   id: number;
   group_id: number;
   group_name: string;
@@ -32,6 +33,7 @@ export type GroupSession = {
 };
 
 export type BookingGroup = {
+  is_pass?: boolean;
   id: number;
   name: string;
   service_id: number;

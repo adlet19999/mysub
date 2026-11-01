@@ -488,7 +488,9 @@ class MobileBookingTests(TestCase):
     def test_group_availability_capacity_and_cancellation(self):
         from common_api.models import BusinessCategory
 
-        BusinessCategory.objects.create(name="Красота", allows_group_services=True)
+        BusinessCategory.objects.create(name="Курсы", allows_group_services=True)
+        self.partner.business_category = "Курсы"
+        self.partner.save()
         self.service.service_type = "group"
         self.service.details = {"min_people": 1, "max_people": 2}
         self.service.save()

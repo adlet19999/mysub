@@ -23,6 +23,8 @@ from common_api.views import normalize_ru_phone, PHONE_RU_RE
 
 from .models import Booking, BookingPass, BusinessOffer, Category, GroupSession, Manager, Service, ServiceKind, Specialist, SpecialistService
 from .grouping import attach_group_session
+from .intervals import slot_error, slot_interval
+from .restaurant import create_restaurant_booking, is_restaurant, restaurant_booking_data, party_size_error
 
 
 CLOSED_BOOKING_STATUSES = {
@@ -132,6 +134,9 @@ def normalize_service_numbers(payload, item=None):
 	)
 	if duration_error or duration is None:
 		return None, duration_error or "duration_minutes обязателен"
+	interval = payload.get("slot_interval_minutes", item.slot_interval_minutes if item else None)
+	if interval is not None and (type(interval) is not int or not 1 <= interval <= 120 or 1440 % interval):
+		return None, "Интервал записи должен быть целым числом от 1 до 120 минут и делить сутки без остатка"
 	try:
 		price = Decimal(str(payload.get("price", (item.price or 0) if item else 0)))
 		if not price.is_finite() or price < 0 or price >= Decimal("10000000000"):
@@ -146,7 +151,7 @@ def normalize_service_numbers(payload, item=None):
 		return None, "Скидка должна быть целым числом"
 	if not 0 <= discount <= 100:
 		return None, "Скидка должна быть от 0 до 100"
-	return {"duration_minutes": duration, "price": price, "discount_percent": discount}, None
+	return {"duration_minutes": duration, "slot_interval_minutes": interval, "price": price, "discount_percent": discount}, None
 
 
 def normalize_service_pass(payload, item=None):
@@ -380,6 +385,8 @@ def normalize_service_details(category_name: str, service_type: str, raw_details
 def category_allows_group_services(category_name: str) -> bool:
 	from common_api.models import BusinessCategory
 
+	if category_name == "Кафе и рестораны" or any(word in category_name.lower() for word in ("красот", "салон")):
+		return False
 	return BusinessCategory.objects.filter(name=category_name, allows_group_services=True, is_archived=False).exists()
 
 
@@ -859,6 +866,7 @@ def serialize_booking(item: Booking):
 		"subscription_active": item.client_phone in active_subscription_phones([item.client_phone], item.starts_at),
 		"group_session": serialize_group_session(item),
 		"booking_pass": serialize_booking_pass(item),
+		"restaurant": restaurant_booking_data(item),
 	}
 
 
@@ -869,6 +877,7 @@ def serialize_booking_pass(item):
 	visits = sorted(booking_pass.bookings.all(), key=lambda visit: visit.visit_number)
 	return {
 		"id": str(booking_pass.id),
+		"group_id": booking_pass.group_id,
 		"visit_number": item.visit_number,
 		"visit_count": booking_pass.visit_count,
 		"price_mode": booking_pass.price_mode,
@@ -971,6 +980,8 @@ def has_booking_overlap(
 
 
 def booking_snapshot_duration(booking, duration_map):
+	if booking.table_id and booking.ends_at:
+		return max(1, int((booking.ends_at - booking.starts_at).total_seconds() / 60))
 	try:
 		durations = [int(detail["duration_minutes"]) for detail in booking.pricing_details or []]
 		if durations and all(duration > 0 for duration in durations):
@@ -1448,6 +1459,7 @@ class ServiceListCreateView(APIView):
 				"details": item.details or {},
 				"description": item.description,
 				"duration_minutes": item.duration_minutes,
+				"slot_interval_minutes": item.slot_interval_minutes,
 				"service_type": item.service_type,
 				"price": str(item.price) if item.price is not None else None,
 				"discount_percent": item.discount_percent,
@@ -1496,6 +1508,10 @@ class ServiceListCreateView(APIView):
 			return Response({"message": pass_error}, status=400)
 		discount_percent = numbers["discount_percent"]
 		service_type = str(request.data.get("service_type") or "individual").strip().lower()
+		if is_restaurant(partner_profile) and pass_fields["is_pass"]:
+			return Response({"message": "Для ресторана создавайте брони столиков, не абонементы"}, status=400)
+		if is_restaurant(partner_profile):
+			numbers["duration_minutes"] = 120
 		if service_type not in {"individual", "group"}:
 			return Response({"message": "service_type должен быть individual или group"}, status=400)
 		if service_type == "group" and not category_allows_group_services(partner_profile.business_category or category.name):
@@ -1524,6 +1540,7 @@ class ServiceListCreateView(APIView):
 			details=normalized_details,
 			description=(request.data.get("description") or "").strip(),
 			duration_minutes=numbers["duration_minutes"],
+			slot_interval_minutes=numbers["slot_interval_minutes"],
 			service_type=service_type,
 			price=numbers["price"],
 			discount_percent=discount_percent,
@@ -1547,6 +1564,7 @@ class ServiceListCreateView(APIView):
 				"details": item.details or {},
 				"description": item.description,
 				"duration_minutes": item.duration_minutes,
+				"slot_interval_minutes": item.slot_interval_minutes,
 				"service_type": item.service_type,
 				"price": str(item.price) if item.price is not None else None,
 				"discount_percent": item.discount_percent,
@@ -1592,6 +1610,8 @@ class ServiceDetailView(APIView):
 			return Response({"message": pass_error}, status=400)
 		for field, value in pass_fields.items():
 			setattr(item, field, value)
+		if is_restaurant(partner_profile) and item.is_pass and ("is_pass" in request.data or request.data.get("is_active") is True):
+			return Response({"message": "Для ресторана создавайте брони столиков, не абонементы"}, status=400)
 
 		name = request.data.get("name")
 		if name is not None:
@@ -1636,8 +1656,11 @@ class ServiceDetailView(APIView):
 			item.description = str(description).strip()
 
 		duration_minutes = request.data.get("duration_minutes")
+		item.slot_interval_minutes = numbers["slot_interval_minutes"]
 		if duration_minutes is not None:
 			item.duration_minutes = numbers["duration_minutes"]
+		if is_restaurant(partner_profile):
+			item.duration_minutes = 120
 
 		service_type = request.data.get("service_type")
 		if service_type is not None:
@@ -1716,6 +1739,7 @@ class ServiceDetailView(APIView):
 				"details": item.details or {},
 				"description": item.description,
 				"duration_minutes": item.duration_minutes,
+				"slot_interval_minutes": item.slot_interval_minutes,
 				"service_type": item.service_type,
 				"price": str(item.price) if item.price is not None else None,
 				"discount_percent": item.discount_percent,
@@ -2276,6 +2300,22 @@ class BookingAvailabilityView(APIView):
 		if error is not None:
 			return error
 		tenant = tenant_from_request(request)
+		if is_restaurant(profile):
+			from .restaurant_views import restaurant_slots
+			from .restaurant import party_size_error
+			try:
+				requested_date = date.fromisoformat(request.query_params.get("date", ""))
+				service_id = int(request.query_params.get("service_ids", ""))
+				party_size = int(request.query_params.get("party_size", ""))
+				exclude_id = int(request.query_params.get("exclude_booking_id") or 0)
+			except (ValueError, TypeError):
+				return Response({"message": "Укажите дату, предложение и количество гостей"}, status=400)
+			service = Service.objects.filter(id=service_id, partner_profile=profile, tenant_slug=tenant, is_active=True).first()
+			if not service or service.is_pass or service.service_type != "individual" or party_size_error(party_size):
+				return Response({"message": "Предложение или количество гостей недоступны"}, status=400)
+			if exclude_id and not Booking.objects.filter(id=exclude_id, partner_profile=profile, tenant_slug=tenant, table__isnull=False).exists():
+				return Response({"message": "Бронь не найдена"}, status=404)
+			return Response(restaurant_slots(profile, tenant, requested_date, service, party_size, exclude_id))
 		try:
 			requested_date = date.fromisoformat(request.query_params.get("date", ""))
 			specialist_id = int(request.query_params.get("specialist_id", ""))
@@ -2308,7 +2348,8 @@ class BookingAvailabilityView(APIView):
 		if phone and not PHONE_RU_RE.fullmatch(normalize_ru_phone(phone)):
 			return Response({"message": "Введите полный телефон клиента"}, status=400)
 		start_of_day = timezone.make_aware(datetime.combine(requested_date, time.min))
-		candidates = {start_of_day + timedelta(minutes=minute) for minute in range(0, 1440, 15)}
+		interval = slot_interval(services)
+		candidates = {start_of_day + timedelta(minutes=minute) for minute in range(0, 1440, interval)}
 		if existing and timezone.localtime(existing.starts_at).date() == requested_date:
 			candidates.add(existing.starts_at)
 		slots = []
@@ -2321,7 +2362,7 @@ class BookingAvailabilityView(APIView):
 			if phone and has_client_booking_overlap(tenant, phone, starts_at, duration, partner_profile=profile, exclude_booking_id=exclude_id or None):
 				continue
 			slots.append(timezone.localtime(starts_at).strftime("%H:%M"))
-		return Response({"date": requested_date.isoformat(), "duration_minutes": duration, "time_zone": timezone.get_current_timezone_name(), "slots": slots})
+		return Response({"date": requested_date.isoformat(), "duration_minutes": duration, "slot_interval_minutes": interval, "time_zone": timezone.get_current_timezone_name(), "slots": slots})
 
 
 def pass_visits_error(tenant, profile, service, specialist, starts, phone):
@@ -2334,6 +2375,8 @@ def pass_visits_error(tenant, profile, service, specialist, starts, phone):
 		message = None
 		if starts_at < timezone.now():
 			message = "Нельзя записаться на прошедшее время"
+		elif slot_error([service], starts_at):
+			message = slot_error([service], starts_at)
 		elif index and starts[index - 1] + timedelta(minutes=service.duration_minutes) > starts_at:
 			message = "Посещения абонемента пересекаются"
 		else:
@@ -2422,7 +2465,7 @@ class BookingListCreateView(APIView):
 			return error_response
 
 		tenant = tenant_from_request(request)
-		items = Booking.objects.filter(tenant_slug=tenant, partner_profile=partner_profile).select_related("booking_pass").prefetch_related("booking_pass__bookings").order_by("-id")
+		items = Booking.objects.filter(tenant_slug=tenant, partner_profile=partner_profile).select_related("booking_pass", "table").prefetch_related("booking_pass__bookings", "extensions").order_by("-id")
 		return Response([serialize_booking(item) for item in items])
 
 	@transaction.atomic
@@ -2434,7 +2477,10 @@ class BookingListCreateView(APIView):
 
 		tenant = tenant_from_request(request)
 		starts_at_raw = request.data.get("starts_at")
-		starts_at = to_aware_datetime(parse_datetime(str(starts_at_raw))) if starts_at_raw else None
+		try:
+			starts_at = to_aware_datetime(parse_datetime(str(starts_at_raw))) if starts_at_raw else None
+		except ValueError:
+			starts_at = None
 		if starts_at is None:
 			return Response({"message": "starts_at должен быть в ISO формате"}, status=400)
 		if to_aware_datetime(starts_at) < timezone.now():
@@ -2488,6 +2534,19 @@ class BookingListCreateView(APIView):
 				if not set(parsed_service_ids).issubset(assigned_service_ids):
 					return Response({"message": "Выбранный специалист не оказывает эту услугу"}, status=400)
 		pricing_services = services_for_booking_pricing(tenant, partner_profile, service_name, parsed_service_ids)
+		if is_restaurant(partner_profile):
+			if len(pricing_services) != 1 or booking_status != "booked":
+				return Response({"message": "Для столика выберите одно предложение. Приход и завершение отмечаются отдельно"}, status=400)
+			message = party_size_error(request.data.get("party_size")) or slot_error(pricing_services, starts_at, default=30)
+			if message:
+				return Response({"message": message}, status=400)
+			item, message = create_restaurant_booking(profile=partner_profile, tenant=tenant, service=pricing_services[0], starts_at=starts_at, party_size=request.data.get("party_size"), client_name=str(request.data["client_name"]).strip(), client_phone=normalize_ru_phone(str(request.data["client_phone"])), source=Booking.Source.MANUAL)
+			if message:
+				return Response({"message": message}, status=409)
+			return Response(serialize_booking(item), status=201)
+		message = slot_error(pricing_services, starts_at)
+		if message:
+			return Response({"message": message}, status=400)
 		if any(service.is_pass for service in pricing_services):
 			return Response({"message": "Для абонемента выберите даты всех посещений"}, status=400)
 		group_error = group_booking_error(pricing_services)
@@ -2556,6 +2615,8 @@ class BookingDetailView(APIView):
 		item = Booking.objects.filter(id=booking_id, tenant_slug=tenant, partner_profile=partner_profile).first()
 		if not item:
 			return Response({"message": "Запись не найдена"}, status=404)
+		if item.table_id:
+			return Response({"message": "Для столика используйте действия ресторанной брони"}, status=409)
 		original_service_name = item.service_name
 		original_service_ids = service_ids_from_pricing_details(item.pricing_details)
 		if item.original_session_id and (
@@ -2622,7 +2683,10 @@ class BookingDetailView(APIView):
 
 		if "starts_at" in request.data:
 			starts_at_raw = request.data.get("starts_at")
-			starts_at = to_aware_datetime(parse_datetime(str(starts_at_raw))) if starts_at_raw else None
+			try:
+				starts_at = to_aware_datetime(parse_datetime(str(starts_at_raw))) if starts_at_raw else None
+			except ValueError:
+				starts_at = None
 			if starts_at is None:
 				return Response({"message": "starts_at должен быть в ISO формате"}, status=400)
 			if to_aware_datetime(starts_at) < timezone.now():
@@ -2663,6 +2727,9 @@ class BookingDetailView(APIView):
 		):
 			return Response({"message": "Для абонемента создайте запись с датами всех посещений"}, status=400)
 		if pricing_requires_refresh or ("status" in request.data and item.status not in CLOSED_BOOKING_STATUSES):
+			message = slot_error(pricing_services, item.starts_at) if "starts_at" in request.data else None
+			if message:
+				return Response({"message": message}, status=400)
 			group_error = group_booking_error(pricing_services)
 			if group_error:
 				return Response({"message": group_error}, status=400)
@@ -2749,20 +2816,27 @@ class BookingDetailView(APIView):
 		item.save()
 		return Response(serialize_booking(item))
 
+	@transaction.atomic
 	def delete(self, request, booking_id: int):
 		partner_profile, error_response = get_partner_profile(request)
 		if error_response is not None:
 			return error_response
+		PartnerProfile.objects.select_for_update().get(id=partner_profile.id)
 
 		item = Booking.objects.filter(id=booking_id, tenant_slug=tenant_from_request(request), partner_profile=partner_profile).first()
 		if not item:
 			return Response({"message": "Запись не найдена"}, status=404)
 
-		if item.booking_pass_id or item.original_session_id:
+		if item.table_id:
+			from .restaurant import restaurant_action
+			message = restaurant_action(item, "cancel", {})
+			if message:
+				return Response({"message": message}, status=409)
+		else:
+			if item.status in CLOSED_BOOKING_STATUSES and item.status not in {"cancelled", "canceled"}:
+				return Response({"message": "Закрытая запись сохранена в истории и не может быть отменена"}, status=409)
 			item.status = "cancelled"
 			item.save(update_fields=["status"])
-			return Response({"ok": True})
-		item.delete()
 		return Response({"ok": True})
 
 

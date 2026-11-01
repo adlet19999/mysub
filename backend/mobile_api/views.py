@@ -32,6 +32,8 @@ from partner_api.views import (
     to_aware_datetime,
 )
 from partner_api.grouping import attach_group_session
+from partner_api.intervals import slot_error, slot_interval
+from partner_api.restaurant import create_restaurant_booking, is_restaurant, restaurant_booking_data, party_size_error
 
 from .models import CustomerChild, CustomerProfile, MobileRefreshSession
 from .serializers import (
@@ -154,7 +156,9 @@ def serialize_catalog_service(service, request):
         "category": service.category.name,
         "kind": service.kind.name if service.kind_id else None,
         "description": service.description or "",
-        "duration_minutes": service.duration_minutes or 60,
+        "duration_minutes": 120 if is_restaurant(partner) else service.duration_minutes or 60,
+        "slot_interval_minutes": service.slot_interval_minutes or 30,
+        "booking_mode": "table" if is_restaurant(partner) else "specialist",
         "price": str(service.price) if service.price is not None else None,
         "service_type": service.service_type,
         "is_pass": service.is_pass,
@@ -178,6 +182,11 @@ def serialize_catalog_specialist(specialist, request):
 
 def active_catalog_partners():
     return PartnerProfile.objects.select_related("user").filter(user_type="partner", user__is_active=True)
+
+def catalog_service_visible(service):
+    if is_restaurant(service.partner_profile) and service.is_pass:
+        return False
+    return not group_booking_error([service])
 
 
 def is_mobile_booking_cancellable(booking):
@@ -205,6 +214,7 @@ def serialize_mobile_booking(booking):
         "is_cancellable": is_mobile_booking_cancellable(booking),
         "created_at": booking.created_at.isoformat(),
         "booking_pass": serialize_booking_pass(booking),
+        "restaurant": restaurant_booking_data(booking),
     }
 
 
@@ -395,7 +405,7 @@ class MobileCatalogServicesView(APIView):
             items = items.filter(category__name__iexact=category)
         if city:
             items = items.filter(partner_profile__city__iexact=city)
-        return Response({"data": [serialize_catalog_service(item, request) for item in items.order_by("partner_profile__company_name", "name", "id")]})
+        return Response({"data": [serialize_catalog_service(item, request) for item in items.order_by("partner_profile__company_name", "name", "id") if catalog_service_visible(item)]})
 
 
 class MobileCatalogPartnerServicesView(APIView):
@@ -411,7 +421,7 @@ class MobileCatalogPartnerServicesView(APIView):
         items = Service.objects.filter(
             tenant_slug="public", partner_profile=partner, is_active=True
         ).select_related("partner_profile__user", "category", "kind")
-        return Response({"data": [serialize_catalog_service(item, request) for item in items.order_by("name", "id")]})
+        return Response({"data": [serialize_catalog_service(item, request) for item in items.order_by("name", "id") if catalog_service_visible(item)]})
 
 
 class MobileCatalogPartnerSpecialistsView(APIView):
@@ -425,6 +435,8 @@ class MobileCatalogPartnerSpecialistsView(APIView):
         partner = active_catalog_partners().filter(id=partner_id).first()
         if partner is None:
             return Response({"message": "Партнёр не найден"}, status=404)
+        if is_restaurant(partner):
+            return Response({"data": []})
         items = Specialist.objects.filter(
             tenant_slug="public",
             partner_profile=partner,
@@ -444,7 +456,7 @@ class MobileCatalogSpecialistAvailabilityView(APIView):
     @extend_schema(
         tags=["4. Каталог и запись"],
         summary="Получить свободное время специалиста",
-        description="Слоты возвращаются в часовом поясе Asia/Almaty с учётом рабочего графика, перерывов, длительности выбранной услуги и активных записей. Шаг слотов — 30 минут.",
+        description="Слоты возвращаются в часовом поясе Asia/Almaty с учётом графика, длительности услуги и занятости. Шаг задаётся в предложении; для старых предложений — 30 минут.",
         parameters=[
             OpenApiParameter(
                 name="date",
@@ -493,7 +505,8 @@ class MobileCatalogSpecialistAvailabilityView(APIView):
             datetime.combine(requested_date, time.min), timezone.get_current_timezone()
         )
         slots = []
-        for minute_offset in range(0, 24 * 60 - duration_minutes + 1, 30):
+        interval = slot_interval([service], default=30)
+        for minute_offset in range(0, 24 * 60 - duration_minutes + 1, interval):
             starts_at = day_start + timedelta(minutes=minute_offset)
             if starts_at <= timezone.now():
                 continue
@@ -514,9 +527,38 @@ class MobileCatalogSpecialistAvailabilityView(APIView):
             "date": requested_date.isoformat(),
             "time_zone": timezone.get_current_timezone_name(),
             "duration_minutes": duration_minutes,
-            "slot_interval_minutes": 30,
+            "slot_interval_minutes": interval,
             "slots": slots,
         })
+
+
+class MobileCatalogRestaurantAvailabilityView(APIView):
+    @extend_schema(
+        tags=["4. Каталог и запись"],
+        summary="Свободное время столиков без выбора столика",
+        parameters=[
+            OpenApiParameter(name="date", type=str, required=True, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name="service_id", type=int, required=True, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name="party_size", type=int, required=True, location=OpenApiParameter.QUERY),
+        ],
+        responses={200: AvailabilityResponseSerializer, 400: None, 404: None},
+    )
+    def get(self, request, partner_id):
+        from partner_api.restaurant import party_size_error
+        from partner_api.restaurant_views import restaurant_slots
+        partner = active_catalog_partners().filter(id=partner_id).first()
+        if partner is None or not is_restaurant(partner):
+            return error_response(404, "PARTNER_NOT_FOUND", "Ресторан не найден")
+        try:
+            requested_date = date.fromisoformat(request.query_params.get("date", ""))
+            service_id = int(request.query_params.get("service_id", ""))
+            party_size = int(request.query_params.get("party_size", ""))
+        except (TypeError, ValueError):
+            return error_response(400, "VALIDATION_ERROR", "Укажите дату, предложение и количество гостей")
+        service = Service.objects.filter(id=service_id, partner_profile=partner, tenant_slug="public", is_active=True, service_type="individual", is_pass=False).first()
+        if not service or party_size_error(party_size) or requested_date < timezone.localdate():
+            return error_response(400, "VALIDATION_ERROR", "Проверьте предложение, количество гостей и дату")
+        return Response(restaurant_slots(partner, "public", requested_date, service, party_size))
 
 
 class MobileBookingsView(MobileAuthenticatedView):
@@ -534,7 +576,8 @@ class MobileBookingsView(MobileAuthenticatedView):
                 client_phone=self.customer.phone,
                 partner_profile__isnull=False,
             )
-            .select_related("partner_profile__user")
+            .select_related("partner_profile__user", "table")
+            .prefetch_related("extensions")
             .order_by("-starts_at", "-id")
         )
         return Response({"data": [serialize_mobile_booking(item) for item in items]})
@@ -546,7 +589,8 @@ class MobileBookingsView(MobileAuthenticatedView):
         description=(
             "Создаёт запись для авторизованного клиента. Сервер повторно проверяет активность партнёра, "
             "услугу специалиста, график, перерывы и пересечения записей. Время должно быть будущим "
-            "и кратным 30 минутам, как в endpoint свободных слотов."
+            "и соответствовать интервалу предложения. Для ресторанов specialist_id не нужен: "
+            "передайте party_size, столик назначается автоматически на два часа."
         ),
         request=MobileBookingCreateRequestSerializer,
         responses={201: MobileBookingSerializer, 400: None, 401: None, 404: None, 409: None},
@@ -554,20 +598,20 @@ class MobileBookingsView(MobileAuthenticatedView):
     def post(self, request):
         try:
             partner_id = int(request.data.get("partner_id") or "")
-            specialist_id = int(request.data.get("specialist_id") or "")
             service_id = int(request.data.get("service_id") or "")
         except (TypeError, ValueError):
-            return error_response(400, "VALIDATION_ERROR", "partner_id, specialist_id и service_id должны быть числами")
+            return error_response(400, "VALIDATION_ERROR", "partner_id и service_id должны быть числами")
 
         starts_at_raw = request.data.get("starts_at")
-        starts_at = parse_datetime(str(starts_at_raw)) if starts_at_raw else None
+        try:
+            starts_at = parse_datetime(str(starts_at_raw)) if starts_at_raw else None
+        except ValueError:
+            starts_at = None
         if starts_at is None:
             return error_response(400, "VALIDATION_ERROR", "starts_at должен быть в ISO 8601 формате", "starts_at")
         starts_at = to_aware_datetime(starts_at)
         if starts_at <= timezone.now():
             return error_response(400, "VALIDATION_ERROR", "Нельзя записаться на прошедшее время", "starts_at")
-        if starts_at.minute % 30 or starts_at.second or starts_at.microsecond:
-            return error_response(400, "VALIDATION_ERROR", "Время записи должно совпадать со свободным 30-минутным слотом", "starts_at")
 
         with transaction.atomic():
             customer = (
@@ -583,6 +627,23 @@ class MobileBookingsView(MobileAuthenticatedView):
             partner = active_catalog_partners().select_for_update().filter(id=partner_id).first()
             if partner is None:
                 return error_response(404, "PARTNER_NOT_FOUND", "Партнёр не найден")
+            if is_restaurant(partner):
+                service = Service.objects.filter(id=service_id, tenant_slug="public", partner_profile=partner, is_active=True).first()
+                if service is None:
+                    return error_response(404, "SERVICE_NOT_FOUND", "Предложение не найдено")
+                if "visits" in request.data:
+                    return error_response(400, "VALIDATION_ERROR", "Для брони столика выберите одну дату")
+                message = party_size_error(request.data.get("party_size")) or slot_error([service], starts_at, default=30)
+                if message:
+                    return error_response(400, "VALIDATION_ERROR", message)
+                booking, message = create_restaurant_booking(profile=partner, tenant="public", service=service, starts_at=starts_at, party_size=request.data.get("party_size"), client_name=client_name, client_phone=customer.phone, source=Booking.Source.MOBILE)
+                if message:
+                    return error_response(409, "SLOT_UNAVAILABLE", message)
+                return Response(serialize_mobile_booking(booking), status=201)
+            try:
+                specialist_id = int(request.data.get("specialist_id") or "")
+            except (TypeError, ValueError):
+                return error_response(400, "VALIDATION_ERROR", "Для этой услуги выберите специалиста", "specialist_id")
             specialist = (
                 Specialist.objects.select_for_update()
                 .filter(
@@ -607,6 +668,9 @@ class MobileBookingsView(MobileAuthenticatedView):
             )
             if service is None:
                 return error_response(404, "SERVICE_NOT_FOUND", "Услуга не найдена")
+            message = slot_error([service], starts_at, default=30)
+            if message:
+                return error_response(400, "VALIDATION_ERROR", message, "starts_at")
             if not specialist.capabilities.filter(service_id=service.id).exists():
                 return error_response(409, "SERVICE_UNAVAILABLE", "Специалист не оказывает выбранную услугу")
 
@@ -631,8 +695,9 @@ class MobileBookingsView(MobileAuthenticatedView):
                     if visit is None:
                         return error_response(400, "VALIDATION_ERROR", "Дата посещения должна быть в ISO формате", "visits")
                     visit = to_aware_datetime(visit)
-                    if visit.minute % 30 or visit.second or visit.microsecond:
-                        return error_response(400, "VALIDATION_ERROR", "Посещения должны совпадать со свободными 30-минутными слотами", "visits")
+                    message = slot_error([service], visit, default=30)
+                    if message:
+                        return error_response(400, "VALIDATION_ERROR", message, "visits")
                     visits.append(visit)
                 visits.sort()
                 if visits[0] != starts_at:

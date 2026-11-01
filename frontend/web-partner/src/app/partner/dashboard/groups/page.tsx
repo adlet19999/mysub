@@ -6,6 +6,8 @@ import { ArrowLeft, ArrowRight, CalendarDays, Check, ChevronDown, Clock3, Plus, 
 import { BookingGroup, enrollmentTotal, GroupDetail, GroupParticipant, GroupSession, isActiveVisit, lessonCount, selectableSessions } from "../../../../lib/groups";
 import { formatRuPhone } from "../../../../lib/phone";
 import { createRequestId } from "../../../../lib/requestId";
+import { ALL_SCHEDULE_SPECIALISTS, scheduleHref, scheduleReturnHref } from "../../../../lib/scheduleNavigation";
+import { BookingCapabilities, EMPTY_BOOKING_CAPABILITIES } from "../../../../lib/bookingCapabilities";
 import AvailableTimeSelect from "../schedule/AvailableTimeSelect";
 import PassVisitEditor, { PassVisit } from "../schedule/PassVisitEditor";
 import styles from "./page.module.css";
@@ -14,6 +16,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1";
 const TENANT = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public";
 type Service = { id: number; name: string; service_type: string; is_active: boolean; is_pass: boolean; visit_count: number; price: string | null; pass_price_mode: "total" | "per_visit"; details: { max_people?: number } };
 type Specialist = { id: number; full_name: string; is_active: boolean; service_ids: number[] };
+type IndividualPassBooking = { id: number; client_name: string; client_phone: string; service_name: string; starts_at: string; booking_pass: { id: string; group_id: number | null; visit_count: number; completed_visits: number; total_price: string; visits: { id: number; starts_at: string; status: string }[] } | null };
 type Modal = { kind: "create" } | { kind: "enroll" } | { kind: "move"; booking: GroupParticipant } | { kind: "cancel"; booking: GroupParticipant } | { kind: "lesson-move"; session: GroupSession } | { kind: "lesson-cancel"; session: GroupSession };
 const money = (value: number | string) => `${Number(value).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ₸`;
 const dateLabel = (value: string) => new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", weekday: "short", timeZone: "Asia/Almaty" }).format(new Date(value));
@@ -39,6 +42,9 @@ function Dialog({ title, busy, onClose, children }: { title: string; busy: boole
 
 export default function GroupsPage() {
   const [email, setEmail] = useState("");
+  const [capabilities, setCapabilities] = useState<BookingCapabilities>(EMPTY_BOOKING_CAPABILITIES);
+  const [returnHref, setReturnHref] = useState("/partner/dashboard/schedule");
+  const [individualPasses, setIndividualPasses] = useState<IndividualPassBooking[]>([]);
   const [groups, setGroups] = useState<BookingGroup[]>([]);
   const [sessions, setSessions] = useState<GroupSession[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -86,15 +92,23 @@ export default function GroupsPage() {
     setLoading(true);
     setError("");
     try {
-      const [groupList, sessionList, serviceList, specialistList, group] = await Promise.all([
+      const [groupList, sessionList, serviceList, specialistList, group, category, bookings] = await Promise.all([
         request<{ items: BookingGroup[] }>("groups/"),
         request<{ items: GroupSession[] }>("groups/sessions/"),
         request<Service[]>("services/"), request<Specialist[]>("specialists/"),
         groupId ? request<GroupDetail>(`groups/${groupId}/`) : Promise.resolve(null),
+        request<BookingCapabilities>("booking-capabilities/"),
+        request<IndividualPassBooking[]>("bookings/"),
       ]);
       if (sequence !== loadSequence.current) return;
       if (!Array.isArray(groupList.items) || !Array.isArray(sessionList.items) || !Array.isArray(serviceList) || !Array.isArray(specialistList)) throw new Error("Некорректный ответ сервера");
       setGroups(groupList.items); setSessions(sessionList.items); setServices(serviceList); setSpecialists(specialistList); setDetail(group);
+      setCapabilities(category);
+      const seen = new Set<string>();
+      setIndividualPasses(bookings.filter((booking) => {
+        if (!booking.booking_pass || booking.booking_pass.group_id || seen.has(booking.booking_pass.id)) return false;
+        seen.add(booking.booking_pass.id); return true;
+      }));
       const params = new URLSearchParams(window.location.search);
       if (groupId) params.set("group", String(groupId)); else { params.delete("group"); params.delete("session"); }
       window.history.replaceState(null, "", `${window.location.pathname}${params.size ? `?${params}` : ""}`);
@@ -111,6 +125,7 @@ export default function GroupsPage() {
       if (auth.email || auth.username) setEmail((auth.email || auth.username || "").trim());
       else { setError("Войдите в кабинет партнёра"); setLoading(false); }
       const sessionId = Number(new URLSearchParams(window.location.search).get("session"));
+      setReturnHref(scheduleReturnHref(window.location.search));
       if (sessionId) setExpanded([sessionId]);
     } catch { setError("Не удалось прочитать данные авторизации. Войдите заново."); setLoading(false); }
   }, []);
@@ -232,25 +247,25 @@ export default function GroupsPage() {
 
   return <section className={styles.page}>
     <header className={styles.header}>
-      <div>{detail ? <button type="button" className={styles.back} disabled={busy} onClick={() => { setTab("sessions"); setExpanded([]); void load(); }}><ArrowLeft size={16} />Все группы</button> : <span className={styles.eyebrow}>ЗАНЯТИЯ И УЧАСТНИКИ</span>}<h1>{detail?.name || "Группы и абонементы"}</h1><p>{detail ? `${detail.service_name} · ${detail.specialist_name}` : "Создайте расписание группы, затем добавляйте клиентов на нужные занятия."}</p></div>
-      <div className={styles.headerActions}><Link href="/partner/dashboard/schedule" className={styles.secondary}><CalendarDays size={17} />Расписание</Link><button type="button" className={styles.primary} disabled={loading || busy || !email || (Boolean(detail) && !availableSessions.length)} onClick={() => openModal(detail ? { kind: "enroll" } : { kind: "create" })}><Plus size={18} />{detail ? "Добавить участника" : "Создать группу"}</button></div>
+      <div>{detail ? <button type="button" className={styles.back} disabled={busy} onClick={() => { setTab("sessions"); setExpanded([]); void load(); }}><ArrowLeft size={16} />Все группы</button> : <span className={styles.eyebrow}>ЗАНЯТИЯ И ПОСЕЩЕНИЯ</span>}<h1>{detail ? `${detail.name}${detail.is_pass ? " · Абонемент" : ""}` : capabilities.allows_group_services ? "Группы и абонементы" : "Абонементы"}</h1><p>{detail ? `${detail.service_name} · ${detail.specialist_name}` : capabilities.allows_group_services ? "Создайте расписание группы, затем добавляйте клиентов на нужные занятия." : "Индивидуальные абонементы и история посещений клиентов."}</p></div>
+      <div className={styles.headerActions}><Link href={returnHref} className={styles.secondary}><CalendarDays size={17} />Вернуться в расписание</Link>{capabilities.allows_group_services ? <button type="button" className={styles.primary} disabled={loading || busy || !email || (Boolean(detail) && !availableSessions.length)} onClick={() => openModal(detail ? { kind: "enroll" } : { kind: "create" })}><Plus size={18} />{detail ? "Добавить участника" : "Создать группу"}</button> : null}</div>
     </header>
     {error ? <div className={styles.error} role="alert">{error}<button type="button" onClick={() => void load(detail?.id)}>Повторить загрузку</button></div> : null}
     {notice ? <div className={styles.notice} role="status"><Check size={18} />{notice}</div> : null}
     {loading ? <p role="status" className={styles.loading}>Загрузка групп…</p> : null}
-    {!detail ? <>
+    {!detail && capabilities.allows_group_services ? <>
       <section className={styles.stats} aria-label="Обзор групп"><div><Users size={19} /><span>Группы<strong>{groups.length}</strong></span></div><div><CalendarDays size={19} /><span>Будущие занятия<strong>{groups.reduce((sum, group) => sum + group.future_session_count, 0)}</strong></span></div><div><Clock3 size={19} /><span>Группа может быть пустой<small>Клиентов можно добавить позже</small></span></div></section>
       <label className={styles.search}><Search size={18} /><input aria-label="Поиск группы" placeholder="Группа, услуга или специалист" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
       <section className={styles.cards} aria-label="Группы">
         {filteredGroups.map((group) => <button type="button" className={styles.groupCard} key={group.id} disabled={busy || loading} onClick={() => { setTab("sessions"); setExpanded([]); void load(group.id); }}>
           <div className={styles.cardTop}><span className={styles.groupIcon}><Users size={23} /></span><span className={styles.badge}>{group.future_session_count ? "Набор открыт" : "Занятия завершены"}</span></div>
-          <h2>{group.name}</h2><p>{group.service_name}</p><span className={styles.specialist}>{group.specialist_name}</span>
+          <h2>{group.name}</h2><p>{group.service_name}{group.is_pass ? " · Абонемент" : " · Групповое занятие"}</p><span className={styles.specialist}>{group.specialist_name}</span>
           <div className={styles.cardFacts}><span><CalendarDays size={15} />{lessonCount(group.session_count)}</span><span><Users size={15} />До {group.capacity} человек</span></div>
           <div className={styles.cardBottom}><span>{group.next_session ? <>Ближайшее занятие<strong>{dateLabel(group.next_session)}, {timeLabel(group.next_session)}</strong></> : "Нет будущих занятий"}</span><ArrowRight size={19} /></div>
         </button>)}
       </section>
       {!loading && !error && !filteredGroups.length ? <section className={styles.empty}><span className={styles.emptyIcon}><Users size={32} /></span><h2>{search ? "Группы не найдены" : "Начните с пустой группы"}</h2><p>{search ? "Попробуйте другое название или имя специалиста." : "Выберите услугу, специалиста и даты. Записи клиентов появятся только после добавления участников."}</p>{!search ? <button type="button" className={styles.primary} onClick={() => openModal({ kind: "create" })}><Plus size={17} />Создать группу</button> : null}</section> : null}
-    </> : <>
+    </> : detail ? <>
       <section className={styles.detailFacts}><span><CalendarDays size={18} />{lessonCount(detail.session_count)}</span><span><Clock3 size={18} />{detail.duration_minutes} минут · время Алматы</span><span><Users size={18} />До {detail.capacity} человек на занятии</span><strong>{detail.price_mode === "total" ? `${money(detail.price)} за весь цикл` : `${money(detail.price)} за занятие`}</strong></section>
       <div className={styles.tabs} role="tablist" aria-label="Содержимое группы"><button type="button" role="tab" aria-selected={tab === "sessions"} onClick={() => setTab("sessions")}>Занятия <span>{detail.sessions.length}</span></button><button type="button" role="tab" aria-selected={tab === "members"} onClick={() => setTab("members")}>Участники <span>{new Set(detail.bookings.map((booking) => booking.client_phone)).size}</span></button></div>
       {tab === "sessions" ? <section className={styles.lessons} aria-label="Занятия группы">{detail.sessions.map((session, index) => {
@@ -272,7 +287,14 @@ export default function GroupsPage() {
         {members.map((bookings) => <details className={styles.memberCard} key={bookings[0].client_phone}><summary><span className={styles.memberAvatar}>{bookings[0].client_name.slice(0, 1).toUpperCase()}</span><span><strong>{bookings[0].client_name}</strong><small>{formatRuPhone(bookings[0].client_phone)}</small></span><span className={styles.memberProgress}>Посетил: {bookings.filter((item) => complete(item.status)).length} / {bookings.length}<small>Будущих записей: {bookings.filter((item) => isActiveVisit(item.status) && new Date(item.starts_at).getTime() > Date.now()).length}</small></span><ChevronDown size={18} /></summary><div className={styles.memberVisits}>{bookings.map((booking) => <div key={booking.id}><p className={styles.visitDate}>{dateLabel(booking.starts_at)}, {timeLabel(booking.starts_at)}{booking.is_individual_override ? " · отдельное время" : booking.is_moved ? " · перенос" : ""}</p>{participantRow(booking)}</div>)}</div></details>)}
         {!members.length ? <div className={styles.empty}><Users size={30} /><h2>{memberSearch ? "Участники не найдены" : "В группе пока нет участников"}</h2><p>{memberSearch ? "Попробуйте другое имя или телефон." : "Добавьте клиента и выберите занятия, которые он будет посещать."}</p></div> : null}
       </section>}
-    </>}
+    </> : null}
+    {!detail && !capabilities.is_restaurant ? <section aria-label="Индивидуальные абонементы"><h2>Индивидуальные абонементы</h2><div className={styles.cards}>{individualPasses.map((booking) => {
+      const pass = booking.booking_pass;
+      if (!pass) return null;
+      return <Link className={styles.groupCard} style={{ textDecoration: "none" }} key={pass.id} href={scheduleHref(booking.starts_at.slice(0, 10), ALL_SCHEDULE_SPECIALISTS, booking.id)}>
+        <span className={styles.badge}>Абонемент · {pass.visit_count} посещений</span><h2>{booking.service_name}</h2><p>{booking.client_name} · {formatRuPhone(booking.client_phone)}</p><p>Посещено: {pass.completed_visits} / {pass.visit_count}</p><strong>{money(pass.total_price)}</strong>
+      </Link>;
+    })}</div>{!loading && !error && !individualPasses.length ? <p className={styles.context}>Пока нет индивидуальных абонементов. Создайте запись в расписании и выберите услугу с признаком «Абонемент».</p> : null}</section> : null}
 
     {modal ? <Dialog title={modal.kind === "create" ? "Новая группа" : modal.kind === "enroll" ? "Добавить участника" : modal.kind === "move" ? "Перенести клиента" : modal.kind === "lesson-move" ? "Разовый перенос занятия" : modal.kind === "lesson-cancel" ? "Отменить занятие группы" : "Отменить посещение"} busy={busy} onClose={() => setModal(null)}>
       <form noValidate onSubmit={submit}><div className={styles.dialogBody}><fieldset disabled={busy} className={styles.formFields}>
@@ -288,7 +310,7 @@ export default function GroupsPage() {
           <div className={styles.formGrid}><label>Специалист<select required value={specialistId} onChange={(event) => { setSpecialistId(event.target.value); setFirstTime(""); setVisits([]); }}><option value="">Выберите специалиста</option>{availableSpecialists.map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label><label>Мест в группе<input type="number" required data-validation-message={`Укажите целое количество мест от 1 до ${selectedService?.details.max_people || 1}`} min={1} max={selectedService?.details.max_people || 1} value={capacity} onChange={(event) => setCapacity(Number(event.target.value))} /></label></div>
           <div className={styles.formGrid}><label>Количество занятий<input type="number" required min={1} max={365} readOnly={selectedService?.is_pass} value={count} onChange={(event) => { setCount(Number(event.target.value)); setVisits([]); }} /></label><label>Цена<span className={styles.pricePreview}>{money(selectedService?.price || 0)} {selectedService?.is_pass && selectedService.pass_price_mode === "total" ? "за весь цикл" : "за занятие"}</span></label></div>
           <h3>Расписание занятий</h3><div className={styles.formGrid}><label>Первая дата<input type="date" required={!visits.length} min={visits.length ? undefined : dateInput(new Date())} value={firstDate} onChange={(event) => { setFirstDate(event.target.value); setFirstTime(""); }} /></label><label>Начало · Алматы<AvailableTimeSelect required={!visits.length} reserveGroup date={firstDate} specialistId={specialistId} serviceIds={serviceId} phone="" partnerEmail={email} value={firstTime} onChange={setFirstTime} /></label></div>
-          {selectedService && specialistId ? <PassVisitEditor variant="group" count={count} startDate={firstDate} startTime={firstTime} specialistId={specialistId} serviceId={serviceId} phone="" partnerEmail={email} visits={visits} onChange={setVisits} /> : null}
+          {selectedService && specialistId ? <PassVisitEditor variant="group" count={count} startDate={firstDate} startTime={firstTime} onStartTimeChange={setFirstTime} specialistId={specialistId} serviceId={serviceId} phone="" partnerEmail={email} visits={visits} onChange={setVisits} /> : null}
         </> : modal.kind === "enroll" && detail ? <>
           <p className={styles.context}>{detail.name} · {detail.specialist_name}</p>
           <div className={styles.formGrid}><label>Имя клиента<input required maxLength={120} value={clientName} onChange={(event) => setClientName(event.target.value)} placeholder="Имя и фамилия" /></label><label>Телефон<input required type="tel" value={phone} onChange={(event) => setPhone(formatRuPhone(event.target.value))} placeholder="+7 (___) ___-__-__" /></label></div>

@@ -179,7 +179,8 @@ class IndependentGroupTests(LifecycleFixture, TestCase):
 		}]}, format="json", **self.headers)
 		self.assertEqual(response.status_code, 409, response.data)
 		self.specialist.refresh_from_db()
-		self.assertFalse(self.specialist.working_schedule[0]["is_day_off"])
+		day = next(item for item in self.specialist.working_schedule if item["day"] == self.schedule[0]["day"])
+		self.assertFalse(day["is_day_off"])
 
 	def test_empty_future_group_protects_service_and_teacher_from_archiving(self):
 		self.create_group()

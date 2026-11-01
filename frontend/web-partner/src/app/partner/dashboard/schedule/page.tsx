@@ -17,6 +17,10 @@ import { formatRuPhone } from "../../../../lib/phone";
 import { useDraggableModal } from "../../../../lib/useDraggableModal";
 import AvailableTimeSelect from "./AvailableTimeSelect";
 import PassVisitEditor, { PassVisit } from "./PassVisitEditor";
+import { ALL_SCHEDULE_SPECIALISTS, calendarBookingVisible, scheduleHref, validScheduleDate } from "../../../../lib/scheduleNavigation";
+import { BookingCapabilities, EMPTY_BOOKING_CAPABILITIES } from "../../../../lib/bookingCapabilities";
+import { BusinessTable, RestaurantReservation, restaurantCalendarSegments } from "../../../../lib/restaurant";
+import { RestaurantBookingDetails, RestaurantBookingForm } from "./RestaurantBooking";
 import { selectCalendarArea, toggleCalendarDate } from "../../../../lib/calendarSelection";
 
 type WorkingDayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
@@ -81,6 +85,10 @@ type BookingLine = {
 };
 
 type Booking = {
+  restaurant?: RestaurantReservation | null;
+  calendar_starts_at?: string;
+  calendar_duration_minutes?: number;
+  calendar_extension?: boolean;
   id: number;
   service_name: string;
   manager_name: string | null;
@@ -172,7 +180,7 @@ type CalendarBooking = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1";
 const TENANT_DEFAULT = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public";
-const ALL_SPECIALISTS_VALUE = "__all_specialists__";
+const ALL_SPECIALISTS_VALUE = ALL_SCHEDULE_SPECIALISTS;
 const WEEK_DAYS: WorkingDayKey[] = [
   "mon",
   "tue",
@@ -681,6 +689,7 @@ function getStatusTone(status: string): BookingStatusTone {
 
 function getStatusLabel(status: string): string {
   const normalized = status.trim().toLowerCase();
+  if (normalized === "arrived") return "Гости за столиком";
   if (["completed", "done", "завершен", "завершена"].includes(normalized)) {
     return "Завершен";
   }
@@ -699,6 +708,10 @@ function getStatusLabel(status: string): string {
 export default function SchedulePage() {
   const tenant = TENANT_DEFAULT;
   const [partnerEmail, setPartnerEmail] = useState("");
+  const [capabilities, setCapabilities] = useState<BookingCapabilities>(EMPTY_BOOKING_CAPABILITIES);
+  const [navigationReady, setNavigationReady] = useState(false);
+  const loadDirectorySequence = useRef(0);
+  const [historyQuery, setHistoryQuery] = useState("");
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -1214,12 +1227,18 @@ export default function SchedulePage() {
       );
     }
 
-    for (const sourceBooking of bookings) {
+    const calendarBookings = bookings.flatMap((booking) => booking.restaurant ? restaurantCalendarSegments(booking.restaurant.segments).map((segment) => ({
+      ...booking, calendar_starts_at: segment.starts_at,
+      calendar_duration_minutes: Math.max(1, (Date.parse(segment.ends_at) - Date.parse(segment.starts_at)) / 60_000),
+      calendar_extension: segment.is_extension,
+    })) : [booking]);
+    for (const sourceBooking of calendarBookings) {
+      if (!calendarBookingVisible(sourceBooking.status)) continue;
       const group = sourceBooking.group_session;
       if (group?.id) continue;
       if (group && group.participants[0]?.id !== sourceBooking.id) continue;
       const booking = group ? { ...sourceBooking, status: groupBookingStatus(group.participants) } : sourceBooking;
-      const parsedStartsAt = parseBookingDateTime(booking.starts_at);
+      const parsedStartsAt = parseBookingDateTime(booking.calendar_starts_at || booking.starts_at);
       if (!parsedStartsAt) {
         continue;
       }
@@ -1227,7 +1246,8 @@ export default function SchedulePage() {
       const bookingManagerName = (booking.manager_name || "")
         .trim()
         .toLowerCase();
-      const specialist = specialistByName.get(bookingManagerName);
+      const restaurant = booking.restaurant;
+      const specialist = restaurant ? activeSpecialists.find((item) => item.id === -restaurant.table_id) : specialistByName.get(bookingManagerName);
       if (!specialist) {
         continue;
       }
@@ -1248,7 +1268,7 @@ export default function SchedulePage() {
       const list = map.get(key) ?? [];
       const listedNames = parseServiceNames(booking.service_name);
       const snapshotDuration = (booking.pricing_details || []).reduce((total, detail) => total + (detail.duration_minutes || 0), 0);
-      const durationMinutes = group?.duration_minutes || snapshotDuration || (listedNames.length
+      const durationMinutes = booking.calendar_duration_minutes || group?.duration_minutes || snapshotDuration || (listedNames.length
         ? listedNames.reduce(
             (sum, name) =>
               sum + (serviceDurationByName.get(name.toLowerCase()) ?? 60),
@@ -1261,6 +1281,7 @@ export default function SchedulePage() {
       map.set(key, list);
     }
     for (const session of groupSessions) {
+      if (session.status === "cancelled") continue;
       const parsed = parseBookingDateTime(session.starts_at);
       if (!parsed || !scheduleHours.hours.includes(parsed.hour)) continue;
       const column = columnKeyBySpecialistAndDate.get(`${session.specialist_id}-${parsed.dateKey}`);
@@ -1341,6 +1362,7 @@ export default function SchedulePage() {
     if (!partnerEmail) {
       return;
     }
+    const sequence = ++loadDirectorySequence.current;
     setDirectoryError("");
     try {
       const headers = {
@@ -1348,7 +1370,7 @@ export default function SchedulePage() {
         "X-Tenant": tenant,
         "X-Partner-Email": partnerEmail,
       };
-      const [specialistsResponse, servicesResponse, bookingsResponse, sessionsResponse] =
+      const [specialistsResponse, servicesResponse, bookingsResponse, sessionsResponse, capabilitiesResponse] =
         await Promise.all([
           fetch(`${API_BASE}/partner/specialists/`, {
             headers,
@@ -1365,30 +1387,91 @@ export default function SchedulePage() {
             cache: "no-store",
           }),
           fetch(`${API_BASE}/partner/groups/sessions/`, { headers, cache: "no-store" }),
+          fetch(`${API_BASE}/partner/booking-capabilities/`, { headers, cache: "no-store" }),
         ]);
 
-      if (!specialistsResponse.ok || !servicesResponse.ok || !bookingsResponse.ok || !sessionsResponse.ok) {
+      if (!specialistsResponse.ok || !servicesResponse.ok || !bookingsResponse.ok || !sessionsResponse.ok || !capabilitiesResponse.ok) {
         throw new Error("Не удалось загрузить расписание. Обновите данные.");
       }
       const specialistsPayload = (await specialistsResponse.json()) as Specialist[];
       const servicesPayload = (await servicesResponse.json()) as Service[];
       const bookingsPayload = (await bookingsResponse.json()) as { items?: Booking[] };
       const sessionsPayload: { items?: StoredGroupSession[] } = await sessionsResponse.json();
+      const capabilitiesPayload: BookingCapabilities = await capabilitiesResponse.json();
+      if (typeof capabilitiesPayload.is_restaurant !== "boolean" || typeof capabilitiesPayload.allows_group_services !== "boolean") throw new Error("Некорректные настройки категории бизнеса");
       if (!Array.isArray(specialistsPayload) || !Array.isArray(servicesPayload) || !Array.isArray(bookingsPayload.items) || !Array.isArray(sessionsPayload.items)) {
         throw new Error("Некорректный ответ сервера при загрузке расписания");
       }
-      setSpecialists(specialistsPayload.map((item) => ({ ...item, working_schedule: normalizeWorkingSchedule(item.working_schedule) })));
+      if (sequence !== loadDirectorySequence.current) return;
+      if (capabilitiesPayload.is_restaurant) {
+        const tablesResponse = await fetch(`${API_BASE}/partner/tables/`, { headers, cache: "no-store" });
+        if (!tablesResponse.ok) throw new Error("Не удалось загрузить столики");
+        const tables: BusinessTable[] = await tablesResponse.json();
+        if (!Array.isArray(tables)) throw new Error("Некорректный список столиков");
+        if (sequence !== loadDirectorySequence.current) return;
+        setSpecialists(tables.map((table) => ({
+          id: -table.id, full_name: table.name, is_active: table.is_active,
+          service_ids: servicesPayload.map((service) => service.id),
+          working_schedule: defaultWorkingSchedule().map((day) => ({ ...day, is_day_off: false, start_time: "00:00", end_time: "23:59" })),
+        })));
+      } else {
+        setSpecialists(specialistsPayload.map((item) => ({ ...item, working_schedule: normalizeWorkingSchedule(item.working_schedule) })));
+      }
+      setCapabilities(capabilitiesPayload);
       setServices(servicesPayload);
       setBookings(bookingsPayload.items);
       setGroupSessions(sessionsPayload.items);
     } catch (error) {
-      setDirectoryError(error instanceof Error ? error.message : "Не удалось подключиться к серверу");
+      if (sequence === loadDirectorySequence.current) setDirectoryError(error instanceof Error ? error.message : "Не удалось подключиться к серверу");
     }
   }
 
   useEffect(() => {
     void loadDirectory();
   }, [partnerEmail, tenant]);
+
+  useEffect(() => {
+    if (!capabilities.is_restaurant || !partnerEmail) return;
+    const interval = window.setInterval(() => void loadDirectory(), 30_000);
+    return () => window.clearInterval(interval);
+  }, [capabilities.is_restaurant, partnerEmail, tenant]);
+
+  useEffect(() => {
+    if (!partnerEmail) return;
+    const key = `partner_schedule:${tenant}:${partnerEmail}`;
+    const params = new URLSearchParams(window.location.search);
+    const stored = sessionStorage.getItem(key);
+    const saved = new URLSearchParams(stored || "");
+    const date = validScheduleDate(params.get("date") || saved.get("date"));
+    if (date) {
+      setSelectedDate(date);
+      setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+    }
+    setScheduleViewSpecialistId(params.get("specialist") || saved.get("specialist") || ALL_SPECIALISTS_VALUE);
+    setNavigationReady(true);
+  }, [partnerEmail, tenant]);
+
+  useEffect(() => {
+    if (!navigationReady || !partnerEmail) return;
+    const href = scheduleHref(formatDateInputValue(selectedDate), scheduleViewSpecialistId);
+    sessionStorage.setItem(`partner_schedule:${tenant}:${partnerEmail}`, href.split("?")[1]);
+    const params = new URLSearchParams(window.location.search);
+    const booking = params.get("booking");
+    window.history.replaceState(window.history.state, "", `${href}${booking ? `&booking=${encodeURIComponent(booking)}` : ""}`);
+  }, [navigationReady, partnerEmail, tenant, selectedDate, scheduleViewSpecialistId]);
+
+  useEffect(() => {
+    const id = Number(new URLSearchParams(window.location.search).get("booking"));
+    const booking = bookings.find((item) => item.id === id);
+    if (booking) {
+      openDetailsModal(booking);
+      const params = new URLSearchParams(window.location.search);
+      params.delete("booking");
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params}`);
+    } else {
+      setDetailsBooking((current) => current ? bookings.find((item) => item.id === current.id) || null : null);
+    }
+  }, [bookings]);
 
   function openBookingModal() {
     setIsAddingGroupParticipant(false);
@@ -2281,7 +2364,7 @@ export default function SchedulePage() {
         </div>
 
         <div className={styles.actions}>
-          <Link href="/partner/dashboard/groups" className={styles.settingsButton}>Группы и абонементы</Link>
+          {capabilities.allows_group_services || capabilities.has_individual_passes ? <Link href={`/partner/dashboard/groups?${new URLSearchParams({ return_to: scheduleHref(formatDateInputValue(selectedDate), scheduleViewSpecialistId) })}`} className={styles.settingsButton}>{capabilities.allows_group_services ? "Группы и абонементы" : "Абонементы"}</Link> : null}
           <select
             className={styles.scheduleViewFilter}
             value={scheduleViewSpecialistId}
@@ -2290,7 +2373,7 @@ export default function SchedulePage() {
             }
             aria-label="Отображение расписания"
           >
-            <option value={ALL_SPECIALISTS_VALUE}>Все специалисты</option>
+            <option value={ALL_SPECIALISTS_VALUE}>{capabilities.is_restaurant ? "Все столики" : "Все специалисты"}</option>
             {activeSpecialists.map((specialist) => (
               <option key={specialist.id} value={String(specialist.id)}>
                 {specialist.full_name}
@@ -2301,7 +2384,7 @@ export default function SchedulePage() {
             type="button"
             className={styles.settingsButton}
             onClick={openBulkScheduleModal}
-            disabled={!partnerEmail || !activeSpecialists.length}
+            disabled={capabilities.is_restaurant || !partnerEmail || !activeSpecialists.length}
           >
             <img src="/setting.svg" alt="" aria-hidden />
             <span>Составить график работы</span>
@@ -2506,12 +2589,12 @@ export default function SchedulePage() {
                             const status = session.status === "cancelled" ? "cancelled" : groupBookingStatus(session.participants);
                             const tone = getStatusTone(status);
                             const promotion = session.status !== "cancelled" && isWithinPromotionWindow(daySchedule, hour * 60 + entry.minutes, hour * 60 + entry.minutes + entry.durationMinutes);
-                            return <Link key={`session-${session.id}`} href={`/partner/dashboard/groups?group=${session.group_id}&session=${session.id}`}
+                            return <Link key={`session-${session.id}`} href={`/partner/dashboard/groups?${new URLSearchParams({ group: String(session.group_id), session: String(session.id), return_to: scheduleHref(formatDateInputValue(selectedDate), scheduleViewSpecialistId) })}`}
                               className={`${styles.bookingCard} ${styles[`bookingCard${tone.charAt(0).toUpperCase()}${tone.slice(1)}`]}`}
                               style={{ textDecoration: "none", marginTop: `${Math.min(SLOT_HEIGHT - 1, Math.max(0, Math.round((entry.minutes / 60) * SLOT_HEIGHT)))}px`, minHeight: `${Math.max(28, Math.round((entry.durationMinutes / 60) * SLOT_HEIGHT))}px` }}>
                               {promotion ? <span className={styles.bookingCrown} aria-label="Занятие в акционное время"><Crown size={18} /></span> : null}
                               <p className={styles.bookingStatus}>{session.status === "cancelled" ? "Занятие отменено" : status === "completed" ? "Занятие проведено" : status === "no_show" ? "Неявка участников" : session.occupied_places ? "Групповое занятие" : "Пустая группа"}</p>
-                              <p className={styles.bookingService}>{session.group_name}</p>
+                              <p className={styles.bookingService}>{session.group_name}{session.is_pass ? " · Абонемент" : ""}</p>
                               <p className={styles.bookingClient}>{session.occupied_places} / {session.capacity} участников</p>
                               <p className={styles.bookingClient}>{session.original_starts_at && session.original_starts_at !== session.starts_at ? "Разовый перенос · " : ""}{session.starts_at.slice(11, 16)}</p>
                             </Link>;
@@ -2524,7 +2607,7 @@ export default function SchedulePage() {
                           return <article
                             key={entry.booking.id}
                             className={`${styles.bookingCard} ${styles[`bookingCard${getStatusTone(entry.booking.status).charAt(0).toUpperCase()}${getStatusTone(entry.booking.status).slice(1)}`]}`}
-                            onClick={() => openDetailsModal(entry.booking)}
+                            onClick={() => openDetailsModal(bookings.find((item) => item.id === entry.booking.id) || entry.booking)}
                             style={{
                               marginTop: `${Math.min(SLOT_HEIGHT - 1, Math.max(0, Math.round((entry.minutes / 60) * SLOT_HEIGHT)))}px`,
                               minHeight: `${Math.max(28, Math.round((entry.durationMinutes / 60) * SLOT_HEIGHT))}px`,
@@ -2536,7 +2619,7 @@ export default function SchedulePage() {
                               className={styles.bookingEditButton}
                               onClick={(event) => {
                                 event.stopPropagation();
-                                openDetailsModal(entry.booking);
+                                openDetailsModal(bookings.find((item) => item.id === entry.booking.id) || entry.booking);
                               }}
                               aria-label="Посмотреть запись"
                             >
@@ -2552,6 +2635,7 @@ export default function SchedulePage() {
                               {entry.booking.group_session ? `Группа · ${entry.booking.group_session.occupied_places}/${entry.booking.group_session.capacity}` : entry.booking.client_name}
                             </p>
                             {entry.booking.booking_pass ? <p className={styles.bookingClient}>Абонемент · {entry.booking.booking_pass.visit_number}/{entry.booking.booking_pass.visit_count}</p> : null}
+                            {entry.booking.restaurant ? <><p className={styles.bookingClient}>{entry.booking.restaurant.party_size} гостей{entry.booking.calendar_extension ? " · Автопродление" : ""}</p>{entry.booking.restaurant.notice ? <p className={styles.helperError}>Требуется внимание менеджера</p> : null}</> : null}
                             {basePrice != null ? (
                               <p className={styles.bookingPrice}>
                                 {hasDiscount ? (
@@ -2582,7 +2666,18 @@ export default function SchedulePage() {
         ) : null}
       </section>
 
-      {isBookingModalOpen ? (
+      <section className={styles.passEditor} aria-label="История записей">
+        <details><summary>История записей и клиентов · {bookings.length}</summary>
+          <label>Поиск клиента<input aria-label="Поиск в истории записей" value={historyQuery} placeholder="Имя или телефон" onChange={(event) => setHistoryQuery(event.target.value)} /></label>
+          {capabilities.is_restaurant && bookings.some((booking) => !booking.restaurant && !booking.group_session && calendarBookingVisible(booking.status)) ? <p className={styles.helperError}>Старые записи без назначенного столика сохранены ниже. Откройте запись и перенесите её на бронь столика, указав количество гостей.</p> : null}
+          {bookings.filter((booking) => `${booking.client_name} ${booking.client_phone}`.toLowerCase().includes(historyQuery.trim().toLowerCase())).map((booking) => <button key={booking.id} type="button" className={styles.passVisitLink} onClick={() => openDetailsModal(booking)}>
+            {booking.starts_at.slice(0, 10)} · {booking.starts_at.slice(11, 16)} · {booking.client_name} · {booking.service_name} · {getStatusLabel(booking.status)}{booking.booking_pass ? " · Абонемент" : ""}
+          </button>)}
+        </details>
+      </section>
+      {isBookingModalOpen && capabilities.is_restaurant ? <RestaurantBookingForm email={partnerEmail} services={services} date={formatDateInputValue(selectedDate)} booking={bookingModalMode === "edit" ? bookings.find((item) => item.id === editingBookingId) : undefined} onClose={closeBookingModal} onSaved={loadDirectory} /> : null}
+      {detailsBooking?.restaurant ? <RestaurantBookingDetails email={partnerEmail} booking={detailsBooking} onClose={() => setDetailsBooking(null)} onSaved={loadDirectory} onMove={() => { setDetailsBooking(null); openEditBookingModal(detailsBooking); }} /> : null}
+      {isBookingModalOpen && !capabilities.is_restaurant ? (
         <div
           className={styles.modalOverlay}
           role="dialog"
@@ -2703,7 +2798,7 @@ export default function SchedulePage() {
                           <option value="">Выберите созданную услугу</option>
                           {availableServices.map((service) => (
                             <option key={service.id} value={String(service.id)}>
-                              {service.name}
+                              {service.name}{service.is_pass ? ` · Абонемент, ${service.visit_count} посещений` : ""}
                             </option>
                           ))}
                         </select>
@@ -2846,7 +2941,7 @@ export default function SchedulePage() {
 
               {selectedPassService ? <>
                 <p className={styles.discountHint}>Цена {selectedPassService.pass_price_mode === "total" ? "за весь абонемент" : "за посещение"}: {Number(selectedPassService.price || 0).toLocaleString("ru-RU")} ₸. Итого: {(Number(selectedPassService.price || 0) * (selectedPassService.pass_price_mode === "total" ? 1 : selectedPassService.visit_count)).toLocaleString("ru-RU")} ₸.</p>
-                <PassVisitEditor count={selectedPassService.visit_count} startDate={bookingLines[0]?.date || ""} startTime={bookingLines[0]?.startTime || ""} specialistId={bookingLines[0]?.specialistId || ""} serviceId={String(selectedPassService.id)} phone={bookingPhone} partnerEmail={partnerEmail} visits={passVisits} onChange={setPassVisits} />
+                <PassVisitEditor count={selectedPassService.visit_count} startDate={bookingLines[0]?.date || ""} startTime={bookingLines[0]?.startTime || ""} onStartTimeChange={(time) => updateBookingLine(bookingLines[0].id, { startTime: time })} specialistId={bookingLines[0]?.specialistId || ""} serviceId={String(selectedPassService.id)} phone={bookingPhone} partnerEmail={partnerEmail} visits={passVisits} onChange={setPassVisits} />
               </> : null}
               {bookingModalMode === "create" ? <p className={styles.discountHint}>Ручная запись — по полной стоимости, независимо от подписки и времени простоя.</p> : null}
               {!isAddingGroupParticipant && !selectedPassService && !editingPass ? <button
@@ -2887,7 +2982,7 @@ export default function SchedulePage() {
         </div>
       ) : null}
 
-      {detailsBooking ? (
+      {detailsBooking && !detailsBooking.restaurant ? (
         <div
           className={styles.modalOverlay}
           role="dialog"
@@ -2938,7 +3033,7 @@ export default function SchedulePage() {
                         setIsDeleteConfirmOpen(true);
                       }}
                     >
-                      {detailsBooking.booking_pass ? "Отменить посещение" : "Удалить"}
+                      {detailsBooking.booking_pass ? "Отменить посещение" : "Отменить запись"}
                     </button>
                   </div>
                 ) : null}
@@ -3165,7 +3260,7 @@ export default function SchedulePage() {
               className={styles.confirmHeader}
               {...deleteBookingModalDrag.dragHandleProps}
             >
-              <h3>{detailsBooking.booking_pass ? "Отменить посещение?" : "Удалить запись?"}</h3>
+              <h3>{detailsBooking.booking_pass ? "Отменить посещение?" : "Отменить запись?"}</h3>
               <button
                 type="button"
                 className={styles.confirmCloseButton}
@@ -3176,7 +3271,7 @@ export default function SchedulePage() {
               </button>
             </header>
             <p>
-              {detailsBooking.booking_pass ? "Посещение будет отменено, но останется в истории абонемента. Другие посещения не изменятся." : "Вы точно хотите удалить? Запись будет удалена полностью, восстановить её не получится."}
+              {detailsBooking.booking_pass ? "Посещение будет отменено, но останется в истории абонемента. Другие посещения не изменятся." : "Запись исчезнет из календаря, но останется в истории записей и клиента."}
             </p>
             {detailsError ? <p className={styles.modalError} role="alert">{detailsError}</p> : null}
             <div className={styles.confirmActions}>
@@ -3194,7 +3289,7 @@ export default function SchedulePage() {
                 onClick={() => void deleteBooking()}
                 disabled={isDeletingBooking}
               >
-                {isDeletingBooking ? "Сохранение..." : detailsBooking.booking_pass ? "Отменить посещение" : "Удалить"}
+                {isDeletingBooking ? "Сохранение..." : detailsBooking.booking_pass ? "Отменить посещение" : "Отменить запись"}
               </button>
             </div>
           </section>

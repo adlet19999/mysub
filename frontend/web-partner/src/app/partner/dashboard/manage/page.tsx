@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import styles from "./page.module.css";
 import { compressImageFileToDataUrl } from "../../../../lib/imageCompression";
 import { useDraggableModal } from "../../../../lib/useDraggableModal";
@@ -23,6 +24,7 @@ type Service = {
   details?: Record<string, number>;
   description: string;
   duration_minutes: number;
+  slot_interval_minutes: number | null;
   service_type: "individual" | "group";
   price: string | null;
   discount_percent: number;
@@ -54,6 +56,7 @@ type OfferFormState = {
   imageUrl: string;
   price: string;
   durationMinutes: string;
+  slotIntervalMinutes: string;
   serviceType: "individual" | "group";
   discountPercent: string;
   isSubscription: boolean;
@@ -123,6 +126,7 @@ export default function PartnerManagePage() {
     imageUrl: "",
     price: "",
     durationMinutes: "60",
+    slotIntervalMinutes: "30",
     serviceType: "individual",
     discountPercent: "",
     isSubscription: true,
@@ -291,6 +295,7 @@ export default function PartnerManagePage() {
       imageUrl: "",
       price: "",
       durationMinutes: "60",
+      slotIntervalMinutes: "30",
       serviceType: "individual",
       discountPercent: "",
       isSubscription: true,
@@ -318,6 +323,7 @@ export default function PartnerManagePage() {
       imageUrl: service.image_url || service.image_base64 || "",
       price: formatPrice(service.price),
       durationMinutes: String(service.duration_minutes || 60),
+      slotIntervalMinutes: service.slot_interval_minutes == null ? "" : String(service.slot_interval_minutes),
       serviceType: service.service_type || "individual",
       discountPercent: String(service.discount_percent || 0),
       isSubscription: service.is_subscription,
@@ -402,12 +408,13 @@ export default function PartnerManagePage() {
         details: detailsPayload,
         description: offerForm.description,
         image_base64: offerForm.imageUrl,
-        duration_minutes: Number(offerForm.durationMinutes || 60),
+        duration_minutes: selectedCategoryName === "Кафе и рестораны" ? 120 : Number(offerForm.durationMinutes || 60),
+        slot_interval_minutes: offerForm.slotIntervalMinutes ? Number(offerForm.slotIntervalMinutes) : null,
         service_type: offerForm.serviceType,
         price: parsePrice(offerForm.price) ?? 0,
         discount_percent: Number(offerForm.discountPercent || 0),
         is_subscription: offerForm.isSubscription,
-        is_pass: offerForm.isPass,
+        is_pass: selectedCategoryName !== "Кафе и рестораны" && offerForm.isPass,
         visit_count: offerForm.isPass ? Number(offerForm.visitCount) : 1,
         pass_price_mode: offerForm.passPriceMode,
         is_promo: Number(offerForm.discountPercent || 0) > 0,
@@ -712,7 +719,8 @@ export default function PartnerManagePage() {
                   <label>
                     Длительность(мин)
                     <input
-                      value={offerForm.durationMinutes}
+                      value={selectedCategoryName === "Кафе и рестораны" ? "120" : offerForm.durationMinutes}
+                      readOnly={selectedCategoryName === "Кафе и рестораны"}
                       onChange={(event) =>
                         setOfferForm((prev) => ({ ...prev, durationMinutes: event.target.value }))
                       }
@@ -720,6 +728,14 @@ export default function PartnerManagePage() {
                     />
                   </label>
                 </div>
+
+                <label>Интервал времени (мин)
+                  <select value={offerForm.slotIntervalMinutes} onChange={(event) => setOfferForm((prev) => ({ ...prev, slotIntervalMinutes: event.target.value }))}>
+                    <option value="">Стандартный</option>
+                    {[1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 15, 16, 18, 20, 24, 30, 36, 40, 45, 48, 60, 72, 80, 90, 120].map((interval) => <option key={interval} value={interval}>{interval} мин</option>)}
+                  </select>
+                </label>
+                <p>Интервал задаёт шаг времени начала, а длительность — время занятости. Занятые интервалы не предлагаются клиенту. Стандартный интервал сохраняет прежнюю сетку: 15 минут в кабинете и 30 минут в клиентском API.</p>
 
                 <label>
                   Тип услуги
@@ -770,30 +786,10 @@ export default function PartnerManagePage() {
                 ) : null}
 
                 {selectedCategoryName === "Кафе и рестораны" ? (
-                  <div className={styles.discountRow}>
-                    <label>
-                      Вместимость стола
-                      <input
-                        value={offerForm.tableCapacity}
-                        onChange={(event) => setOfferForm((prev) => ({ ...prev, tableCapacity: event.target.value }))}
-                        inputMode="numeric"
-                        placeholder="например: 6"
-                      />
-                    </label>
-
-                    <label>
-                      Удержание брони (мин)
-                      <input
-                        value={offerForm.holdMinutes}
-                        onChange={(event) => setOfferForm((prev) => ({ ...prev, holdMinutes: event.target.value }))}
-                        inputMode="numeric"
-                        placeholder="например: 15"
-                      />
-                    </label>
-                  </div>
+                  <p>Вместимость указывается у каждого <Link href="/partner/dashboard/tables">столика</Link>. Бронь создаётся на два часа; подтверждённая посадка продлевается до завершения обслуживания с оплатой.</p>
                 ) : null}
 
-                <div className={styles.discountRow}>
+                {selectedCategoryName !== "Кафе и рестораны" ? <div className={styles.discountRow}>
                   <label className={styles.checkLabel}>
                     <input type="checkbox" checked={offerForm.isPass} onChange={(event) => setOfferForm((prev) => ({ ...prev, isPass: event.target.checked }))} />
                     <span>Абонемент</span>
@@ -809,7 +805,7 @@ export default function PartnerManagePage() {
                       </select>
                     </label>
                   </> : null}
-                </div>
+                </div> : null}
 
                 {offerForm.serviceType === "group" ? <p>Это шаблон услуги. Саму группу, даты занятий и участников добавляйте в разделе «Группы и абонементы». Группа может быть пустой.</p> : null}
 

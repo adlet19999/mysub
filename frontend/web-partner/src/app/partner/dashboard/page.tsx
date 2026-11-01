@@ -12,6 +12,7 @@ type Booking = {
   client_phone: string;
   status: string;
   final_price: string;
+  restaurant?: { paid_amount: string | null } | null;
   subscription_active: boolean;
 };
 
@@ -177,7 +178,7 @@ export default function PartnerDashboardPage() {
         date: formatDateTime(booking.starts_at),
         service: bookedServices.join(", ") || "Не указана",
         subscription: booking.subscription_active ? "Доступна" : "Нет",
-        sum: ["no_show", "cancelled"].includes(booking.status) ? null : Number(booking.final_price),
+        sum: ["no_show", "cancelled"].includes(booking.status) ? null : Number(booking.restaurant?.paid_amount ?? booking.final_price),
         statusLabel: STATUS_LABELS[booking.status] || booking.status || "Запланирована",
       };
     });

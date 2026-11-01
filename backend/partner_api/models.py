@@ -43,6 +43,7 @@ class Service(models.Model):
 	details = models.JSONField(default=dict, blank=True)
 	description = models.TextField(blank=True, default="")
 	duration_minutes = models.PositiveIntegerField(default=60)
+	slot_interval_minutes = models.PositiveSmallIntegerField(null=True, blank=True)
 	service_type = models.CharField(max_length=20, default="individual")
 	price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
 	discount_percent = models.PositiveSmallIntegerField(default=0)
@@ -188,6 +189,13 @@ class Booking(models.Model):
 	group_session = models.ForeignKey(GroupSession, on_delete=models.PROTECT, related_name="bookings", null=True, blank=True)
 	original_session = models.ForeignKey(GroupSession, on_delete=models.PROTECT, related_name="original_bookings", null=True, blank=True)
 	is_individual_override = models.BooleanField(default=False)
+	table = models.ForeignKey("BusinessTable", on_delete=models.PROTECT, related_name="bookings", null=True, blank=True)
+	party_size = models.PositiveSmallIntegerField(null=True, blank=True)
+	ends_at = models.DateTimeField(null=True, blank=True, db_index=True)
+	arrived_at = models.DateTimeField(null=True, blank=True)
+	completed_at = models.DateTimeField(null=True, blank=True)
+	paid_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+	table_notice = models.TextField(blank=True, default="")
 	created_at = models.DateTimeField(auto_now_add=True)
 
 	class Meta:
@@ -204,10 +212,23 @@ class BusinessTable(models.Model):
 		related_name="business_tables",
 	)
 	name = models.CharField(max_length=120)
+	capacity = models.PositiveSmallIntegerField(default=2)
 	description = models.TextField(blank=True, default="")
 	photo_url = models.URLField(blank=True, default="")
 	is_active = models.BooleanField(default=True)
 	created_at = models.DateTimeField(auto_now_add=True)
+
+class BookingExtension(models.Model):
+	booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name="extensions")
+	starts_at = models.DateTimeField()
+	ends_at = models.DateTimeField()
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ["starts_at", "id"]
+		constraints = [
+			models.UniqueConstraint(fields=["booking", "starts_at"], name="uniq_restaurant_extension"),
+		]
 
 
 class BusinessOffer(models.Model):
