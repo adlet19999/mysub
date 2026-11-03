@@ -141,6 +141,22 @@ class RestaurantBookingTests(LifecycleFixture, TestCase):
         self.assertEqual(dashboard.status_code, 200, dashboard.data)
         self.assertEqual(Decimal(dashboard.data["metrics"]["revenue_total"]), Decimal("5000"))
 
+    def test_table_and_reservation_actions_return_json_on_success_and_rejection(self):
+        listed = self.client.get("/api/v1/partner/tables/", **self.headers)
+        edited = self.client.patch(f"/api/v1/partner/tables/{self.table.id}/",
+                                   {"name": "Window table"}, format="json", **self.headers)
+        created = self.reserve()
+        self.assertEqual(created.status_code, 201)
+        rejected = self.action(created.data["id"], "finish", paid_amount="5000")
+        cancelled = self.action(created.data["id"], "cancel")
+        archived = self.client.patch(f"/api/v1/partner/tables/{self.table.id}/",
+                                     {"is_active": False}, format="json", **self.headers)
+        self.assertEqual([item.status_code for item in (listed, edited, rejected, cancelled, archived)],
+                         [200, 200, 409, 200, 200])
+        for response in (listed, edited, created, rejected, cancelled, archived):
+            self.assertTrue(response["Content-Type"].startswith("application/json"))
+            self.assertIsInstance(response.json(), (dict, list))
+
     def test_cancellation_and_no_show_release_table_but_keep_history(self):
         for action, status in (("cancel", "cancelled"), ("no_show", "no_show")):
             created = self.reserve()
@@ -244,10 +260,13 @@ class RestaurantBookingTests(LifecycleFixture, TestCase):
         from io import StringIO
         created = self.reserve()
         self.arrive(created.data["id"])
-        with patch("partner_api.restaurant.timezone.now", return_value=self.starts_at + timedelta(hours=2)):
+        with patch("partner_api.restaurant.timezone.now", return_value=self.starts_at + timedelta(hours=2)), patch(
+            "partner_api.management.commands.renew_restaurant_bookings.close_old_connections",
+        ) as close_connections:
             output = StringIO()
             call_command("renew_restaurant_bookings", stdout=output)
             self.assertIn("1", output.getvalue())
             call_command("renew_restaurant_bookings", stdout=StringIO())
+            self.assertEqual(close_connections.call_count, 2)
         self.assertEqual(Booking.objects.count(), 1)
         self.assertEqual(BookingExtension.objects.count(), 1)

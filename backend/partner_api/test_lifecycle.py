@@ -4,10 +4,11 @@ from decimal import Decimal
 from threading import Barrier
 
 from django.contrib.auth.models import User
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
+from unittest import skipUnless
 
 from common_api.models import PartnerProfile
 from mobile_api.models import CustomerProfile, CustomerSubscription
@@ -123,6 +124,8 @@ class LifecycleFixture:
 
     def mobile_book(self, starts_at=None):
         mobile = APIClient()
+        sent = mobile.post("/api/v1/mobile/auth/send-code/", {"phone": self.customer.phone}, format="json")
+        self.assertEqual(sent.status_code, 200)
         login = mobile.post(
             "/api/v1/mobile/auth/verify-code/",
             {"phone": self.customer.phone, "code": "11111"}, format="json",
@@ -132,13 +135,13 @@ class LifecycleFixture:
             "/api/v1/mobile/bookings/",
             {"partner_id": self.partner.id, "service_id": self.service.id,
              "specialist_id": self.specialist.id,
-             "starts_at": (starts_at or self.starts_at).isoformat(),
-             "booking_source": "manual"},
+             "starts_at": (starts_at or self.starts_at).isoformat()},
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {login.data['tokens']['access_token']}",
         )
 
-@override_settings(MOBILE_SMS_TEST_CODE="11111", MOBILE_JWT_ACCESS_TTL_SECONDS=3600, MOBILE_JWT_REFRESH_TTL_SECONDS=2592000)
+@override_settings(MOBILE_SMS_TEST_CODE="11111", MOBILE_OTP_MODE="test", MOBILE_OTP_ALLOW_TEST_MODE=True,
+                   MOBILE_OTP_RESEND_SECONDS=0, MOBILE_JWT_ACCESS_TTL_SECONDS=3600, MOBILE_JWT_REFRESH_TTL_SECONDS=2592000)
 class CrmLifecycleTests(LifecycleFixture, TestCase):
     def test_manual_booking_never_receives_subscription_discount(self):
         for service in [self.service, self.individual]:
@@ -498,10 +501,13 @@ class CrmLifecycleTests(LifecycleFixture, TestCase):
         self.assertEqual(self.specialist.full_name, "Launch Anna")
 
 
-@override_settings(MOBILE_SMS_TEST_CODE="11111", MOBILE_JWT_ACCESS_TTL_SECONDS=3600, MOBILE_JWT_REFRESH_TTL_SECONDS=2592000)
+@override_settings(MOBILE_SMS_TEST_CODE="11111", MOBILE_OTP_MODE="test", MOBILE_OTP_ALLOW_TEST_MODE=True,
+                   MOBILE_OTP_RESEND_SECONDS=0, MOBILE_JWT_ACCESS_TTL_SECONDS=3600, MOBILE_JWT_REFRESH_TTL_SECONDS=2592000)
 class CrmMobileLifecycleTests(LifecycleFixture, TestCase):
     def test_mobile_customer_registration_subscription_booking_cancel_and_completion(self):
         mobile = APIClient()
+        sent = mobile.post("/api/v1/mobile/auth/send-code/", {"phone": "+77009990006"}, format="json")
+        self.assertEqual(sent.status_code, 200)
         registered = mobile.post(
             "/api/v1/mobile/auth/register/", {"phone": "+77009990006", "code": "11111"}, format="json",
         )
@@ -536,6 +542,7 @@ class CrmMobileLifecycleTests(LifecycleFixture, TestCase):
 
 
 class CrmCapacityConcurrencyTests(LifecycleFixture, TransactionTestCase):
+    @skipUnless(connection.vendor == "postgresql", "Concurrency requires PostgreSQL row locks")
     def test_two_simultaneous_requests_cannot_take_last_group_place(self):
         self.assertEqual(self.book().status_code, 201)
         barrier = Barrier(2)

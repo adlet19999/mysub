@@ -168,7 +168,7 @@ Removing the final participant does not delete the lesson or free this time.
 Run the focused regression suite with a disposable test database:
 
 ```bash
-python manage.py test partner_api.test_groups partner_api.test_booking_updates partner_api.tests partner_api.test_lifecycle mobile_api.tests --noinput
+python manage.py test partner_api.test_groups partner_api.test_booking_updates partner_api.tests partner_api.test_lifecycle mobile_api --settings=config.test_settings --noinput
 ```
 
 The lifecycle concurrency case requires PostgreSQL; SQLite does not certify
@@ -183,8 +183,10 @@ node --test tests/booking-controls.test.cjs
 ## Booking intervals, calendar return and restaurant visits
 
 For the mobile developer, see the Russian
-[handoff and BE-001–BE-014 implementation status](./MOBILE-DEVELOPER-HANDOFF-RU.md).
-It distinguishes implemented code from pending product decisions and server acceptance.
+[implemented API updates and acceptance guide](./MOBILE-API-UPDATES-RU.md).
+The [previous handoff](./MOBILE-DEVELOPER-HANDOFF-RU.md) is a historical audit,
+not the current implementation status. The new guide distinguishes local code
+from external SMS/payment/content dependencies and deployment acceptance.
 
 `Service.slot_interval_minutes` controls potential start times independently of
 `duration_minutes`. Valid values are integer divisors of 1440 between 1 and 120.
@@ -265,13 +267,21 @@ and guest count instead of the specialist/table picker.
 
 ## Launch regression checks
 
-Run the complete Django test suite against a disposable PostgreSQL test database:
+Run the complete isolated Django test suite without environment-file reads,
+production data, real SMS or external email:
 
 ```bash
-python manage.py test --noinput
+python manage.py test --settings=config.test_settings --noinput
 ```
 
-The PostgreSQL account must be able to create a test database. Do not point test
+The isolated settings use SQLite and explicitly skip PostgreSQL concurrency
+cases. For concurrency acceptance, use [postgres_test_settings.py](./config/postgres_test_settings.py)
+with a disposable local PostgreSQL database `mysub_acceptance`, user `mysub_test`,
+and process variables `MYSUB_TEST_PG_PASSWORD` / `MYSUB_TEST_PG_PORT`.
+The host is restricted to loopback and the account must be able to create
+`test_mysub_acceptance`. Run
+`python manage.py test --settings=config.postgres_test_settings --noinput`.
+These settings never load environment files. Do not point test
 settings at a production database or reuse a production database as a test
 database. Mobile authentication tests require the test SMS code and token TTL
 settings described in the project configuration; do not use real SMS delivery.
@@ -282,6 +292,33 @@ rescheduling, validation and concurrent last-place booking.
 See [the launch audit](../CRM-LAUNCH-AUDIT.md) for measured results and remaining
 launch blockers. A passing regression suite does not certify every UI control
 or external payment/SMS/email integration.
+
+## Mobile device and account lifecycle
+
+- Push registrations use `PUT/DELETE /api/v1/mobile/notifications/devices/{uuid}/`.
+  Devices belong to the authenticated account/session; refresh migrates them,
+  logout disables them, and queued events from a previous owner are skipped.
+- Push is disabled unless `MOBILE_PUSH_SENDER` names a real gateway adapter.
+  Run `python manage.py send_mobile_push --limit 100` regularly after configuring
+  the adapter, or use `--watch`. Production Compose passes mobile OTP/JWT/push
+  configuration to the backend and has an optional `push` profile for the worker;
+  enable it only after configuring the gateway. The transactional queue retries gateway failures and only sends
+  an opaque inbox invalidation, never private booking/customer information.
+  See the [adapter and retry contract](./MOBILE-API-UPDATES-RU.md).
+- Subscription plans/current readback expose existing admin-managed data, not a
+  payment confirmation. Checkout remains disabled until commercial/provider
+  requirements are supplied.
+- Before deleting a disposable account, obtain a private deletion receipt from
+  `POST /api/v1/mobile/users/me/deletion-request/`. After DELETE or a lost response,
+  use `POST /api/v1/mobile/auth/deletion-status/` with the receipt to confirm the
+  outcome without a revoked JWT. Run `python manage.py purge_mobile_deletion_receipts`
+  to clean expired receipts. The deletion UI remains gated pending the approved
+  retention/related-data policy.
+
+Restaurant action queries lock only the Booking row when selecting nullable
+table relations, avoiding PostgreSQL outer-join lock errors. CRM table, booking
+and availability controls preserve JSON business messages and show a useful
+HTTP error for HTML/invalid responses instead of exposing a JSON SyntaxError.
 
 ## PostgreSQL env
 

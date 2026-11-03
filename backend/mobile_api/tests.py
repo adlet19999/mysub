@@ -21,12 +21,14 @@ def image_upload():
     return SimpleUploadedFile("avatar.png", output.getvalue(), content_type="image/png")
 
 
+@override_settings(MOBILE_OTP_MODE="test", MOBILE_OTP_ALLOW_TEST_MODE=True, MOBILE_OTP_RESEND_SECONDS=0)
 class MobileAuthAndProfileTests(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.phone = "+77001234567"
 
     def register(self):
+        self.client.post("/api/v1/mobile/auth/send-code/", {"phone": self.phone}, format="json")
         return self.client.post(
             "/api/v1/mobile/auth/register/",
             {"phone": self.phone, "code": "11111"},
@@ -52,6 +54,7 @@ class MobileAuthAndProfileTests(TestCase):
 
     def test_verify_code_logs_in_existing_customer(self):
         self.register()
+        self.client.post("/api/v1/mobile/auth/send-code/", {"phone": self.phone}, format="json")
         response = self.client.post(
             "/api/v1/mobile/auth/verify-code/",
             {"phone": self.phone, "code": "11111"},
@@ -139,12 +142,14 @@ class MobileAuthAndProfileTests(TestCase):
         self.assertEqual(response.data["error"]["code"], "MAX_CHILDREN_REACHED")
 
 
+@override_settings(MOBILE_OTP_MODE="test", MOBILE_OTP_ALLOW_TEST_MODE=True, MOBILE_OTP_RESEND_SECONDS=0)
 class MobileAvatarUploadTests(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.media_directory = TemporaryDirectory()
         self.media_override = override_settings(MEDIA_ROOT=self.media_directory.name)
         self.media_override.enable()
+        self.client.post("/api/v1/mobile/auth/send-code/", {"phone": "+77007654321"}, format="json")
         registration = self.client.post(
             "/api/v1/mobile/auth/register/",
             {"phone": "+77007654321", "code": "11111"},
@@ -315,9 +320,11 @@ class MobileCatalogTests(TestCase):
         self.assertEqual(response.status_code, 400)
 
 
+@override_settings(MOBILE_OTP_MODE="test", MOBILE_OTP_ALLOW_TEST_MODE=True, MOBILE_OTP_RESEND_SECONDS=0)
 class MobileBookingTests(TestCase):
     def setUp(self):
         self.client = APIClient()
+        self.client.post("/api/v1/mobile/auth/send-code/", {"phone": "+77008889900"}, format="json")
         registration = self.client.post(
             "/api/v1/mobile/auth/register/",
             {"phone": "+77008889900", "code": "11111"},
@@ -503,6 +510,7 @@ class MobileBookingTests(TestCase):
         available = self.client.get(availability_url, params)
         self.assertIn("10:00", available.data["slots"])
         self.assertNotIn("10:30", available.data["slots"])
+        self.client.post("/api/v1/mobile/auth/send-code/", {"phone": "+77001119900"}, format="json")
         other = self.client.post("/api/v1/mobile/auth/register/", {"phone": "+77001119900", "code": "11111"}, format="json")
         customer = CustomerProfile.objects.get(phone="+77001119900")
         customer.user.first_name = "Другой клиент"

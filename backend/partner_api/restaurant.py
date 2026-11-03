@@ -132,7 +132,7 @@ def renew_restaurant_bookings(now=None):
     for booking_id, profile_id in ids:
         with transaction.atomic():
             PartnerProfile.objects.select_for_update().get(id=profile_id)
-            booking = Booking.objects.select_for_update().select_related("table", "partner_profile").get(id=booking_id)
+            booking = Booking.objects.select_for_update(of=("self",)).select_related("table", "partner_profile").get(id=booking_id)
             renewed += int(renew_locked_booking(booking, now))
     return renewed
 

@@ -44,6 +44,17 @@ services:
       DJANGO_DEFAULT_FROM_EMAIL: ${DJANGO_DEFAULT_FROM_EMAIL}
       DJANGO_EMAIL_TIMEOUT: ${DJANGO_EMAIL_TIMEOUT:-10}
       DJANGO_PASSWORD_RESET_TIMEOUT: ${DJANGO_PASSWORD_RESET_TIMEOUT:-3600}
+      MOBILE_JWT_SECRET: ${MOBILE_JWT_SECRET:-${DJANGO_SECRET_KEY:-change-me}}
+      MOBILE_JWT_ACCESS_TTL_SECONDS: ${MOBILE_JWT_ACCESS_TTL_SECONDS:-3600}
+      MOBILE_JWT_REFRESH_TTL_SECONDS: ${MOBILE_JWT_REFRESH_TTL_SECONDS:-2592000}
+      MOBILE_OTP_MODE: ${MOBILE_OTP_MODE:-disabled}
+      MOBILE_OTP_ALLOW_TEST_MODE: ${MOBILE_OTP_ALLOW_TEST_MODE:-false}
+      MOBILE_SMS_SENDER: ${MOBILE_SMS_SENDER:-}
+      MOBILE_OTP_LENGTH: ${MOBILE_OTP_LENGTH:-5}
+      MOBILE_OTP_TTL_SECONDS: ${MOBILE_OTP_TTL_SECONDS:-120}
+      MOBILE_OTP_RESEND_SECONDS: ${MOBILE_OTP_RESEND_SECONDS:-60}
+      MOBILE_OTP_MAX_ATTEMPTS: ${MOBILE_OTP_MAX_ATTEMPTS:-5}
+      MOBILE_PUSH_SENDER: ${MOBILE_PUSH_SENDER:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,6 +75,19 @@ services:
       backend:
         condition: service_started
     command: python manage.py renew_restaurant_bookings --watch
+
+  mobile-push:
+    profiles: ["push"]
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment: *backend_environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    command: python manage.py send_mobile_push --watch
 
   frontend:
     build:

@@ -2,6 +2,7 @@
 
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { RestaurantReservation } from "../../../../lib/restaurant";
+import { readApiResponse } from "../../../../lib/apiResponse";
 import { formatRuPhone } from "../../../../lib/phone";
 import AvailableTimeSelect from "./AvailableTimeSelect";
 import styles from "../groups/page.module.css";
@@ -31,8 +32,10 @@ async function save(email: string, path: string, body: Record<string, unknown>, 
     method, headers: { "Content-Type": "application/json", "X-Partner-Email": email, "X-Tenant": TENANT },
     body: JSON.stringify(body),
   });
-  const payload: { message?: string } = await response.json();
-  if (!response.ok) throw new Error(payload.message || "Не удалось сохранить бронь");
+  const payload = await readApiResponse(response, "Не удалось сохранить бронь");
+  if (!payload || typeof payload !== "object" || !("id" in payload) || typeof payload.id !== "number") {
+    throw new Error("Сервер не подтвердил изменение брони. Обновите расписание перед повторной попыткой.");
+  }
 }
 
 export function RestaurantBookingForm({ email, services, date: initialDate, booking, onClose, onSaved }: { email: string; services: Service[]; date: string; booking?: ReservationBooking; onClose: () => void; onSaved: () => Promise<void> }) {

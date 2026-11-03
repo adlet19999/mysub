@@ -262,14 +262,16 @@ class BookingUpdateTests(LifecycleFixture, TestCase):
         self.assertEqual(other.get("/api/v1/partner/bookings/availability/").status_code, 401)
         self.assertEqual(self.create_pass(specialist_id=999999).status_code, 400)
 
-    @override_settings(MOBILE_SMS_TEST_CODE="11111")
+    @override_settings(MOBILE_SMS_TEST_CODE="11111", MOBILE_OTP_MODE="test", MOBILE_OTP_ALLOW_TEST_MODE=True, MOBILE_OTP_RESEND_SECONDS=0)
     def test_mobile_pass_api_creates_series_prices_each_date_and_retries_safely(self):
         mobile = APIClient()
+        mobile.post("/api/v1/mobile/auth/send-code/", {"phone": self.customer.phone}, format="json")
         login = mobile.post("/api/v1/mobile/auth/verify-code/", {"phone": self.customer.phone, "code": "11111"}, format="json")
         self.assertEqual(login.status_code, 200)
         headers = {"HTTP_AUTHORIZATION": f"Bearer {login.data['tokens']['access_token']}"}
         payload = {
-            **self.payload, "partner_id": self.partner.id,
+            **{key: value for key, value in self.payload.items() if key not in {"client_name", "client_phone"}},
+            "partner_id": self.partner.id,
             "starts_at": self.starts_at.isoformat(),
         }
         for changes in ({"visits": None}, {"visits": ["2099-02-30T10:00:00"]}, {"request_id": "bad"}):

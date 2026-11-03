@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { BusinessTable } from "../../../../lib/restaurant";
+import { readApiResponse } from "../../../../lib/apiResponse";
 import styles from "./page.module.css";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1";
@@ -19,8 +20,10 @@ export default function TablesPage() {
   const [loading, setLoading] = useState(true);
   async function request(path: string, init?: RequestInit) {
     const response = await fetch(`${API_BASE}/partner/${path}`, { ...init, cache: "no-store", headers: { "Content-Type": "application/json", "X-Partner-Email": email, "X-Tenant": TENANT } });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message || "Не удалось выполнить действие со столиком");
+    const payload = await readApiResponse(response, "Не удалось выполнить действие со столиком");
+    if (init?.method && (!payload || typeof payload !== "object" || !("id" in payload) || typeof payload.id !== "number")) {
+      throw new Error("Сервер не подтвердил сохранение столика. Обновите список перед повторной попыткой.");
+    }
     return payload;
   }
   async function load() {

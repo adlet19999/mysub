@@ -139,7 +139,7 @@ class GroupListCreateView(APIView):
 				error = "Дата занятия уже прошла"
 			if index and starts[index - 1] + timedelta(minutes=service.duration_minutes) > starts_at:
 				error = "Занятия пересекаются"
-			if not error and has_booking_overlap(tenant, specialist.full_name, starts_at, service.duration_minutes, partner_profile=profile):
+			if not error and has_booking_overlap(tenant, specialist.full_name, starts_at, service.duration_minutes, partner_profile=profile, specialist_id=specialist.id):
 				error = "Это время уже занято"
 			if error:
 				return Response({"message": f"{timezone.localtime(starts_at):%d.%m.%Y %H:%M}: {error}"}, status=409)
@@ -253,7 +253,7 @@ def refresh_visit_pricing(booking, service, specialist, starts_at, duration):
 		"duration_minutes": duration, "max_people": booking.original_session.group.capacity,
 		"base_price": str(booking.base_price),
 	}
-	detail.update(discount_percent=percent, discount_amount=str(discount), final_price=str(booking.final_price), discount_window=window)
+	detail.update(specialist_id=specialist.id, duration_minutes=duration, discount_percent=percent, discount_amount=str(discount), final_price=str(booking.final_price), discount_window=window)
 	booking.pricing_details = [detail]
 
 
@@ -297,7 +297,7 @@ class GroupSessionDetailView(APIView):
 			error = slot_error([group.service], starts_at) or booking_schedule_error(group.specialist, starts_at, group.duration_minutes)
 			if starts_at < timezone.now():
 				error = "Нельзя перенести занятие в прошлое"
-			if has_booking_overlap(tenant, group.specialist.full_name, starts_at, group.duration_minutes, partner_profile=profile, exclude_session_id=session.id):
+			if has_booking_overlap(tenant, group.specialist.full_name, starts_at, group.duration_minutes, partner_profile=profile, exclude_session_id=session.id, specialist_id=group.specialist_id):
 				error = "Новое время занято у специалиста"
 			if GroupSession.objects.filter(group=group, starts_at=starts_at).exclude(id=session.id).exists():
 				error = "В этой группе уже есть занятие на выбранное время"
@@ -371,7 +371,7 @@ class GroupParticipantView(APIView):
 		error = slot_error([service], starts_at) or booking_schedule_error(specialist, starts_at, duration)
 		if starts_at < timezone.now():
 			error = "Нельзя перенести посещение в прошлое"
-		if not target and has_booking_overlap(tenant, specialist.full_name, starts_at, duration, partner_profile=profile, exclude_booking_id=booking.id):
+		if not target and has_booking_overlap(tenant, specialist.full_name, starts_at, duration, partner_profile=profile, exclude_booking_id=booking.id, specialist_id=specialist.id):
 			error = "Это время занято, в том числе пустым занятием группы"
 		if has_client_booking_overlap(tenant, booking.client_phone, starts_at, duration, partner_profile=profile if booking.booking_source != Booking.Source.MOBILE else None, exclude_booking_id=booking.id):
 			error = "Клиент уже записан на пересекающееся время"

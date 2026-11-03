@@ -777,6 +777,7 @@ def calculate_booking_pricing(services, specialist: Specialist | None, starts_at
 		pricing_details.append(
 			{
 				"service_id": service.id,
+				"specialist_id": specialist.id if specialist else None,
 				"service_name": service.name,
 				"service_type": service.service_type,
 				"duration_minutes": duration_minutes,
@@ -893,12 +894,16 @@ def serialize_booking_pass(item):
 		"visit_count": booking_pass.visit_count,
 		"price_mode": booking_pass.price_mode,
 		"total_price": str(booking_pass.total_price),
-		"completed_visits": sum(visit.status == "completed" for visit in visits),
-		"visits": [{"id": visit.id, "visit_number": visit.visit_number, "starts_at": timezone.localtime(visit.starts_at).isoformat(), "status": visit.status} for visit in visits],
+		"completed_visits": sum((visit.status or "").strip().lower() in {"completed", "done", "завершен", "завершена"} for visit in visits),
+		"visits": [{"id": visit.id, "visit_number": visit.visit_number, "starts_at": timezone.localtime(visit.starts_at).isoformat(), "status": visit.status, "base_price": str(visit.base_price), "discount_amount": str(visit.discount_amount), "final_price": str(visit.final_price)} for visit in visits],
 	}
 
 
 def booking_schedule_error(specialist: Specialist, starts_at, duration_minutes: int):
+	return working_schedule_error(specialist.working_schedule, starts_at, duration_minutes)
+
+
+def working_schedule_error(working_schedule, starts_at, duration_minutes: int):
 	start_dt = to_aware_datetime(starts_at)
 	if start_dt is None:
 		return "Не удалось определить время записи"
@@ -907,7 +912,7 @@ def booking_schedule_error(specialist: Specialist, starts_at, duration_minutes: 
 	if local_start.date() != local_end.date():
 		return "Запись должна завершаться в тот же день"
 	weekday = WEEKDAY_ORDER[local_start.weekday()]
-	schedule, schedule_error = normalize_working_schedule(specialist.working_schedule)
+	schedule, schedule_error = normalize_working_schedule(working_schedule)
 	if schedule_error:
 		return "График специалиста заполнен некорректно"
 	date_key = local_start.strftime("%Y-%m-%d")
@@ -935,6 +940,8 @@ def has_booking_overlap(
 	exclude_booking_id: int | None = None,
 	service=None,
 	exclude_session_id: int | None = None,
+	specialist_id: int | None = None,
+	group_session_id: int | None = None,
 ):
 	manager = str(manager_name or "").strip()
 	if not manager:
@@ -946,7 +953,8 @@ def has_booking_overlap(
 	end_dt = start_dt + timedelta(minutes=max(1, int(duration_minutes or 60)))
 
 	duration_map = build_service_duration_map(tenant, partner_profile=partner_profile)
-	sessions = GroupSession.objects.filter(group__tenant_slug=tenant, group__specialist__full_name__iexact=manager, status="scheduled")
+	sessions = GroupSession.objects.filter(group__tenant_slug=tenant, status="scheduled")
+	sessions = sessions.filter(group__specialist_id=specialist_id) if specialist_id else sessions.filter(group__specialist__full_name__iexact=manager)
 	if exclude_session_id is not None:
 		sessions = sessions.exclude(id=exclude_session_id)
 	if partner_profile is not None:
@@ -955,10 +963,14 @@ def has_booking_overlap(
 		session_end = session.starts_at + timedelta(minutes=session.group.duration_minutes)
 		if start_dt < session_end and session.starts_at < end_dt:
 			same_group = service is not None and service.service_type == "group" and session.group.service_id == service.id and session.starts_at == start_dt and session.group.duration_minutes == duration_minutes
+			if group_session_id is not None:
+				same_group = same_group and session.id == group_session_id
 			occupied = session.bookings.exclude(id=exclude_booking_id).exclude(status__in=CLOSED_BOOKING_STATUSES - {"completed", "done", "завершен", "завершена"}).count()
 			if not same_group or occupied >= session.group.capacity:
 				return True
-	items = Booking.objects.filter(tenant_slug=tenant, manager_name__iexact=manager)
+	items = Booking.objects.filter(tenant_slug=tenant)
+	if specialist_id is None:
+		items = items.filter(manager_name__iexact=manager)
 	if partner_profile is not None:
 		items = items.filter(partner_profile=partner_profile)
 	if exclude_booking_id is not None:
@@ -967,6 +979,12 @@ def has_booking_overlap(
 	group_count = 0
 	group_capacity = max(1, int((service.details or {}).get("max_people") or 1)) if service is not None and service.service_type == "group" else 1
 	for existing in items:
+		if specialist_id is not None:
+			known_ids = {detail.get("specialist_id") for detail in existing.pricing_details or [] if isinstance(detail, dict) and detail.get("specialist_id") is not None}
+			if known_ids and specialist_id not in known_ids:
+				continue
+			if not known_ids and str(existing.manager_name or "").casefold() != manager.casefold():
+				continue
 		if existing.group_session_id:
 			continue
 		existing_start = to_aware_datetime(existing.starts_at)
@@ -976,7 +994,7 @@ def has_booking_overlap(
 		existing_end = existing_start + timedelta(minutes=max(1, existing_duration))
 		if start_dt < existing_end and existing_start < end_dt:
 			ids = service_ids_from_pricing_details(existing.pricing_details)
-			same_group = not existing.is_individual_override and service is not None and service.service_type == "group" and existing_start == start_dt and existing_duration == duration_minutes and (ids == [service.id] or (not ids and existing.service_name == service.name))
+			same_group = group_session_id is None and not existing.is_individual_override and service is not None and service.service_type == "group" and existing_start == start_dt and existing_duration == duration_minutes and (ids == [service.id] or (not ids and existing.service_name == service.name))
 			status_value = (existing.status or "").strip().lower()
 			if same_group and status_value in {"completed", "done", "завершен", "завершена"}:
 				return True
@@ -1027,7 +1045,9 @@ def has_client_booking_overlap(
 	starts_at,
 	duration_minutes: int,
 	partner_profile=None,
-	exclude_booking_id: int = None,
+	exclude_booking_id: int | None = None,
+	customer_id: int | None = None,
+	attendee=None,
 ):
 	phone = normalize_ru_phone(client_phone)
 	start_dt = to_aware_datetime(starts_at)
@@ -1036,13 +1056,27 @@ def has_client_booking_overlap(
 	end_dt = start_dt + timedelta(minutes=max(1, int(duration_minutes or 60)))
 
 	duration_map = build_service_duration_map(tenant, partner_profile=partner_profile)
-	items = Booking.objects.filter(tenant_slug=tenant)
+	items = Booking.objects.filter(tenant_slug=tenant).select_related("mobile_record")
+	if customer_id is None and exclude_booking_id is not None:
+		from mobile_api.models import MobileBookingRecord
+		focus = MobileBookingRecord.objects.select_related("customer").filter(booking_id=exclude_booking_id).first()
+		if focus and focus.customer_id and focus.customer.phone == phone:
+			customer_id, attendee = focus.customer_id, focus.attendee
 	if partner_profile is not None:
 		items = items.filter(partner_profile=partner_profile)
 	if exclude_booking_id is not None:
 		items = items.exclude(id=exclude_booking_id)
 
 	for existing in items:
+		record = getattr(existing, "mobile_record", None)
+		if customer_id is not None:
+			if record and record.owner_claimed and record.customer_id != customer_id:
+				continue
+			if record and record.customer_id == customer_id and record.attendee.get("type") in {"self", "child"}:
+				target_child = (attendee or {}).get("child_id") if (attendee or {}).get("type") == "child" else None
+				existing_child = record.attendee.get("child_id") if record.attendee.get("type") == "child" else None
+				if target_child != existing_child:
+					continue
 		if normalize_ru_phone(existing.client_phone) != phone:
 			continue
 		if existing.status.strip().lower() in CLOSED_BOOKING_STATUSES:
@@ -2374,7 +2408,7 @@ class BookingAvailabilityView(APIView):
 		for starts_at in sorted(candidates):
 			if starts_at < now or booking_schedule_error(specialist, starts_at, duration):
 				continue
-			if has_booking_overlap(tenant, specialist.full_name, starts_at, duration, partner_profile=profile, exclude_booking_id=exclude_id or None, service=None if request.query_params.get("reserve_group") == "1" else group_service_for_booking(services), exclude_session_id=exclude_session_id or None):
+			if has_booking_overlap(tenant, specialist.full_name, starts_at, duration, partner_profile=profile, exclude_booking_id=exclude_id or None, service=None if request.query_params.get("reserve_group") == "1" else group_service_for_booking(services), exclude_session_id=exclude_session_id or None, specialist_id=specialist.id):
 				continue
 			if phone and has_client_booking_overlap(tenant, phone, starts_at, duration, partner_profile=profile, exclude_booking_id=exclude_id or None):
 				continue
@@ -2398,7 +2432,7 @@ def pass_visits_error(tenant, profile, service, specialist, starts, phone):
 			message = "Посещения абонемента пересекаются"
 		else:
 			message = booking_schedule_error(specialist, starts_at, service.duration_minutes)
-		if not message and has_booking_overlap(tenant, specialist.full_name, starts_at, service.duration_minutes, partner_profile=profile, service=group_service_for_booking([service])):
+		if not message and has_booking_overlap(tenant, specialist.full_name, starts_at, service.duration_minutes, partner_profile=profile, service=group_service_for_booking([service]), specialist_id=specialist.id):
 			message = "Время занято или нет свободных мест"
 		if not message and has_client_booking_overlap(tenant, phone, starts_at, service.duration_minutes, partner_profile=profile):
 			message = "Клиент уже записан на это время"
@@ -2407,11 +2441,11 @@ def pass_visits_error(tenant, profile, service, specialist, starts, phone):
 	return None
 
 
-def save_booking_pass(*, profile, tenant, service, specialist, starts, name, phone, request_id, payload, source):
+def pass_booking_pricing(service, specialist, starts, phone, source):
 	unit_price = to_money(service.price)
 	total = unit_price if service.pass_price_mode == "total" else unit_price * len(starts)
-	booking_pass = BookingPass.objects.create(partner_profile=profile, request_id=request_id, request_payload=payload, service=service, visit_count=len(starts), price_mode=service.pass_price_mode, total_price=total)
 	cents, remainder = divmod(int(total * 100), len(starts))
+	pricings = []
 	for index, starts_at in enumerate(starts):
 		pricing = calculate_booking_pricing([service], specialist, starts_at, client_phone=phone, allow_discount=source == Booking.Source.MOBILE)
 		amount = Decimal(cents + (1 if index < remainder else 0)) / 100
@@ -2419,6 +2453,14 @@ def save_booking_pass(*, profile, tenant, service, specialist, starts, name, pho
 		discount = (amount * Decimal(detail["discount_percent"]) / 100).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
 		pricing.update(base_price=amount, discount_amount=discount, final_price=amount - discount)
 		detail.update(base_price=str(amount), discount_amount=str(discount), final_price=str(amount - discount))
+		pricings.append(pricing)
+	return total, pricings
+
+
+def save_booking_pass(*, profile, tenant, service, specialist, starts, name, phone, request_id, payload, source):
+	total, pricings = pass_booking_pricing(service, specialist, starts, phone, source)
+	booking_pass = BookingPass.objects.create(partner_profile=profile, request_id=request_id, request_payload=payload, service=service, visit_count=len(starts), price_mode=service.pass_price_mode, total_price=total)
+	for index, (starts_at, pricing) in enumerate(zip(starts, pricings)):
 		booking = Booking.objects.create(tenant_slug=tenant, partner_profile=profile, booking_pass=booking_pass, visit_number=index + 1, service_name=service.name, manager_name=specialist.full_name, starts_at=starts_at, client_name=name, client_phone=phone, status="booked", booking_source=source, **pricing)
 		group = attach_group_session(booking, service, specialist, booking_pass.group)
 		if group and not booking_pass.group_id:
@@ -2587,6 +2629,7 @@ class BookingListCreateView(APIView):
 			duration_minutes,
 			partner_profile=partner_profile,
 			service=group_service_for_booking(pricing_services),
+			specialist_id=specialist.id if specialist else None,
 		):
 			return Response({"message": "Нет свободных мест или время занято другой записью"}, status=409)
 		if has_client_booking_overlap(
@@ -2780,6 +2823,7 @@ class BookingDetailView(APIView):
 				partner_profile=partner_profile,
 				exclude_booking_id=item.id,
 				service=group_service_for_booking(pricing_services),
+				specialist_id=specialist.id,
 			):
 				return Response({"message": "У специалиста уже есть запись на это время"}, status=409)
 
@@ -2802,7 +2846,7 @@ class BookingDetailView(APIView):
 			discount = (item.base_price * Decimal(percent) / 100).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
 			item.discount_amount = discount
 			item.final_price = item.base_price - discount
-			detail.update(discount_percent=percent, discount_amount=str(discount), final_price=str(item.final_price), discount_window=window)
+			detail.update(specialist_id=specialist.id if specialist else None, discount_percent=percent, discount_amount=str(discount), final_price=str(item.final_price), discount_window=window)
 			item.pricing_details = [detail]
 		if pricing_requires_refresh and not item.booking_pass_id:
 			specialist = None

@@ -21,6 +21,49 @@ const { createRequestId } = loadSource(path.join("lib", "requestId.ts"));
 const { applyDefaultVisitTime, changeVisitTime } = loadSource(path.join("lib", "recurringVisits.ts"));
 const { validScheduleDate, scheduleHref, scheduleReturnHref, calendarBookingVisible } = loadSource(path.join("lib", "scheduleNavigation.ts"));
 const { restaurantCalendarSegments } = loadSource(path.join("lib", "restaurant.ts"));
+const { readApiResponse } = loadSource(path.join("lib", "apiResponse.ts"));
+
+test("restaurant HTML errors show HTTP status instead of a JSON syntax error or raw HTML", async () => {
+  for (const status of [404, 500, 502, 503]) {
+    const response = new Response("<!DOCTYPE html><html>private upstream details</html>", { status });
+    await assert.rejects(readApiResponse(response, "Не удалось сохранить бронь"), (error) => {
+      assert.equal(error instanceof SyntaxError, false);
+      assert.match(error.message, new RegExp(`HTTP ${status}`));
+      assert.match(error.message, /Не удалось сохранить бронь/);
+      assert.doesNotMatch(error.message, /private upstream|DOCTYPE|Unexpected token/);
+      return true;
+    });
+  }
+});
+
+test("restaurant JSON business errors retain the server's explanation", async () => {
+  for (const payload of [{ message: "Столик занят" }, { detail: "Столик занят" }, { error: { message: "Столик занят" } }]) {
+    await assert.rejects(readApiResponse(Response.json(payload, { status: 409 }), "Ошибка"), /Столик занят.*HTTP 409/);
+  }
+});
+
+test("restaurant malformed and empty success bodies never become successful saves", async () => {
+  for (const body of ["", "not-json", "<html>Login</html>"]) {
+    await assert.rejects(readApiResponse(new Response(body), "Ошибка"), /некорректный ответ.*HTTP 200/);
+  }
+});
+
+test("restaurant valid JSON responses and explicit no-content responses remain supported", async () => {
+  assert.deepEqual(await readApiResponse(Response.json({ id: 17 }), "Ошибка"), { id: 17 });
+  assert.deepEqual(await readApiResponse(Response.json([{ id: 17 }]), "Ошибка"), [{ id: 17 }]);
+  assert.equal(await readApiResponse(new Response(null, { status: 204 }), "Ошибка"), null);
+});
+
+test("restaurant non-object errors use a meaningful fallback and HTTP status", async () => {
+  for (const payload of [null, [], "failure", { message: "" }]) {
+    await assert.rejects(readApiResponse(Response.json(payload, { status: 500 }), "Не удалось выполнить действие"), /Не удалось выполнить действие.*HTTP 500/);
+  }
+});
+
+test("restaurant response read errors are not hidden as a successful response", async () => {
+  const response = { status: 200, text: async () => { throw new Error("connection interrupted"); } };
+  await assert.rejects(readApiResponse(response, "Ошибка"), /connection interrupted/);
+});
 
 test("overnight table occupancy appears on both calendar dates", () => {
   const segment = { starts_at: "2026-11-03T23:30:00+05:00", ends_at: "2026-11-04T01:30:00+05:00", is_extension: false };

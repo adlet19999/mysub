@@ -107,7 +107,7 @@ class RestaurantBookingActionView(APIView):
             return error
         PartnerProfile.objects.select_for_update().get(id=profile.id)
         tenant = tenant_from_request(request)
-        booking = Booking.objects.select_for_update().select_related("table", "partner_profile").filter(id=booking_id, partner_profile=profile, tenant_slug=tenant).first()
+        booking = Booking.objects.select_for_update(of=("self",)).select_related("table", "partner_profile").filter(id=booking_id, partner_profile=profile, tenant_slug=tenant).first()
         if booking is None:
             return Response({"message": "Бронь столика не найдена"}, status=404)
         if not booking.table_id:

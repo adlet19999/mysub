@@ -2,6 +2,9 @@ from django.urls import path
 
 from .views import (
     MobileAuthRefreshView,
+    MobileAuthLogoutView,
+    MobileBookingQuoteView,
+    MobileAvatarImageView,
     MobileAuthRegisterView,
     MobileAuthSendCodeView,
     MobileAuthVerifyCodeView,
@@ -17,10 +20,45 @@ from .views import (
     MobileCurrentUserAvatarView,
     MobileCurrentUserView,
 )
+from .account_views import (
+    MobileBookingRescheduleView, MobileBookingReviewView, MobileBookingStatisticsView,
+    MobileContentView, MobileFavoritesView, MobileFavoriteView, MobileNotificationsView,
+    MobileNotificationReadView, MobileNotificationPreferencesView, MobilePartnerReviewsView,
+    MobilePhoneChangeRequestView, MobilePhoneChangeConfirmView,
+)
+from .catalog_views import MobileCategoriesView, MobileResourcesView, MobileGroupSessionsView, MobileBookingRequestView, MobileConfigView
+from .release_views import (
+    MobileDeletionRequestView, MobileDeletionStatusView, MobilePushDeviceView,
+    MobileSubscriptionPlansView, MobileSubscriptionView,
+)
 
 
 urlpatterns = [
+    path("subscriptions/plans/", MobileSubscriptionPlansView.as_view(), name="mobile-subscription-plans"),
+    path("subscriptions/current/", MobileSubscriptionView.as_view(), name="mobile-subscription-current"),
+    path("notifications/devices/<uuid:device_id>/", MobilePushDeviceView.as_view(), name="mobile-push-device"),
+    path("users/me/deletion-request/", MobileDeletionRequestView.as_view(), name="mobile-deletion-request"),
+    path("auth/deletion-status/", MobileDeletionStatusView.as_view(), name="mobile-deletion-status"),
+    path("config/", MobileConfigView.as_view(), name="mobile-config"),
+    path("catalog/categories/", MobileCategoriesView.as_view(), name="mobile-categories"),
+    path("catalog/partners/<int:partner_id>/resources/", MobileResourcesView.as_view(), name="mobile-resources"),
+    path("catalog/partners/<int:partner_id>/group-sessions/", MobileGroupSessionsView.as_view(), name="mobile-group-sessions"),
+    path("bookings/requests/<uuid:request_id>/", MobileBookingRequestView.as_view(), name="mobile-booking-request"),
+    path("content/", MobileContentView.as_view(), name="mobile-content"),
+    path("favorites/", MobileFavoritesView.as_view(), name="mobile-favorites"),
+    path("favorites/<int:partner_id>/", MobileFavoriteView.as_view(), name="mobile-favorite"),
+    path("notifications/", MobileNotificationsView.as_view(), name="mobile-notifications"),
+    path("notifications/read-all/", MobileNotificationReadView.as_view(), name="mobile-notifications-read-all"),
+    path("notifications/<int:notification_id>/read/", MobileNotificationReadView.as_view(), name="mobile-notification-read"),
+    path("notifications/preferences/", MobileNotificationPreferencesView.as_view(), name="mobile-notification-preferences"),
+    path("bookings/statistics/", MobileBookingStatisticsView.as_view(), name="mobile-booking-statistics"),
+    path("bookings/<int:booking_id>/reschedule/", MobileBookingRescheduleView.as_view(), name="mobile-booking-reschedule"),
+    path("bookings/<int:booking_id>/review/", MobileBookingReviewView.as_view(), name="mobile-booking-review"),
+    path("catalog/partners/<int:partner_id>/reviews/", MobilePartnerReviewsView.as_view(), name="mobile-partner-reviews"),
+    path("users/me/phone/request/", MobilePhoneChangeRequestView.as_view(), name="mobile-phone-request"),
+    path("users/me/phone/confirm/", MobilePhoneChangeConfirmView.as_view(), name="mobile-phone-confirm"),
     path("cities/", MobileCitiesView.as_view(), name="mobile-cities"),
+    path("avatar-images/<str:filename>", MobileAvatarImageView.as_view(), name="mobile-avatar-image"),
     path("catalog/partners/", MobileCatalogPartnersView.as_view(), name="mobile-catalog-partners"),
     path("catalog/services/", MobileCatalogServicesView.as_view(), name="mobile-catalog-services"),
     path("catalog/partners/<int:partner_id>/services/", MobileCatalogPartnerServicesView.as_view(), name="mobile-catalog-partner-services"),
@@ -28,11 +66,13 @@ urlpatterns = [
     path("catalog/partners/<int:partner_id>/specialists/<int:specialist_id>/availability/", MobileCatalogSpecialistAvailabilityView.as_view(), name="mobile-catalog-specialist-availability"),
     path("catalog/partners/<int:partner_id>/availability/", MobileCatalogRestaurantAvailabilityView.as_view(), name="mobile-catalog-restaurant-availability"),
     path("bookings/", MobileBookingsView.as_view(), name="mobile-bookings"),
+    path("bookings/quote/", MobileBookingQuoteView.as_view(), name="mobile-booking-quote"),
     path("bookings/<int:booking_id>/cancel/", MobileBookingCancelView.as_view(), name="mobile-booking-cancel"),
     path("auth/send-code/", MobileAuthSendCodeView.as_view(), name="mobile-auth-send-code"),
     path("auth/register/", MobileAuthRegisterView.as_view(), name="mobile-auth-register"),
     path("auth/verify-code/", MobileAuthVerifyCodeView.as_view(), name="mobile-auth-verify-code"),
     path("auth/refresh/", MobileAuthRefreshView.as_view(), name="mobile-auth-refresh"),
+    path("auth/logout/", MobileAuthLogoutView.as_view(), name="mobile-auth-logout"),
     path("users/me/", MobileCurrentUserView.as_view(), name="mobile-current-user"),
     path("users/me/avatar/", MobileCurrentUserAvatarView.as_view(), name="mobile-current-user-avatar"),
 ]

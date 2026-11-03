@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { readApiResponse } from "../../../../lib/apiResponse";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim() || "/api/v1";
 const TENANT = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "public";
@@ -52,9 +53,9 @@ export default function AvailableTimeSelect(props: Props) {
           cache: "no-store",
           signal: controller.signal,
         });
-        const payload: { slots?: unknown; message?: string } = await response.json();
-        if (!response.ok) throw new Error(payload.message || "Не удалось получить свободное время");
-        if (!Array.isArray(payload.slots) || !payload.slots.every((slot): slot is string => typeof slot === "string")) {
+        const payload = await readApiResponse(response, "Не удалось получить свободное время");
+        if (!payload || typeof payload !== "object" || !("slots" in payload)
+          || !Array.isArray(payload.slots) || !payload.slots.every((slot): slot is string => typeof slot === "string")) {
           throw new Error("Некорректный ответ сервера со свободным временем");
         }
         if (controller.signal.aborted) return;

@@ -159,6 +159,9 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [],
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'UNAUTHENTICATED_USER': None,
+    'DEFAULT_THROTTLE_RATES': {
+        'mobile_otp_send': '20/hour', 'mobile_otp_verify': '60/minute', 'mobile_deletion': '30/hour',
+    },
 }
 
 SPECTACULAR_SETTINGS = {
@@ -168,7 +171,7 @@ SPECTACULAR_SETTINGS = {
         '**Порядок первой регистрации:**\n'
         '1. `POST /auth/send-code/` - запросить SMS-код.\n'
         '2. Клиент вводит код, полученный в SMS.\n'
-        '3. `POST /auth/register/` - создать нового клиента и получить токены.\n'
+        '3. `POST /auth/verify-code/` - войти или создать аккаунт и получить токены.\n'
         '4. `GET /cities/` - получить города для выбора.\n'
         '5. `PATCH /users/me/` - заполнить профиль, передав `city_id`.\n\n'
         '**Повторный вход:** запросите код и вызовите `POST /auth/verify-code/`. '
@@ -177,16 +180,19 @@ SPECTACULAR_SETTINGS = {
     'VERSION': 'v1',
     'TAGS': [
         {'name': '0. Справочники', 'description': 'Данные для выбора на экранах мобильного приложения.'},
-        {'name': '1. Регистрация и вход', 'description': 'Новый клиент: SMS-код, затем регистрация. Существующий клиент: SMS-код, затем вход.'},
+        {'name': '1. Регистрация и вход', 'description': 'Один SMS-flow для нового и существующего клиента.'},
         {'name': '2. Сессия', 'description': 'Обновление access и refresh token без SMS.'},
         {'name': '3. Профиль клиента', 'description': 'Данные только текущего клиента, определяемого по Bearer access token, включая фотографию, соглашение и детей.'},
         {'name': '4. Каталог и запись', 'description': 'Публичный каталог партнёров, услуг и специалистов, а также свободные интервалы для записи. Все слоты и время записи указаны в часовом поясе Asia/Almaty (UTC+05:00).'},
+        {'name': '5. Аккаунт', 'description': 'История, статистика, отзывы, избранное и уведомления текущего клиента.'},
     ],
     'APPEND_COMPONENTS': {
         'securitySchemes': {
             'MobileBearer': {'type': 'http', 'scheme': 'bearer', 'bearerFormat': 'JWT'},
         },
     },
+    'COMPONENT_SPLIT_REQUEST': True,
+    'POSTPROCESSING_HOOKS': ['drf_spectacular.hooks.postprocess_schema_enums', 'mobile_api.schema.mobile_error_contract'],
 }
 
 CORS_ALLOWED_ORIGINS = _env_to_list(
@@ -195,6 +201,7 @@ CORS_ALLOWED_ORIGINS = _env_to_list(
 )
 
 CORS_ALLOW_HEADERS = (*default_headers, 'x-tenant', 'x-partner-email', 'x-partner-category')
+CORS_EXPOSE_HEADERS = ('Retry-After',)
 
 FRONTEND_PARTNER_BASE_URL = os.getenv('FRONTEND_PARTNER_BASE_URL', 'http://localhost:3000')
 
@@ -215,3 +222,12 @@ MOBILE_JWT_SECRET = os.getenv('MOBILE_JWT_SECRET', SECRET_KEY)
 MOBILE_JWT_ACCESS_TTL_SECONDS = int(os.getenv('MOBILE_JWT_ACCESS_TTL_SECONDS', '3600'))
 MOBILE_JWT_REFRESH_TTL_SECONDS = int(os.getenv('MOBILE_JWT_REFRESH_TTL_SECONDS', str(30 * 24 * 60 * 60)))
 MOBILE_SMS_TEST_CODE = os.getenv('MOBILE_SMS_TEST_CODE', '11111')
+MOBILE_OTP_MODE = os.getenv('MOBILE_OTP_MODE', 'disabled')
+MOBILE_OTP_ALLOW_TEST_MODE = _env_to_bool('MOBILE_OTP_ALLOW_TEST_MODE', False)
+MOBILE_SMS_SENDER = os.getenv('MOBILE_SMS_SENDER', '')
+MOBILE_OTP_LENGTH = int(os.getenv('MOBILE_OTP_LENGTH', '5'))
+MOBILE_OTP_TTL_SECONDS = int(os.getenv('MOBILE_OTP_TTL_SECONDS', '120'))
+MOBILE_OTP_RESEND_SECONDS = int(os.getenv('MOBILE_OTP_RESEND_SECONDS', '60'))
+MOBILE_OTP_MAX_ATTEMPTS = int(os.getenv('MOBILE_OTP_MAX_ATTEMPTS', '5'))
+MOBILE_PUSH_SENDER = os.getenv('MOBILE_PUSH_SENDER', '')
+MOBILE_DELETION_RECEIPT_DAYS = 7
